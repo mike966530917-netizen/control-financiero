@@ -24,21 +24,24 @@
     { id: 'REC-2', nombre: 'Alquiler de Vivienda', tipo: 'Gasto_Fijo', monto: 1200, categoria: 'Hogar', metodoPago: 'Transferencia', diaMes: 1, activo: true, notas: 'Alquiler mensual' },
     { id: 'REC-3', nombre: 'Servicios Luz y Agua', tipo: 'Gasto_Fijo', monto: 180, categoria: 'Servicios', metodoPago: 'Débito BCP', diaMes: 15, activo: true, notas: 'Recibos básicos' },
     { id: 'REC-4', nombre: 'Internet Hogar', tipo: 'Gasto_Fijo', monto: 120, categoria: 'Servicios', metodoPago: 'Débito BCP', diaMes: 18, activo: true, notas: 'Fibra óptica' },
-    { id: 'REC-5', nombre: 'Suscripciones Digitales', tipo: 'Gasto_Fijo', monto: 70, categoria: 'Ocio', metodoPago: 'Tarjeta', diaMes: 20, activo: true, notas: 'Streaming' }
+    { id: 'REC-5', nombre: 'Suscripciones Digitales', tipo: 'Gasto_Fijo', monto: 70, categoria: 'Suscripciones', metodoPago: 'Tarjeta', diaMes: 20, activo: true, notas: 'Streaming' }
   ];
 
-  // Presupuestos predeterminados semilla
+  // Presupuestos predeterminados semilla (13 categorías maestras unificadas)
   const SEED_BUDGETS = [
-    { categoria: 'Supermercado', monto: 800, moneda: 'PEN' },
-    { categoria: 'Alimentación', monto: 500, moneda: 'PEN' },
-    { categoria: 'Transporte', monto: 250, moneda: 'PEN' },
+    { categoria: 'Hogar', monto: 1400, moneda: 'PEN' },
     { categoria: 'Servicios', monto: 350, moneda: 'PEN' },
-    { categoria: 'Suscripciones', monto: 100, moneda: 'PEN' },
+    { categoria: 'Supermercado', monto: 800, moneda: 'PEN' },
+    { categoria: 'Alimentación', monto: 400, moneda: 'PEN' },
     { categoria: 'Restaurantes', monto: 300, moneda: 'PEN' },
-    { categoria: 'Compras', monto: 400, moneda: 'PEN' },
+    { categoria: 'Transporte', monto: 250, moneda: 'PEN' },
+    { categoria: 'Suscripciones', monto: 100, moneda: 'PEN' },
     { categoria: 'Salud', monto: 200, moneda: 'PEN' },
+    { categoria: 'Educación', monto: 200, moneda: 'PEN' },
+    { categoria: 'Compras', monto: 300, moneda: 'PEN' },
+    { categoria: 'Tecnología', monto: 200, moneda: 'PEN' },
     { categoria: 'Entretenimiento', monto: 200, moneda: 'PEN' },
-    { categoria: 'Varios', monto: 200, moneda: 'PEN' }
+    { categoria: 'Otros Gastos', monto: 200, moneda: 'PEN' }
   ];
 
   // Datos semilla iniciales si la app se abre por primera vez sin configurar Sheets

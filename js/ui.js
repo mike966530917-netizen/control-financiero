@@ -17,11 +17,21 @@
       this.selectedDate = new Date().toISOString().slice(0, 10);
       this.notes = '';
 
-      // Categorías por tipo
+      // Catálogo Maestro Unificado de Categorías
+      const catsGasto = (typeof FinancialEngine !== 'undefined' && FinancialEngine.CATEGORIAS_GASTO) ? FinancialEngine.CATEGORIAS_GASTO : [
+        'Hogar', 'Servicios', 'Supermercado', 'Alimentación', 'Restaurantes',
+        'Transporte', 'Suscripciones', 'Salud', 'Educación', 'Compras',
+        'Tecnología', 'Entretenimiento', 'Otros Gastos'
+      ];
+
+      const catsIngreso = (typeof FinancialEngine !== 'undefined' && FinancialEngine.CATEGORIAS_INGRESO) ? FinancialEngine.CATEGORIAS_INGRESO : [
+        'Sueldo', 'Freelance / Negocio', 'Inversiones / Rentas', 'Otros Ingresos'
+      ];
+
       this.categoriesByType = {
-        Ingreso: ['Sueldo', 'Freelance', 'Venta', 'Inversión', 'Otros Ingresos'],
-        Gasto_Directo: ['Alimentación', 'Transporte', 'Servicios', 'Hogar', 'Salud', 'Educación', 'Ocio', 'Otros'],
-        Consumo_TC: ['Supermercado', 'Restaurantes', 'Tecnología', 'Viajes', 'Ropa', 'Suscripciones', 'Otros'],
+        Ingreso: catsIngreso,
+        Gasto_Directo: catsGasto,
+        Consumo_TC: catsGasto,
         Prepago_TC: ['Amortización Capital', 'Prepago Voluntario', 'Reducción Saldo'],
         Pago_TC_Vencida: ['Liquidación Mensual', 'Pago Total Facturado']
       };
@@ -39,6 +49,11 @@
       this.setupDrawerEvents();
       this.setupTypeSelector();
       this.setupTabNavigation();
+
+      const closeConfirmBtn = document.getElementById('btn-close-confirm-modal');
+      const cancelConfirmBtn = document.getElementById('btn-cancel-confirm-rec');
+      if (closeConfirmBtn) closeConfirmBtn.addEventListener('click', () => this.closeConfirmRecurrenteModal());
+      if (cancelConfirmBtn) cancelConfirmBtn.addEventListener('click', () => this.closeConfirmRecurrenteModal());
     }
 
     setupTabNavigation() {
@@ -74,7 +89,7 @@
 
       // Si se abre la pestaña de fijos recurrentes, refrescar lista
       if (viewId === 'view-recurrentes' && window.cachedRecurrentes) {
-        this.renderRecurrentesList(window.cachedRecurrentes);
+        this.renderRecurrentesList(window.cachedRecurrentes, window.cachedRecurrentesMes, window.cachedRecurrentesEstadoMes);
       }
 
       // Redibujar gráficos si se abre la pestaña de gráficos
@@ -431,6 +446,8 @@
       const cardOutflowsEl = document.getElementById('metric-total-outflows');
       const cardPrepaidsCurrentEl = document.getElementById('metric-prepaids-current');
       const cardExpiredTcEl = document.getElementById('metric-expired-tc');
+      const cardIncomeSubEl = document.getElementById('metric-income-sub');
+      const cardOutflowsSubEl = document.getElementById('metric-outflows-sub');
 
       if (cardBalanceEl) {
         cardBalanceEl.textContent = `S/ ${flujoEfectivo.balanceLibreNeto.toLocaleString('es-PE', { minimumFractionDigits: 2 })}`;
@@ -442,7 +459,19 @@
       }
 
       if (cardIncomeEl) cardIncomeEl.textContent = `+S/ ${flujoEfectivo.ingresos.toFixed(2)}`;
+      if (cardIncomeSubEl) {
+        const fijosInc = flujoEfectivo.ingresosFijos || 0;
+        const varInc = flujoEfectivo.ingresosVariables || 0;
+        cardIncomeSubEl.textContent = `Fijos: S/ ${fijosInc.toFixed(2)} | Var: S/ ${varInc.toFixed(2)}`;
+      }
+
       if (cardOutflowsEl) cardOutflowsEl.textContent = `-S/ ${flujoEfectivo.gastosDirectos.toFixed(2)}`;
+      if (cardOutflowsSubEl) {
+        const fijosGas = flujoEfectivo.gastosFijos || 0;
+        const varGas = flujoEfectivo.gastosVariables || 0;
+        cardOutflowsSubEl.textContent = `Fijos: S/ ${fijosGas.toFixed(2)} | Var: S/ ${varGas.toFixed(2)}`;
+      }
+
       if (cardPrepaidsCurrentEl) cardPrepaidsCurrentEl.textContent = `-S/ ${flujoEfectivo.prepagosRealizados.toFixed(2)}`;
       if (cardExpiredTcEl) cardExpiredTcEl.textContent = `-S/ ${flujoEfectivo.pagosTCVencidas.toFixed(2)}`;
 
@@ -1087,8 +1116,10 @@
     // ==========================================================================
     // RENDERIZADO DE MOVIMIENTOS RECURRENTES / FIJOS
     // ==========================================================================
-    renderRecurrentesList(recurrentes = []) {
+    renderRecurrentesList(recurrentes = [], mesActual = null, estadoMesList = []) {
       window.cachedRecurrentes = recurrentes;
+      window.cachedRecurrentesMes = mesActual;
+      window.cachedRecurrentesEstadoMes = estadoMesList;
 
       const incomeListEl = document.getElementById('recurrentes-ingresos-list');
       const expenseListEl = document.getElementById('recurrentes-gastos-list');
@@ -1101,8 +1132,19 @@
       const ingresos = recurrentes.filter(r => r.tipo === 'Ingreso_Fijo');
       const gastos = recurrentes.filter(r => r.tipo === 'Gasto_Fijo');
 
-      const sumIngresos = ingresos.filter(r => r.activo).reduce((acc, r) => acc + (parseFloat(r.monto) || 0), 0);
-      const sumGastos = gastos.filter(r => r.activo).reduce((acc, r) => acc + (parseFloat(r.monto) || 0), 0);
+      // Calcular totales considerando el monto del mes (confirmado o proyectado)
+      let sumIngresos = 0;
+      ingresos.filter(r => r.activo).forEach(r => {
+        const est = (estadoMesList || []).find(e => String(e.id) === String(r.id));
+        sumIngresos += est ? (parseFloat(est.montoMes) || 0) : (parseFloat(r.monto) || 0);
+      });
+
+      let sumGastos = 0;
+      gastos.filter(r => r.activo).forEach(r => {
+        const est = (estadoMesList || []).find(e => String(e.id) === String(r.id));
+        sumGastos += est ? (parseFloat(est.montoMes) || 0) : (parseFloat(r.monto) || 0);
+      });
+
       const balanceFijo = sumIngresos - sumGastos;
 
       if (totalIncomeEl) totalIncomeEl.textContent = `+S/ ${sumIngresos.toFixed(2)}`;
@@ -1115,34 +1157,57 @@
       if (countExpenseEl) countExpenseEl.textContent = `${gastos.length} items (${gastos.filter(r => r.activo).length} activos)`;
 
       const renderItem = (item, isIncome) => {
-        const monto = parseFloat(item.monto) || 0;
+        const montoBase = parseFloat(item.monto) || 0;
         const colorClass = isIncome ? 'text-emerald-400' : 'text-rose-400';
         const sign = isIncome ? '+' : '-';
         const opacityClass = item.activo ? 'opacity-100' : 'opacity-50 grayscale';
 
+        const est = (estadoMesList || []).find(e => String(e.id) === String(item.id));
+        const estadoMes = est ? est.estadoMes : 'proyectado';
+        const montoMes = est ? (parseFloat(est.montoMes) || montoBase) : montoBase;
+        const esConfirmado = estadoMes === 'confirmado';
+
+        const badgeHtml = !item.activo
+          ? `<span class="text-[10px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-500 font-semibold">Inactivo</span>`
+          : (esConfirmado
+            ? `<span class="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-semibold border border-emerald-500/30 flex items-center gap-1">✓ Confirmado este mes: S/ ${montoMes.toFixed(2)}</span>`
+            : `<span class="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/30 flex items-center gap-1">⏳ Proyectado: S/ ${montoMes.toFixed(2)}</span>`
+          );
+
+        const confirmBtnHtml = item.activo
+          ? `<button class="btn-confirm-rec text-[11px] font-bold py-1 px-2.5 rounded-xl border active:scale-95 transition ${esConfirmado ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30' : 'bg-sky-500/20 text-sky-300 border-sky-500/40 hover:bg-sky-500/30'}" data-rec-id="${item.id}" title="${esConfirmado ? 'Ajustar importe real para este mes' : 'Confirmar recibo/monto de este mes'}">
+              ${esConfirmado ? '✏️ Ajustar' : '✓ Confirmar'}
+             </button>`
+          : '';
+
         return `
-          <div class="p-3.5 rounded-2xl glass-panel border border-slate-800 flex items-center justify-between gap-3 ${opacityClass} transition">
+          <div class="p-3.5 rounded-2xl glass-panel border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${opacityClass} transition">
             <div class="flex items-center gap-3 flex-1 min-w-0">
-              <button class="btn-toggle-rec text-lg p-1.5 rounded-xl ${item.activo ? 'bg-sky-500/20 text-sky-300' : 'bg-slate-800 text-slate-500'}" data-rec-id="${item.id}" title="${item.activo ? 'Desactivar' : 'Activar'}">
+              <button class="btn-toggle-rec text-lg p-1.5 rounded-xl flex-shrink-0 ${item.activo ? 'bg-sky-500/20 text-sky-300' : 'bg-slate-800 text-slate-500'}" data-rec-id="${item.id}" title="${item.activo ? 'Desactivar' : 'Activar'}">
                 ${item.activo ? '✓' : '○'}
               </button>
-              <div class="truncate">
-                <div class="flex items-center gap-2">
+              <div class="truncate flex-1">
+                <div class="flex items-center gap-2 flex-wrap">
                   <span class="font-bold text-sm text-slate-100 truncate">${item.nombre}</span>
                   <span class="text-[10px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 font-semibold">${item.categoria}</span>
+                  ${badgeHtml}
                 </div>
-                <p class="text-[11px] text-slate-400 truncate">
-                  Día habitual: ${item.diaMes || 1} • ${item.metodoPago || 'Efectivo'} ${item.notas ? `• ${item.notas}` : ''}
+                <p class="text-[11px] text-slate-400 truncate mt-0.5">
+                  Base: S/ ${montoBase.toFixed(2)}/mes • Día ${item.diaMes || 1} • ${item.metodoPago || 'Efectivo'} ${item.notas ? `• ${item.notas}` : ''}
                 </p>
               </div>
             </div>
 
-            <div class="flex items-center gap-2 flex-shrink-0">
-              <span class="text-sm font-extrabold ${colorClass}">
-                ${sign}S/ ${monto.toFixed(2)}
-              </span>
-              <button class="btn-edit-rec text-slate-400 hover:text-sky-400 p-1.5 rounded-lg active:scale-90 transition" data-rec-id="${item.id}" title="Editar">
-                ✏️
+            <div class="flex items-center justify-between sm:justify-end gap-2 flex-shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-800/50">
+              <div class="text-right mr-1">
+                <span class="text-xs text-slate-400 block">Este mes</span>
+                <span class="text-sm font-black ${colorClass}">
+                  ${sign}S/ ${montoMes.toFixed(2)}
+                </span>
+              </div>
+              ${confirmBtnHtml}
+              <button class="btn-edit-rec text-slate-400 hover:text-sky-400 p-1.5 rounded-lg active:scale-90 transition" data-rec-id="${item.id}" title="Editar configuración base">
+                ⚙️
               </button>
               <button class="btn-delete-rec text-slate-500 hover:text-rose-400 p-1.5 rounded-lg active:scale-90 transition" data-rec-id="${item.id}" title="Eliminar">
                 ✕
@@ -1164,11 +1229,18 @@
           : gastos.map(r => renderItem(r, false)).join('');
       }
 
-      // Eventos de botones toggle, edit y delete
+      // Eventos de botones
       document.querySelectorAll('.btn-toggle-rec').forEach(btn => {
         btn.addEventListener('click', () => {
           const id = btn.getAttribute('data-rec-id');
           if (window.onToggleRecurrente) window.onToggleRecurrente(id);
+        });
+      });
+
+      document.querySelectorAll('.btn-confirm-rec').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-rec-id');
+          if (window.onConfirmRecurrenteClick) window.onConfirmRecurrenteClick(id);
         });
       });
 
@@ -1205,22 +1277,36 @@
 
       if (!modal) return;
 
-      // Llenar categorías
-      const allCats = ['Sueldo', 'Freelance', 'Inversión', 'Vivienda', 'Hogar', 'Alimentación', 'Transporte', 'Servicios', 'Suscripciones', 'Salud', 'Educación', 'Ocio', 'Otros'];
-      catSelect.innerHTML = allCats.map(c => `<option value="${c}">${c}</option>`).join('');
+      const updateCategoryOptions = (tipo) => {
+        const cats = (tipo === 'Ingreso_Fijo')
+          ? FinancialEngine.CATEGORIAS_INGRESO
+          : FinancialEngine.CATEGORIAS_GASTO;
+        catSelect.innerHTML = cats.map(c => `<option value="${c}">${c}</option>`).join('');
+      };
 
-      // Llenar métodos de pago
-      metodoSelect.innerHTML = this.paymentMethods.map(m => `<option value="${m}">${m}</option>`).join('');
+      tipoSelect.onchange = () => {
+        updateCategoryOptions(tipoSelect.value);
+      };
+
+      // Llenar métodos de pago disponibles (base + tarjetas configuradas)
+      const paymentOpts = [...this.paymentMethods];
+      if (this.cards && this.cards.length > 0) {
+        this.cards.forEach(card => {
+          if (!paymentOpts.includes(card.nombre)) paymentOpts.push(card.nombre);
+        });
+      }
+      metodoSelect.innerHTML = paymentOpts.map(m => `<option value="${m}">${m}</option>`).join('');
 
       if (item) {
-        title.innerHTML = '<span>✏️</span> Editar Movimiento Fijo';
+        title.innerHTML = '<span>⚙️</span> Editar Configuración Base';
         idInput.value = item.id || '';
         nombreInput.value = item.nombre || '';
         tipoSelect.value = item.tipo || 'Gasto_Fijo';
+        updateCategoryOptions(tipoSelect.value);
         montoInput.value = item.monto || '';
-        catSelect.value = item.categoria || 'Otros';
+        catSelect.value = item.categoria || (tipoSelect.value === 'Ingreso_Fijo' ? 'Sueldo' : 'Servicios');
         diaInput.value = item.diaMes || 1;
-        metodoSelect.value = item.metodoPago || this.paymentMethods[0];
+        metodoSelect.value = item.metodoPago || paymentOpts[0];
         notasInput.value = item.notas || '';
         activoInput.checked = item.activo !== false;
       } else {
@@ -1228,10 +1314,11 @@
         idInput.value = '';
         nombreInput.value = '';
         tipoSelect.value = 'Gasto_Fijo';
+        updateCategoryOptions('Gasto_Fijo');
         montoInput.value = '';
         catSelect.value = 'Servicios';
         diaInput.value = 1;
-        metodoSelect.value = this.paymentMethods[0];
+        metodoSelect.value = paymentOpts[0];
         notasInput.value = '';
         activoInput.checked = true;
       }
@@ -1277,6 +1364,101 @@
         metodoPago: metodoSelect.value,
         notas: (notasInput.value || '').trim(),
         activo: activoInput.checked
+      };
+    }
+
+    // ==========================================================================
+    // MODAL DE CONFIRMACIÓN / AJUSTE MENSUAL DE RECIBOS
+    // ==========================================================================
+    openConfirmRecurrenteModal(item, mesActual, statusInfo = null) {
+      const modal = document.getElementById('modal-confirm-recurrente');
+      if (!modal || !item) return;
+
+      const idInput = document.getElementById('confirm-rec-id');
+      const mesLabel = document.getElementById('confirm-rec-mes-label');
+      const nombreEl = document.getElementById('confirm-rec-nombre');
+      const catBadge = document.getElementById('confirm-rec-categoria-badge');
+      const baseInfo = document.getElementById('confirm-rec-base-info');
+      const montoInput = document.getElementById('confirm-rec-monto-input');
+      const fechaInput = document.getElementById('confirm-rec-fecha-input');
+      const metodoSelect = document.getElementById('confirm-rec-metodo-select');
+
+      if (idInput) idInput.value = item.id;
+      if (mesLabel) mesLabel.textContent = `Ajustar importe real para el periodo: ${mesActual || ''}`;
+      if (nombreEl) nombreEl.textContent = item.nombre;
+      if (catBadge) catBadge.textContent = item.categoria;
+      if (baseInfo) baseInfo.textContent = `Presupuesto habitual: S/ ${(parseFloat(item.monto) || 0).toFixed(2)}`;
+
+      const montoInicial = statusInfo && statusInfo.montoMes != null
+        ? statusInfo.montoMes
+        : item.monto;
+      if (montoInput) montoInput.value = montoInicial;
+
+      // Fecha por defecto en el mes seleccionado
+      const [anio, mesNum] = (mesActual || new Date().toISOString().slice(0, 7)).split('-').map(Number);
+      const diaAjustado = Math.min(parseInt(item.diaMes, 10) || 1, 28);
+      const pad = (n) => String(n).padStart(2, '0');
+      const fechaDefecto = `${anio}-${pad(mesNum)}-${pad(diaAjustado)}`;
+
+      if (fechaInput) {
+        fechaInput.value = (statusInfo && statusInfo.fechaConfirmada) ? statusInfo.fechaConfirmada : fechaDefecto;
+      }
+
+      // Llenar selector de método
+      if (metodoSelect) {
+        const paymentOpts = [...this.paymentMethods];
+        if (this.cards && this.cards.length > 0) {
+          this.cards.forEach(card => {
+            if (!paymentOpts.includes(card.nombre)) paymentOpts.push(card.nombre);
+          });
+        }
+        metodoSelect.innerHTML = paymentOpts.map(m => `<option value="${m}">${m}</option>`).join('');
+        metodoSelect.value = item.metodoPago || paymentOpts[0];
+      }
+
+      modal.classList.remove('hidden');
+      if (montoInput) {
+        setTimeout(() => {
+          montoInput.focus();
+          montoInput.select();
+        }, 100);
+      }
+    }
+
+    closeConfirmRecurrenteModal() {
+      const modal = document.getElementById('modal-confirm-recurrente');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    getConfirmRecurrenteData() {
+      const idInput = document.getElementById('confirm-rec-id');
+      const montoInput = document.getElementById('confirm-rec-monto-input');
+      const fechaInput = document.getElementById('confirm-rec-fecha-input');
+      const metodoSelect = document.getElementById('confirm-rec-metodo-select');
+
+      const recurrenteId = (idInput?.value || '').trim();
+      const monto = parseFloat(montoInput?.value) || 0;
+      const fecha = (fechaInput?.value || '').trim();
+      const metodoPago = (metodoSelect?.value || '').trim();
+
+      if (!recurrenteId) {
+        this.showToast('Error: falta el identificador del movimiento', 'error');
+        return null;
+      }
+      if (monto <= 0) {
+        this.showToast('Ingresa un monto válido mayor a 0', 'error');
+        return null;
+      }
+      if (!fecha) {
+        this.showToast('Selecciona la fecha del recibo', 'error');
+        return null;
+      }
+
+      return {
+        recurrenteId,
+        monto,
+        fecha,
+        metodoPago
       };
     }
 

@@ -149,11 +149,13 @@
       <div class="grid grid-cols-2 gap-2 pt-3 border-t border-slate-800/80 text-xs">
         <div class="bg-slate-900/40 p-2.5 rounded-xl border border-slate-800/50">
           <span class="text-[10px] text-slate-400 block font-medium">Total Ingresos</span>
-          <span id="metric-total-income" class="font-bold text-emerald-400 text-sm">+S/ 0.00</span>
+          <span id="metric-total-income" class="font-bold text-emerald-400 text-sm block">+S/ 0.00</span>
+          <span id="metric-income-sub" class="text-[10px] text-slate-400 block mt-0.5">Fijos: S/ 0 | Var: S/ 0</span>
         </div>
         <div class="bg-slate-900/40 p-2.5 rounded-xl border border-slate-800/50">
-          <span class="text-[10px] text-slate-400 block font-medium">Gastos Directos</span>
-          <span id="metric-total-outflows" class="font-bold text-rose-400 text-sm">-S/ 0.00</span>
+          <span class="text-[10px] text-slate-400 block font-medium">Gastos Directos / Fijos</span>
+          <span id="metric-total-outflows" class="font-bold text-rose-400 text-sm block">-S/ 0.00</span>
+          <span id="metric-outflows-sub" class="text-[10px] text-slate-400 block mt-0.5">Fijos: S/ 0 | Var: S/ 0</span>
         </div>
         <div class="bg-amber-950/20 p-2.5 rounded-xl border border-amber-500/20">
           <span class="text-[10px] text-amber-300 block font-medium flex items-center gap-1">
@@ -764,6 +766,59 @@
       <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
         <button id="btn-cancel-recurrente" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-semibold">Cancelar</button>
         <button id="btn-save-recurrente" class="px-4 py-2 rounded-xl bg-sky-600 text-white hover:bg-sky-500 text-xs font-bold shadow-lg shadow-sky-600/30">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL: CONFIRMAR / AJUSTAR RECIBO DEL MES
+       ======================================================================== -->
+  <div id="modal-confirm-recurrente" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-emerald-500/40 rounded-3xl w-full max-w-sm p-5 space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+        <div>
+          <h3 class="font-bold text-base text-white flex items-center gap-2">
+            <span class="text-emerald-400">✓</span> Confirmar Recibo del Mes
+          </h3>
+          <p id="confirm-rec-mes-label" class="text-[11px] text-slate-400">Ajustar importe real para este periodo</p>
+        </div>
+        <button id="btn-close-confirm-modal" class="text-slate-400 hover:text-white p-1 rounded-lg">✕</button>
+      </div>
+
+      <input type="hidden" id="confirm-rec-id">
+
+      <div class="space-y-3 text-xs">
+        <div class="bg-slate-950/60 p-3 rounded-2xl border border-slate-800 space-y-1">
+          <div class="flex items-center justify-between">
+            <span id="confirm-rec-nombre" class="font-bold text-slate-100 text-sm">Gas Natural</span>
+            <span id="confirm-rec-categoria-badge" class="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 text-[10px] font-semibold">Servicios</span>
+          </div>
+          <p id="confirm-rec-base-info" class="text-[11px] text-slate-400">Presupuesto habitual: S/ 100.00</p>
+        </div>
+
+        <div>
+          <label class="text-slate-300 font-semibold block mb-1">¿Cuánto vino el recibo / monto este mes? (S/)</label>
+          <input type="number" id="confirm-rec-monto-input" step="0.01" min="0" placeholder="0.00" class="w-full bg-slate-950 border border-emerald-500/50 rounded-xl px-3 py-2.5 text-base text-emerald-400 font-extrabold focus:outline-none focus:border-emerald-400">
+          <p class="text-[10px] text-slate-400 mt-1">Este importe se usará sólo para este mes. Los meses futuros seguirán con su presupuesto habitual.</p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="text-slate-400 font-semibold block mb-1">Fecha de Pago</label>
+            <input type="date" id="confirm-rec-fecha-input" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-xs text-slate-100 focus:outline-none focus:border-sky-500">
+          </div>
+          <div>
+            <label class="text-slate-400 font-semibold block mb-1">Método / Cuenta</label>
+            <select id="confirm-rec-metodo-select" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-2 text-xs text-slate-100 focus:outline-none focus:border-sky-500">
+              <!-- Opciones dinámicas -->
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+        <button id="btn-cancel-confirm-rec" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-semibold">Cancelar</button>
+        <button id="btn-save-confirm-rec" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-500 text-xs font-bold shadow-lg shadow-emerald-600/30">Confirmar este Mes</button>
       </div>
     </div>
   </div>
