@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Verificación y Pruebas del Motor Financiero</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.tailwindcss.com" defer></script>
   <script src="../frontend/js/financial-engine.js"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 p-6 font-sans">
@@ -23,6 +23,10 @@
   </div>
 
   <script>
+    window.onerror = function(msg, url, line, col, error) {
+      const box = document.getElementById('summary-box');
+      if (box) box.innerHTML = `<p style="color:red">Error en línea ${line}: ${msg} ${error ? error.stack : ''}</p>`;
+    };
     const resultsContainer = document.getElementById('test-results');
     const summaryBox = document.getElementById('summary-box');
     let passedCount = 0;
@@ -546,6 +550,75 @@
     report('Enlace de Factura Actual en Tarjetas: cada tarjeta contiene su facturaMesActual para pagos directos',
       okFacturaEnlazada,
       `facturaMesActual presente en tarjeta BCP con estado: ${bcpProy && bcpProy.facturaMesActual ? bcpProy.facturaMesActual.estado : 'N/A'}`
+    );
+
+    // Prueba 25: LÍNEA DE CRÉDITO OCUPADA POR COMPRAS EN CUOTAS COMPLETAS Y CUOTAS FUTURAS COMPROMETIDAS
+    const txCuotasPrueba25 = FinancialEngine.dividirEnCuotas({
+      id: 'TX-LAPTOP-25',
+      fecha: '2026-09-10',
+      tipo: TIPOS_TRANSACCION.CONSUMO_TC,
+      tarjetaAfectada: 'TC_BCP',
+      monto: 1200,
+      cuotas: 6,
+      categoria: 'Tecnología',
+      notas: 'Laptop en 6 cuotas'
+    }, tarjetasConfig);
+
+    const consolidadoCuotas = calcularConsolidadoFinanciero(txCuotasPrueba25, tarjetasConfig, '2026-09');
+    const bcpLinea = consolidadoCuotas.tarjetasCredito.desgloseTarjetas.find(t => t.id === 'TC_BCP');
+
+    const okCuotasFuturas = bcpLinea && bcpLinea.cuotasFuturasComprometidas === 1000; // 5 cuotas x S/ 200 en M+2..M+6
+    const okProximoMes = bcpLinea && bcpLinea.consumosCiclo === 200; // 1 cuota en M+1
+    const okLineaUtilizada = bcpLinea && bcpLinea.lineaUtilizada === 1200; // Total compra congela línea
+    const okLineaDisponible = bcpLinea && bcpLinea.lineaDisponible === 8800; // 10000 - 1200
+    const okPorcentaje = bcpLinea && bcpLinea.porcentajeLineaUtilizada === 12; // 12% de 10,000
+
+    report('Línea de Crédito: Compra en 6 cuotas (S/ 1,200) ocupa toda la línea (Utilizada: S/ 1,200, Disponible: S/ 8,800, Cuotas futuras: S/ 1,000)',
+      okCuotasFuturas && okProximoMes && okLineaUtilizada && okLineaDisponible && okPorcentaje,
+      `Cuotas Futuras: S/ ${bcpLinea ? bcpLinea.cuotasFuturasComprometidas : 0}, Línea Utilizada: S/ ${bcpLinea ? bcpLinea.lineaUtilizada : 0}, Disp: S/ ${bcpLinea ? bcpLinea.lineaDisponible : 0} (${bcpLinea ? bcpLinea.porcentajeLineaUtilizada : 0}%)`
+    );
+
+    // Prueba 26: LIQUIDACIÓN ANTICIPADA DE CUOTAS EN EL MES EN CURSO
+    // El usuario consulta compras con cuotas pendientes
+    const comprasPendientes = FinancialEngine.obtenerComprasEnCuotasPendientes(txCuotasPrueba25, 'TC_BCP', '2026-09');
+    const okComprasDetectadas = comprasPendientes.length === 1 && comprasPendientes[0].cuotasRestantesCount === 6;
+
+    // El usuario liquida 3 cuotas futuras (S/ 600) en el mes actual usando efectivo
+    const cuotasALiquidar = txCuotasPrueba25.slice(3, 6); // cuotas 4, 5 y 6
+    cuotasALiquidar.forEach(c => {
+      c.estado = 'LIQUIDADA';
+      c.esLiquidado = true;
+    });
+
+    const txPrepagoLiquidacion = prepararTransaccion({
+      id: 'TX-LIQ-CUOTAS',
+      fecha: '2026-09-25',
+      tipo: TIPOS_TRANSACCION.PREPAGO_TC,
+      tarjetaAfectada: 'TC_BCP',
+      monto: 600,
+      categoria: 'Prepago Voluntario',
+      metodoPago: 'Efectivo',
+      mesImpactoEfectivo: '2026-09',
+      mesImpactoTC: '2026-09'
+    }, tarjetasConfig);
+
+    const txsConLiquidacion = [...txCuotasPrueba25, txPrepagoLiquidacion];
+    const consolidadoLiquidado = calcularConsolidadoFinanciero(txsConLiquidacion, tarjetasConfig, '2026-09');
+    const bcpPostLiq = consolidadoLiquidado.tarjetasCredito.desgloseTarjetas.find(t => t.id === 'TC_BCP');
+
+    // Comprobar que en el mes en curso se deduce el efectivo
+    const okSalidaEfectivo = consolidadoLiquidado.flujoEfectivo.prepagosRealizados === 600;
+    // Comprobar que las cuotas futuras comprometidas se redujeron a S/ 400 (cuotas 2 y 3)
+    const okFuturasReducidas = bcpPostLiq && bcpPostLiq.cuotasFuturasComprometidas === 400;
+    // Comprobar que la línea utilizada bajó a S/ 600 y la disponible subió a S/ 9,400
+    const okLineaLiberada = bcpPostLiq && bcpPostLiq.lineaUtilizada === 600 && bcpPostLiq.lineaDisponible === 9400;
+    // Comprobar que obtenerComprasEnCuotasPendientes solo lista las cuotas activas
+    const comprasPostLiq = FinancialEngine.obtenerComprasEnCuotasPendientes(txsConLiquidacion, 'TC_BCP', '2026-09');
+    const okCuotasFiltradas = comprasPostLiq.length === 1 && comprasPostLiq[0].cuotasRestantesCount === 3 && comprasPostLiq[0].montoPendienteTotal === 600;
+
+    report('Liquidación Anticipada de Cuotas: Descuenta efectivo hoy (S/ 600), extingue cuotas futuras y libera línea de crédito (Disp: S/ 9,400)',
+      okComprasDetectadas && okSalidaEfectivo && okFuturasReducidas && okLineaLiberada && okCuotasFiltradas,
+      `Prepagos mes: S/ ${consolidadoLiquidado.flujoEfectivo.prepagosRealizados}, Futuras restantes: S/ ${bcpPostLiq ? bcpPostLiq.cuotasFuturasComprometidas : 0}, Línea Disp: S/ ${bcpPostLiq ? bcpPostLiq.lineaDisponible : 0}, Cuotas activas: ${comprasPostLiq[0] ? comprasPostLiq[0].cuotasRestantesCount : 0}`
     );
 
     summaryBox.innerHTML = `

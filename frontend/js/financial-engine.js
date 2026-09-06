@@ -265,6 +265,75 @@
   }
 
   /**
+   * Obtiene y agrupa las compras en cuotas que tienen cuotas pendientes
+   * en meses futuros para una tarjeta específica.
+   */
+  function obtenerComprasEnCuotasPendientes(transacciones = [], tarjetaId = null, mesActualStr = null) {
+    if (!mesActualStr) {
+      mesActualStr = obtenerMesImpacto(new Date());
+    } else {
+      mesActualStr = normalizarMes(mesActualStr);
+    }
+
+    const cardIdNorm = tarjetaId ? String(tarjetaId).trim().toLowerCase() : '';
+
+    const cuotasFuturas = transacciones.filter(tx => {
+      if (tx.tipo !== TIPOS_TRANSACCION.CONSUMO_TC) return false;
+      if (tx.estado === 'LIQUIDADO' || tx.estado === 'LIQUIDADA' || tx.esLiquidado === true) return false;
+
+      const txCard = String(tx.tarjetaAfectada || '').trim().toLowerCase();
+      if (cardIdNorm && !(
+        txCard === cardIdNorm ||
+        txCard.replace(/^tc[_-]/, '') === cardIdNorm.replace(/^tc[_-]/, '') ||
+        txCard.includes(cardIdNorm) ||
+        cardIdNorm.includes(txCard)
+      )) {
+        return false;
+      }
+
+      const mesTC = normalizarMes(tx.mesImpactoTC);
+      // Cuotas que vencerán después del mes actual
+      return mesTC > mesActualStr;
+    });
+
+    const grupos = {};
+    cuotasFuturas.forEach(tx => {
+      const grupoKey = tx.idCompraPadre || tx.id.replace(/_C\d+$/, '');
+      if (!grupos[grupoKey]) {
+        grupos[grupoKey] = {
+          idCompraPadre: grupoKey,
+          descripcion: (tx.notas || 'Compra en cuotas').replace(/\s*\(Cuota \d+\/\d+.*\)/i, '').trim() || 'Compra en cuotas',
+          tarjetaAfectada: tx.tarjetaAfectada,
+          categoria: tx.categoria || 'Compras',
+          montoTotalCompra: parseFloat(tx.montoTotalCompra) || 0,
+          totalCuotas: parseInt(tx.totalCuotas, 10) || 1,
+          cuotas: []
+        };
+      }
+
+      grupos[grupoKey].cuotas.push({
+        id: tx.id,
+        cuotaActual: parseInt(tx.cuotaActual, 10) || 1,
+        totalCuotas: parseInt(tx.totalCuotas, 10) || grupos[grupoKey].totalCuotas,
+        monto: parseFloat(tx.monto) || 0,
+        fecha: tx.fecha,
+        mesImpactoTC: normalizarMes(tx.mesImpactoTC),
+        fechaVencimientoTC: tx.fechaVencimientoTC || '',
+        notas: tx.notas || ''
+      });
+    });
+
+    const resultado = Object.values(grupos).map(compra => {
+      compra.cuotas.sort((a, b) => a.mesImpactoTC.localeCompare(b.mesImpactoTC) || a.cuotaActual - b.cuotaActual);
+      compra.montoPendienteTotal = Number(compra.cuotas.reduce((acc, c) => acc + c.monto, 0).toFixed(2));
+      compra.cuotasRestantesCount = compra.cuotas.length;
+      return compra;
+    });
+
+    return resultado.sort((a, b) => b.montoPendienteTotal - a.montoPendienteTotal);
+  }
+
+  /**
    * Procesa una transacción antes de guardarla para imputar correctamente
    * los impactos contables según el modelo financiero.
    */
@@ -741,6 +810,10 @@
         );
 
         if (coincideTarjeta) {
+          if (tx.estado === 'LIQUIDADO' || tx.estado === 'LIQUIDADA' || tx.esLiquidado === true) {
+            return;
+          }
+
           const monto = parseFloat(tx.monto) || 0;
           const txMesTC = normalizarMes(tx.mesImpactoTC);
           const txMesEf = normalizarMes(tx.mesImpactoEfectivo);
@@ -848,7 +921,7 @@
       }
 
       // En la gráfica de gastos por categoría, incluir también los consumos con tarjeta realizados en este mes
-      if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC && txMesFecha === mesActualStr) {
+      if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC && txMesFecha === mesActualStr && tx.estado !== 'LIQUIDADO' && tx.estado !== 'LIQUIDADA' && !tx.esLiquidado) {
         const cat = normalizarCategoria(tx.categoria, TIPOS_TRANSACCION.CONSUMO_TC);
         gastosPorCategoria[cat] = (gastosPorCategoria[cat] || 0) + monto;
       }
@@ -865,16 +938,22 @@
     const totalSalidasEfectivo = totalGastosDirectos + totalPrepagosRealizados + salidaEfectivaTCDelMes;
     const balanceLibreNeto = totalIngresos - totalSalidasEfectivo;
 
-    // 3. Proyección de Deuda de Tarjetas para el Mes Siguiente (mesSiguienteStr)
+    // 3. Proyección de Deuda de Tarjetas para el Mes Siguiente y Cuotas Futuras (Ocupación de Línea)
     const estadoTarjetas = tarjetasConfig.map(tarjeta => {
       let consumosCiclo = 0;
       let prepagosCiclo = 0;
       let pagosVencidosRegistrados = 0;
+      let cuotasFuturasComprometidas = 0;
+      let prepagosFuturos = 0;
 
       const cardId = String(tarjeta.id || '').trim().toLowerCase();
       const cardName = String(tarjeta.nombre || '').trim().toLowerCase();
 
       transaccionesConsolidadas.forEach(tx => {
+        if (tx.estado === 'LIQUIDADO' || tx.estado === 'LIQUIDADA' || tx.esLiquidado === true) {
+          return;
+        }
+
         const txCard = String(tx.tarjetaAfectada || '').trim().toLowerCase();
 
         const coincideTarjeta = txCard !== '' && (
@@ -890,6 +969,7 @@
           const monto = parseFloat(tx.monto) || 0;
           const txMesTC = normalizarMes(tx.mesImpactoTC);
 
+          // 1. Vencimientos del próximo mes
           if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC && txMesTC === mesSiguienteStr) {
             consumosCiclo += monto;
           }
@@ -899,11 +979,20 @@
           if (tx.tipo === TIPOS_TRANSACCION.PAGO_TC_VENCIDA && txMesTC === mesSiguienteStr) {
             pagosVencidosRegistrados += monto;
           }
+
+          // 2. Cuotas futuras comprometidas (posteriores al mes siguiente: mes > mesSiguienteStr)
+          if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC && txMesTC > mesSiguienteStr) {
+            cuotasFuturasComprometidas += monto;
+          }
+          if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC && txMesTC > mesSiguienteStr) {
+            prepagosFuturos += monto;
+          }
         }
       });
 
       const deudaBruta = consumosCiclo;
       const deudaNeta = Math.max(0, deudaBruta - prepagosCiclo - pagosVencidosRegistrados);
+      const cuotasFuturasNetas = Math.max(0, cuotasFuturasComprometidas - prepagosFuturos);
 
       const [anioSig, mesSig] = mesSiguienteStr.split('-').map(Number);
       const maxDiasMes = new Date(anioSig, mesSig, 0).getDate();
@@ -922,11 +1011,29 @@
         estado: 'SIN_DEUDA'
       };
 
+      // Cálculo de Línea de Crédito Utilizada y Disponible
+      const limiteCredito = tarjeta.limiteCredito || 0;
+      const pendienteMesActual = facturaMesActual.pendiente;
+      const deudaTotalTarjeta = Number((pendienteMesActual + deudaNeta + cuotasFuturasNetas).toFixed(2));
+      const lineaUtilizada = deudaTotalTarjeta;
+      const lineaDisponible = Number(Math.max(0, limiteCredito - deudaTotalTarjeta).toFixed(2));
+      const porcentajeLineaUtilizada = limiteCredito > 0 ? Math.min(100, Math.round((deudaTotalTarjeta / limiteCredito) * 100)) : 0;
+
       return {
         id: tarjeta.id,
         nombre: tarjeta.nombre,
         colorHex: tarjeta.colorHex || '#3b82f6',
-        limiteCredito: tarjeta.limiteCredito || 0,
+        limiteCredito: limiteCredito,
+        lineaUtilizada: lineaUtilizada,
+        lineaDisponible: lineaDisponible,
+        porcentajeLineaUtilizada: porcentajeLineaUtilizada,
+        cuotasFuturasComprometidas: Number(cuotasFuturasNetas.toFixed(2)),
+        desgloseLinea: {
+          pendienteMesActual: Number(pendienteMesActual.toFixed(2)),
+          proximoMes: Number(deudaNeta.toFixed(2)),
+          cuotasFuturas: Number(cuotasFuturasNetas.toFixed(2)),
+          totalComprometido: deudaTotalTarjeta
+        },
         diaCorte: tarjeta.diaCorte,
         diaVencimiento: tarjeta.diaVencimiento,
         fechaVencimientoProxima: fechaVencimientoProxima,
@@ -941,6 +1048,10 @@
     const totalNuevosConsumosTC = estadoTarjetas.reduce((acc, t) => acc + t.consumosCiclo, 0);
     const totalPrepagosFuturos = estadoTarjetas.reduce((acc, t) => acc + t.prepagosCiclo, 0);
     const totalDeudaProyectadaProximoMes = estadoTarjetas.reduce((acc, t) => acc + t.deudaNetaProyectada, 0);
+    const totalCuotasFuturas = estadoTarjetas.reduce((acc, t) => acc + t.cuotasFuturasComprometidas, 0);
+    const totalLineaCredito = estadoTarjetas.reduce((acc, t) => acc + t.limiteCredito, 0);
+    const totalLineaUtilizada = estadoTarjetas.reduce((acc, t) => acc + t.lineaUtilizada, 0);
+    const totalLineaDisponible = estadoTarjetas.reduce((acc, t) => acc + t.lineaDisponible, 0);
 
     return {
       mesActual: mesActualStr,
@@ -974,6 +1085,10 @@
         nuevosConsumosCiclo: Number(totalNuevosConsumosTC.toFixed(2)),
         totalPrepagosAplicados: Number(totalPrepagosFuturos.toFixed(2)),
         deudaTotalProyectada: Number(totalDeudaProyectadaProximoMes.toFixed(2)),
+        totalCuotasFuturas: Number(totalCuotasFuturas.toFixed(2)),
+        totalLineaCredito: Number(totalLineaCredito.toFixed(2)),
+        totalLineaUtilizada: Number(totalLineaUtilizada.toFixed(2)),
+        totalLineaDisponible: Number(totalLineaDisponible.toFixed(2)),
         desgloseTarjetas: estadoTarjetas
       },
       categorias: {
@@ -1073,15 +1188,20 @@
         });
       }
 
-      // Alerta de Alto Uso de Línea
+      // Alerta de Alto Uso de Línea (considera deuda actual + próximo mes + cuotas futuras)
       if (tarjeta.limiteCredito > 0) {
-        const usoPorcentaje = Math.round((tarjeta.consumosCiclo / tarjeta.limiteCredito) * 100);
+        const usoPorcentaje = (tarjeta.porcentajeLineaUtilizada !== undefined) 
+          ? tarjeta.porcentajeLineaUtilizada 
+          : Math.round((tarjeta.consumosCiclo / tarjeta.limiteCredito) * 100);
         if (usoPorcentaje >= 70) {
+          const cuotasMsg = (tarjeta.cuotasFuturasComprometidas > 0)
+            ? ` (incluye S/ ${tarjeta.cuotasFuturasComprometidas.toFixed(2)} en cuotas futuras)`
+            : '';
           alertas.push({
             id: `limite-${tarjeta.id}`,
             tipo: 'warning',
             titulo: `Uso Alto de Línea (${usoPorcentaje}%) en ${tarjeta.nombre}`,
-            mensaje: `Has consumido S/ ${tarjeta.consumosCiclo.toFixed(2)} de tu límite de S/ ${tarjeta.limiteCredito.toFixed(2)}. Un uso menor al 30% protege tu score crediticio.`,
+            mensaje: `Has ocupado S/ ${tarjeta.lineaUtilizada.toFixed(2)} de tu límite de S/ ${tarjeta.limiteCredito.toFixed(2)}${cuotasMsg}. Disponible: S/ ${tarjeta.lineaDisponible.toFixed(2)}.`,
             icono: '📊',
             prioridad: 2
           });
@@ -1156,6 +1276,7 @@
     sumarMeses,
     sumarMesesAFecha,
     dividirEnCuotas,
+    obtenerComprasEnCuotasPendientes,
     prepararTransaccion,
     calcularConsolidadoFinanciero,
     calcularEstadoPresupuestos,

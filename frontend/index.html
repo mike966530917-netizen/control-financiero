@@ -934,6 +934,79 @@
     </div>
   </div>
 
+  <!-- ========================================================================
+       MODAL: ADELANTAR / LIQUIDAR CUOTAS FUTURAS DE TARJETA
+       ======================================================================== -->
+  <div id="modal-liquidar-cuotas" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-amber-500/40 rounded-3xl w-full max-w-md p-5 space-y-4 shadow-2xl max-h-[90vh] flex flex-col">
+      <div class="flex items-center justify-between pb-2 border-b border-slate-800 flex-shrink-0">
+        <div>
+          <h3 class="font-bold text-base text-white flex items-center gap-2">
+            <span class="text-amber-400">⚡</span> Adelantar / Liquidar Cuotas
+          </h3>
+          <p id="liquidar-tarjeta-label" class="text-[11px] text-slate-400">Extinguir cuotas futuras con efectivo del mes</p>
+        </div>
+        <button id="btn-close-liquidar-modal" class="text-slate-400 hover:text-white p-1 rounded-lg text-base">✕</button>
+      </div>
+
+      <input type="hidden" id="liquidar-tarjeta-id">
+
+      <div class="space-y-3.5 text-xs overflow-y-auto flex-1 pr-1">
+        <!-- Resumen de Línea de Crédito de la Tarjeta -->
+        <div id="liquidar-card-summary" class="bg-slate-950/70 p-3 rounded-2xl border border-slate-800 space-y-1.5">
+          <!-- Renderizado dinámico -->
+        </div>
+
+        <!-- Lista de compras en cuotas activas -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="text-slate-300 font-bold block">Compras en cuotas con saldo futuro:</label>
+            <span id="liquidar-total-compras-count" class="text-[11px] text-amber-400 font-semibold">0 compras</span>
+          </div>
+          <div id="liquidar-cuotas-list" class="space-y-2.5 max-h-[36vh] overflow-y-auto pr-0.5">
+            <!-- Renderizado dinámico de compras y cuotas -->
+          </div>
+        </div>
+
+        <!-- Cuenta origen para el pago y fecha -->
+        <div class="grid grid-cols-2 gap-2 pt-1 border-t border-slate-800/80">
+          <div class="col-span-1">
+            <label class="text-slate-400 font-semibold block mb-1">Cuenta de Origen</label>
+            <select id="liquidar-cuenta-origen" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-2 text-xs text-slate-100 font-semibold focus:outline-none focus:border-amber-500">
+              <!-- Opciones dinámicas -->
+            </select>
+          </div>
+          <div class="col-span-1">
+            <label class="text-slate-400 font-semibold block mb-1">Fecha de Salida</label>
+            <input type="date" id="liquidar-fecha-input" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-2.5 py-2 text-xs text-slate-100 focus:outline-none focus:border-amber-500">
+          </div>
+        </div>
+
+        <!-- Panel de Impacto en Vivo -->
+        <div id="liquidar-impacto-preview" class="bg-amber-950/25 border border-amber-500/30 p-3 rounded-2xl space-y-1 text-amber-200">
+          <div class="flex items-center justify-between font-bold text-sm">
+            <span>Total a Liquidar Hoy:</span>
+            <span id="liquidar-preview-total" class="text-amber-300 font-extrabold text-base">S/ 0.00</span>
+          </div>
+          <p class="text-[11px] text-amber-300/80">
+            • Se descuenta inmediatamente de tu efectivo disponible este mes.
+            <br>
+            • Estas cuotas se extinguen y <strong>desaparecen de los meses futuros</strong>.
+            <br>
+            • Libera el mismo monto en tu <strong>línea de crédito disponible</strong>.
+          </p>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800 flex-shrink-0">
+        <button id="btn-cancel-liquidar" class="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-semibold">Cancelar</button>
+        <button id="btn-confirm-liquidar" class="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black shadow-lg shadow-amber-500/30 flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+          <span>⚡</span> Confirmar y Liquidar Cuotas
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Contenedor flotante de notificaciones Toast -->
   <div id="toast-container" class="fixed top-5 left-4 right-4 z-50 flex flex-col gap-2 pointer-events-none max-w-sm mx-auto"></div>
 

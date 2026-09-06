@@ -60,6 +60,11 @@
       if (closeCloseModalBtn) closeCloseModalBtn.addEventListener('click', () => this.closeCloseMonthModal());
       if (cancelCloseMonthBtn) cancelCloseMonthBtn.addEventListener('click', () => this.closeCloseMonthModal());
 
+      const closeLiquidarModalBtn = document.getElementById('btn-close-liquidar-modal');
+      const cancelLiquidarBtn = document.getElementById('btn-cancel-liquidar');
+      if (closeLiquidarModalBtn) closeLiquidarModalBtn.addEventListener('click', () => this.closeLiquidarCuotasModal());
+      if (cancelLiquidarBtn) cancelLiquidarBtn.addEventListener('click', () => this.closeLiquidarCuotasModal());
+
       // Selector de año en Historial de Ahorro
       const btnPrevYear = document.getElementById('btn-prev-savings-year');
       const btnNextYear = document.getElementById('btn-next-savings-year');
@@ -713,8 +718,57 @@
                   </div>
                   <div class="flex justify-between text-[10px] text-slate-400">
                     <span>${card.porcentajeAmortizado}% amortizado por prepagos</span>
-                    <span>Límite: S/ ${card.limiteCredito.toLocaleString()}</span>
+                    <span>Límite: S/ ${(card.limiteCredito || 0).toLocaleString()}</span>
                   </div>
+                </div>
+
+                <!-- 3. LÍNEA DE CRÉDITO Y CUOTAS FUTURAS -->
+                <div class="bg-slate-900/60 border border-slate-700/60 rounded-xl p-2.5 space-y-2">
+                  <div class="flex items-center justify-between">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1">
+                      <span>📊</span> Línea de Crédito
+                    </span>
+                    <span class="text-[10px] font-bold ${card.porcentajeLineaUtilizada >= 90 ? 'text-rose-400' : (card.porcentajeLineaUtilizada >= 70 ? 'text-amber-400' : 'text-emerald-400')}">
+                      ${card.porcentajeLineaUtilizada || 0}% ocupada
+                    </span>
+                  </div>
+
+                  <div class="grid grid-cols-3 gap-2 bg-slate-950/60 p-2 rounded-lg text-center">
+                    <div>
+                      <span class="text-[9px] text-slate-400 block uppercase">Límite</span>
+                      <span class="text-xs font-bold text-slate-200">S/ ${(card.limiteCredito || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div>
+                      <span class="text-[9px] ${(card.porcentajeLineaUtilizada >= 70) ? 'text-amber-400' : 'text-slate-300'} block uppercase">Ocupada</span>
+                      <span class="text-xs font-bold ${(card.porcentajeLineaUtilizada >= 90) ? 'text-rose-400' : ((card.porcentajeLineaUtilizada >= 70) ? 'text-amber-400' : 'text-slate-200')}">
+                        S/ ${(card.lineaUtilizada || 0).toFixed(2)}
+                      </span>
+                    </div>
+                    <div>
+                      <span class="text-[9px] text-emerald-400 block uppercase">Disponible</span>
+                      <span class="text-xs font-extrabold text-emerald-300">S/ ${(card.lineaDisponible || 0).toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <!-- Barra de uso de línea con semáforo -->
+                  <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div class="h-full rounded-full transition-all duration-500 ${(card.porcentajeLineaUtilizada >= 90) ? 'bg-rose-500' : ((card.porcentajeLineaUtilizada >= 70) ? 'bg-amber-400' : 'bg-emerald-500')}" 
+                      style="width: ${card.porcentajeLineaUtilizada || 0}%"></div>
+                  </div>
+
+                  <!-- Desglose de ocupación: Mes actual, Próximo mes y Cuotas futuras -->
+                  <div class="flex flex-wrap items-center justify-between text-[10px] text-slate-400 gap-1 pt-0.5">
+                    <span>Hoy: S/ ${(card.desgloseLinea ? card.desgloseLinea.pendienteMesActual : 0).toFixed(2)}</span>
+                    <span>Próx: S/ ${(card.desgloseLinea ? card.desgloseLinea.proximoMes : 0).toFixed(2)}</span>
+                    <span class="${(card.cuotasFuturasComprometidas > 0) ? 'text-amber-300 font-bold' : ''}">
+                      Cuotas Futuras: S/ ${(card.cuotasFuturasComprometidas || 0).toFixed(2)}
+                    </span>
+                  </div>
+
+                  <!-- Botón para Adelantar / Liquidar Cuotas -->
+                  <button class="btn-open-liquidar-cuotas w-full py-1.5 px-3 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer" data-card-id="${card.id}">
+                    <span>⚡</span> Adelantar / Liquidar Cuotas Futuras
+                  </button>
                 </div>
               </div>
             `;
@@ -734,6 +788,14 @@
               const cardId = btn.getAttribute('data-card-id');
               const amount = parseFloat(btn.getAttribute('data-amount')) || 0;
               this.openDrawer('Pago_TC_Vencida', cardId, amount);
+            });
+          });
+
+          // Asignar eventos a los botones de adelantar/liquidar cuotas
+          document.querySelectorAll('.btn-open-liquidar-cuotas').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const cardId = btn.getAttribute('data-card-id');
+              this.openLiquidarCuotasModal(cardId);
             });
           });
         }
@@ -1761,6 +1823,199 @@
         monto,
         fecha,
         metodoPago
+      };
+    }
+
+    // ==========================================================================
+    // MODAL DE LIQUIDACIÓN / ADELANTO DE CUOTAS FUTURAS DE TARJETA
+    // ==========================================================================
+    openLiquidarCuotasModal(tarjetaId) {
+      const modal = document.getElementById('modal-liquidar-cuotas');
+      if (!modal) return;
+
+      const cardIdInput = document.getElementById('liquidar-tarjeta-id');
+      const labelTarjeta = document.getElementById('liquidar-tarjeta-label');
+      const cardSummaryEl = document.getElementById('liquidar-card-summary');
+      const cuotasListEl = document.getElementById('liquidar-cuotas-list');
+      const cuentaOrigenSelect = document.getElementById('liquidar-cuenta-origen');
+      const fechaInput = document.getElementById('liquidar-fecha-input');
+      const totalComprasCountEl = document.getElementById('liquidar-total-compras-count');
+
+      if (cardIdInput) cardIdInput.value = tarjetaId || '';
+
+      // Obtener tarjeta desde el consolidado o caché
+      const cardsList = (window.lastSummary && window.lastSummary.tarjetasCredito && window.lastSummary.tarjetasCredito.desgloseTarjetas) || this.cards || [];
+      const card = cardsList.find(c => String(c.id).toLowerCase() === String(tarjetaId).toLowerCase()) || {
+        id: tarjetaId,
+        nombre: 'Tarjeta de Crédito',
+        limiteCredito: 0,
+        lineaUtilizada: 0,
+        lineaDisponible: 0,
+        cuotasFuturasComprometidas: 0
+      };
+
+      if (labelTarjeta) {
+        labelTarjeta.textContent = `Extinguir cuotas futuras de ${card.nombre} con efectivo disponible este mes`;
+      }
+
+      // Resumen de línea en el modal
+      if (cardSummaryEl) {
+        cardSummaryEl.innerHTML = `
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-slate-100">${card.nombre}</span>
+            <span class="text-[11px] font-semibold text-slate-400">Límite: S/ ${(card.limiteCredito || 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</span>
+          </div>
+          <div class="grid grid-cols-3 gap-2 text-center pt-1">
+            <div class="bg-slate-900/80 p-2 rounded-xl border border-slate-800">
+              <span class="text-[9px] text-slate-400 uppercase block">Ocupada</span>
+              <span class="font-bold text-amber-300 text-xs">S/ ${(card.lineaUtilizada || 0).toFixed(2)}</span>
+            </div>
+            <div class="bg-slate-900/80 p-2 rounded-xl border border-slate-800">
+              <span class="text-[9px] text-emerald-400 uppercase block">Disponible</span>
+              <span class="font-bold text-emerald-300 text-xs">S/ ${(card.lineaDisponible || 0).toFixed(2)}</span>
+            </div>
+            <div class="bg-slate-900/80 p-2 rounded-xl border border-slate-800">
+              <span class="text-[9px] text-amber-400 uppercase block">En Cuotas Futuras</span>
+              <span class="font-bold text-amber-200 text-xs">S/ ${(card.cuotasFuturasComprometidas || 0).toFixed(2)}</span>
+            </div>
+          </div>
+        `;
+      }
+
+      // Llenar selector de cuenta de origen
+      if (cuentaOrigenSelect) {
+        const paymentOpts = [...this.paymentMethods];
+        cuentaOrigenSelect.innerHTML = paymentOpts.map(m => `<option value="${m}">${m}</option>`).join('');
+      }
+
+      // Fecha por defecto: hoy
+      if (fechaInput) {
+        fechaInput.value = new Date().toISOString().slice(0, 10);
+      }
+
+      // Obtener compras con cuotas pendientes posteriores al mes actual
+      const mesActual = (window.lastSummary && window.lastSummary.mesActual) || new Date().toISOString().slice(0, 7);
+      const allTxs = window.cachedTransactions || (typeof AppState !== 'undefined' ? AppState.transactions : []) || [];
+      const comprasPendientes = (typeof FinancialEngine !== 'undefined' && FinancialEngine.obtenerComprasEnCuotasPendientes)
+        ? FinancialEngine.obtenerComprasEnCuotasPendientes(allTxs, tarjetaId, mesActual)
+        : [];
+
+      if (totalComprasCountEl) {
+        totalComprasCountEl.textContent = `${comprasPendientes.length} compra${comprasPendientes.length === 1 ? '' : 's'}`;
+      }
+
+      if (cuotasListEl) {
+        if (comprasPendientes.length === 0) {
+          cuotasListEl.innerHTML = `
+            <div class="text-center py-6 px-4 bg-slate-950/40 rounded-2xl border border-dashed border-slate-800 space-y-1">
+              <span class="text-2xl block">🎉</span>
+              <p class="font-semibold text-slate-300">No hay compras en cuotas pendientes</p>
+              <p class="text-[11px] text-slate-500">Esta tarjeta no tiene cuotas futuras pendientes para liquidar.</p>
+            </div>
+          `;
+        } else {
+          cuotasListEl.innerHTML = comprasPendientes.map(compra => {
+            return `
+              <div class="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-2" data-compra-container="${compra.compraId}">
+                <div class="flex items-center justify-between pb-1 border-b border-slate-800/80">
+                  <div class="truncate mr-2">
+                    <span class="font-bold text-slate-100 text-xs block truncate">${compra.descripcion || compra.categoria}</span>
+                    <span class="text-[10px] text-slate-400">Total compra: S/ ${compra.montoTotalCompra.toFixed(2)} (${compra.cuotasRestantesCount} cuota${compra.cuotasRestantesCount === 1 ? '' : 's'} restante${compra.cuotasRestantesCount === 1 ? '' : 's'})</span>
+                  </div>
+                  <div class="flex items-center gap-2 flex-shrink-0">
+                    <span class="text-xs font-black text-amber-300">S/ ${compra.montoPendienteTotal.toFixed(2)}</span>
+                    <button type="button" class="btn-toggle-compra-all text-[10px] bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 px-2 py-0.5 rounded font-bold transition cursor-pointer" data-compra-id="${compra.compraId}">
+                      Todas
+                    </button>
+                  </div>
+                </div>
+                <div class="space-y-1.5">
+                  ${compra.cuotas.map(c => `
+                    <label class="flex items-center justify-between p-2 rounded-lg bg-slate-900/80 hover:bg-slate-800/80 cursor-pointer border border-slate-800/60 transition">
+                      <div class="flex items-center gap-2">
+                        <input type="checkbox" class="cuota-item-checkbox rounded accent-amber-500 text-amber-500 focus:ring-0 w-4 h-4 cursor-pointer" 
+                          data-tx-id="${c.id}" 
+                          data-monto="${c.monto}" 
+                          data-compra-id="${compra.compraId}">
+                        <span class="text-xs font-semibold text-slate-200">Cuota ${c.numeroCuota}/${c.totalCuotas}</span>
+                        <span class="text-[10px] text-sky-400 font-mono bg-sky-950/60 px-1.5 py-0.5 rounded border border-sky-800/40">${c.mesImpactoTC}</span>
+                      </div>
+                      <span class="text-xs font-bold text-amber-300">S/ ${c.monto.toFixed(2)}</span>
+                    </label>
+                  `).join('')}
+                </div>
+              </div>
+            `;
+          }).join('');
+
+          // Listeners de checkboxes de cuotas
+          cuotasListEl.querySelectorAll('.cuota-item-checkbox').forEach(cb => {
+            cb.addEventListener('change', () => {
+              this.updateLiquidarPreviewTotal();
+            });
+          });
+
+          // Listener de botón "Todas" por compra
+          cuotasListEl.querySelectorAll('.btn-toggle-compra-all').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const compraId = btn.getAttribute('data-compra-id');
+              const checkboxes = cuotasListEl.querySelectorAll(`.cuota-item-checkbox[data-compra-id="${compraId}"]`);
+              const someUnchecked = Array.from(checkboxes).some(cb => !cb.checked);
+              checkboxes.forEach(cb => { cb.checked = someUnchecked; });
+              this.updateLiquidarPreviewTotal();
+            });
+          });
+        }
+      }
+
+      this.updateLiquidarPreviewTotal();
+      modal.classList.remove('hidden');
+    }
+
+    closeLiquidarCuotasModal() {
+      const modal = document.getElementById('modal-liquidar-cuotas');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    updateLiquidarPreviewTotal() {
+      const previewEl = document.getElementById('liquidar-preview-total');
+      const confirmBtn = document.getElementById('btn-confirm-liquidar');
+      const checkboxes = document.querySelectorAll('.cuota-item-checkbox:checked');
+
+      let sum = 0;
+      checkboxes.forEach(cb => {
+        sum += parseFloat(cb.getAttribute('data-monto')) || 0;
+      });
+
+      if (previewEl) {
+        previewEl.textContent = `S/ ${sum.toFixed(2)}`;
+      }
+
+      if (confirmBtn) {
+        confirmBtn.disabled = sum <= 0;
+      }
+    }
+
+    getLiquidarSelectedData() {
+      const tarjetaId = document.getElementById('liquidar-tarjeta-id')?.value;
+      const cuentaOrigen = document.getElementById('liquidar-cuenta-origen')?.value;
+      const fecha = document.getElementById('liquidar-fecha-input')?.value;
+      const checkboxes = document.querySelectorAll('.cuota-item-checkbox:checked');
+
+      const cuotasSeleccionadas = Array.from(checkboxes).map(cb => ({
+        id: cb.getAttribute('data-tx-id'),
+        monto: parseFloat(cb.getAttribute('data-monto')) || 0,
+        compraId: cb.getAttribute('data-compra-id')
+      }));
+
+      const totalMonto = Number(cuotasSeleccionadas.reduce((acc, c) => acc + c.monto, 0).toFixed(2));
+
+      return {
+        tarjetaId,
+        cuentaOrigen,
+        fecha,
+        cuotasSeleccionadas,
+        totalMonto
       };
     }
 
