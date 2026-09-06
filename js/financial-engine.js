@@ -397,76 +397,153 @@
   }
 
   /**
-   * Calcula el historial de ahorro mensual para todos los meses registrados (meses cerrados y en curso)
+   * Calcula el historial de ahorro mensual para todos los meses registrados
+   * Permite considerar cierres oficiales de mes (closedMonthsList) y facturación de tarjetas
+   * 
+   * @param {Array} transacciones - Lista de transacciones consolidadas
+   * @param {string} mesActualStr - Mes actual de referencia 'YYYY-MM'
+   * @param {Array} closedMonthsList - Lista de meses cerrados oficialmente
+   * @returns {Object} Historial completo y métricas de meses cerrados
    */
-  function calcularHistoricoAhorro(transacciones = [], mesActualStr = null) {
+  function calcularHistoricoAhorro(transacciones = [], mesActualStr = null, closedMonthsList = []) {
     if (!mesActualStr) {
       mesActualStr = normalizarMes(new Date());
     } else {
       mesActualStr = normalizarMes(mesActualStr);
     }
 
-    const mesesMap = {};
-
-    transacciones.forEach(tx => {
-      const monto = parseFloat(tx.monto) || 0;
-      const tipo = tx.tipo;
-      const mesEf = normalizarMes(tx.mesImpactoEfectivo);
-      if (!mesEf) return;
-
-      if (!mesesMap[mesEf]) {
-        mesesMap[mesEf] = {
-          mes: mesEf,
-          ingresos: 0,
-          gastosDirectos: 0,
-          prepagos: 0,
-          pagosTC: 0,
-          totalSalidas: 0
-        };
-      }
-
-      if (tipo === TIPOS_TRANSACCION.INGRESO) {
-        mesesMap[mesEf].ingresos += monto;
-      } else if (tipo === TIPOS_TRANSACCION.GASTO_DIRECTO) {
-        mesesMap[mesEf].gastosDirectos += monto;
-        mesesMap[mesEf].totalSalidas += monto;
-      } else if (tipo === TIPOS_TRANSACCION.PREPAGO_TC) {
-        mesesMap[mesEf].prepagos += monto;
-        mesesMap[mesEf].totalSalidas += monto;
-      } else if (tipo === TIPOS_TRANSACCION.PAGO_TC_VENCIDA) {
-        mesesMap[mesEf].pagosTC += monto;
-        mesesMap[mesEf].totalSalidas += monto;
+    // Mapa de cierres oficiales registrados (desde Google Sheets o almacenamiento local)
+    const cierresMap = {};
+    (closedMonthsList || []).forEach(cm => {
+      if (cm && cm.mes) {
+        cierresMap[normalizarMes(cm.mes)] = cm;
       }
     });
 
-    const listaMeses = Object.keys(mesesMap).sort().reverse().map(mesKey => {
-      const m = mesesMap[mesKey];
-      const ingresos = Number(m.ingresos.toFixed(2));
-      const salidas = Number(m.totalSalidas.toFixed(2));
-      const ahorroNeto = Number((ingresos - salidas).toFixed(2));
-      const tasaAhorro = ingresos > 0 ? Math.round((ahorroNeto / ingresos) * 100) : 0;
-      const esCerrado = mesKey < mesActualStr;
+    const mesesSet = new Set();
+    if (mesActualStr) mesesSet.add(mesActualStr);
+    Object.keys(cierresMap).forEach(m => mesesSet.add(m));
+
+    // Mapear meses presentes en transacciones
+    transacciones.forEach(tx => {
+      const mEf = normalizarMes(tx.mesImpactoEfectivo);
+      const mTC = normalizarMes(tx.mesImpactoTC);
+      const mFe = normalizarMes(tx.fecha);
+      if (mEf) mesesSet.add(mEf);
+      if (mTC) mesesSet.add(mTC);
+      if (mFe) mesesSet.add(mFe);
+    });
+
+    const listaMeses = Array.from(mesesSet).sort().reverse().map(mesKey => {
+      const cierreOficial = cierresMap[mesKey];
+      const esCerrado = !!cierreOficial || mesKey < mesActualStr;
+
+      let ingresos = 0;
+      let gastosDirectos = 0;
+      let prepagos = 0;
+      let pagosTC = 0;
+      let consumosTCFacturados = 0;
+      let prepagosTCFacturados = 0;
+
+      transacciones.forEach(tx => {
+        const monto = parseFloat(tx.monto) || 0;
+        const txMesEf = normalizarMes(tx.mesImpactoEfectivo);
+        const txMesTC = normalizarMes(tx.mesImpactoTC);
+
+        if (txMesEf === mesKey) {
+          if (tx.tipo === TIPOS_TRANSACCION.INGRESO) ingresos += monto;
+          else if (tx.tipo === TIPOS_TRANSACCION.GASTO_DIRECTO) gastosDirectos += monto;
+          else if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC) prepagos += monto;
+          else if (tx.tipo === TIPOS_TRANSACCION.PAGO_TC_VENCIDA) pagosTC += monto;
+        }
+
+        if (txMesTC === mesKey) {
+          if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC) consumosTCFacturados += monto;
+          else if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC) prepagosTCFacturados += monto;
+        }
+      });
+
+      const deudaFacturadaMes = Math.max(0, consumosTCFacturados - prepagosTCFacturados);
+      const salidaTCMes = Math.max(deudaFacturadaMes, pagosTC);
+      const totalSalidasCalculadas = gastosDirectos + prepagos + salidaTCMes;
+
+      // Si existe cierre oficial con datos congelados, se respetan sus valores
+      const finalIngresos = (cierreOficial && (cierreOficial.ingresosTotales !== undefined || cierreOficial.ingresos !== undefined))
+        ? Number(cierreOficial.ingresosTotales !== undefined ? cierreOficial.ingresosTotales : cierreOficial.ingresos)
+        : Number(ingresos.toFixed(2));
+
+      const finalSalidas = (cierreOficial && (cierreOficial.totalSalidas !== undefined || cierreOficial.salidas !== undefined))
+        ? Number(cierreOficial.totalSalidas !== undefined ? cierreOficial.totalSalidas : cierreOficial.salidas)
+        : Number(totalSalidasCalculadas.toFixed(2));
+
+      const ahorroNeto = Number((finalIngresos - finalSalidas).toFixed(2));
+      const tasaAhorro = finalIngresos > 0 ? Math.round((ahorroNeto / finalIngresos) * 100) : 0;
 
       return {
         mes: mesKey,
-        ingresos: ingresos,
-        salidas: salidas,
+        ingresos: finalIngresos,
+        salidas: finalSalidas,
         ahorroNeto: ahorroNeto,
         tasaAhorro: tasaAhorro,
         esCerrado: esCerrado,
-        estadoTexto: esCerrado ? 'Mes Cerrado' : 'Mes en Curso'
+        esCierreOficial: !!cierreOficial,
+        cierreOficial: cierreOficial || null,
+        estadoTexto: cierreOficial ? '🔒 Mes Cerrado' : (mesKey === mesActualStr ? '🟢 Mes en Curso' : 'Mes Pasado')
       };
     });
 
     const mesesCerrados = listaMeses.filter(m => m.esCerrado);
-    const mesEnCurso = listaMeses.find(m => !m.esCerrado) || null;
-    const totalAhorroHistorico = mesesCerrados.reduce((acc, m) => acc + m.ahorroNeto, 0);
+    const mesEnCurso = listaMeses.find(m => m.mes === mesActualStr) || null;
+    const totalAhorroCerrado = mesesCerrados.reduce((acc, m) => acc + m.ahorroNeto, 0);
 
     return {
       todos: listaMeses,
       mesesCerrados: mesesCerrados,
       mesEnCurso: mesEnCurso,
-      totalAhorroCerrado: Number(totalAhorroHistorico.toFixed(2))
+      totalAhorroCerrado: Number(totalAhorroCerrado.toFixed(2))
+    };
+  }
+
+  /**
+   * Genera el resumen anual de ahorro y métricas financieras para un año determinado
+   * 
+   * @param {Object} historicoAhorro - Resultado de calcularHistoricoAhorro
+   * @param {string|number} anio - Año a consultar (ej. '2026')
+   * @returns {Object} Resumen anual con KPIs acumulados y lista de meses del año
+   */
+  function calcularResumenAnual(historicoAhorro, anio = null) {
+    if (!anio) {
+      anio = new Date().getFullYear().toString();
+    } else {
+      anio = String(anio).trim();
+    }
+
+    const todosMeses = (historicoAhorro && historicoAhorro.todos) || [];
+    const mesesAnio = todosMeses.filter(m => m.mes && m.mes.startsWith(anio));
+
+    let totalIngresos = 0;
+    let totalSalidas = 0;
+    let totalAhorro = 0;
+    let mesesCerradosCount = 0;
+
+    mesesAnio.forEach(m => {
+      totalIngresos += m.ingresos;
+      totalSalidas += m.salidas;
+      totalAhorro += m.ahorroNeto;
+      if (m.esCerrado) mesesCerradosCount++;
+    });
+
+    const tasaAhorroPromedio = totalIngresos > 0 ? Math.round((totalAhorro / totalIngresos) * 100) : 0;
+
+    return {
+      anio: anio,
+      totalIngresos: Number(totalIngresos.toFixed(2)),
+      totalSalidas: Number(totalSalidas.toFixed(2)),
+      totalAhorro: Number(totalAhorro.toFixed(2)),
+      tasaAhorroPromedio: tasaAhorroPromedio,
+      mesesCerradosCount: mesesCerradosCount,
+      mesesRegistradosCount: mesesAnio.length,
+      meses: mesesAnio
     };
   }
 
@@ -535,11 +612,16 @@
         const fechaProyectada = `${mesActualStr}-${pad(diaAjustado)}`;
         const montoBase = parseFloat(rec.monto) || 0;
 
-        const metodoLower = String(rec.metodoPago || '').toLowerCase();
+        const metodoLower = String(rec.metodoPago || '').toLowerCase().trim();
+        const targetCard = String(rec.tarjetaAfectada || '').toLowerCase().trim();
         const tarjetaCoincidente = tarjetasConfig.find(t => {
-          const tId = String(t.id || '').toLowerCase();
-          const tNom = String(t.nombre || '').toLowerCase();
-          return tId === metodoLower || tNom === metodoLower || (metodoLower !== '' && (metodoLower.includes(tId.replace(/^tc[_-]/, '')) || metodoLower.includes('tarjeta') || metodoLower.includes('tc')));
+          const tId = String(t.id || '').toLowerCase().trim();
+          const tNom = String(t.nombre || '').toLowerCase().trim();
+          if (targetCard && (tId === targetCard || tNom === targetCard)) return true;
+          if (metodoLower && (metodoLower === tId || metodoLower === tNom)) return true;
+          if (tId && metodoLower.includes(tId)) return true;
+          if (tNom && (metodoLower === tNom || (tNom.length > 3 && metodoLower.includes(tNom)))) return true;
+          return false;
         });
 
         const esTC = (rec.tipo === 'Gasto_Fijo' && tarjetaCoincidente);
@@ -620,7 +702,7 @@
    * @param {Array} recurrentesConfig - Configuración de ingresos y gastos fijos
    * @returns {Object} Resumen financiero completo
    */
-  function calcularConsolidadoFinanciero(transacciones = [], tarjetasConfig = [], mesActualStr = null, presupuestosConfig = [], recurrentesConfig = []) {
+  function calcularConsolidadoFinanciero(transacciones = [], tarjetasConfig = [], mesActualStr = null, presupuestosConfig = [], recurrentesConfig = [], closedMonths = []) {
     if (!mesActualStr) {
       const hoy = new Date();
       mesActualStr = obtenerMesImpacto(hoy);
@@ -634,7 +716,91 @@
       transacciones, recurrentesConfig, mesActualStr, tarjetasConfig
     );
 
-    // 1. Métricas de Flujo de Efectivo del Mes en Curso (Impacto Efectivo === mesActualStr)
+    // 1. Métricas de Facturación de Tarjetas que VENCEN en este mes (Impacto TC === mesActualStr)
+    let globalConsumosTCFacturadosMes = 0;
+    let globalPrepagosTCFacturadosMes = 0;
+    let globalPagosTCVencidasMes = 0;
+
+    transaccionesConsolidadas.forEach(tx => {
+      const monto = parseFloat(tx.monto) || 0;
+      const txMesTC = normalizarMes(tx.mesImpactoTC);
+      const txMesEf = normalizarMes(tx.mesImpactoEfectivo);
+
+      if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC && txMesTC === mesActualStr) {
+        globalConsumosTCFacturadosMes += monto;
+      }
+      if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC && txMesTC === mesActualStr) {
+        globalPrepagosTCFacturadosMes += monto;
+      }
+      if (tx.tipo === TIPOS_TRANSACCION.PAGO_TC_VENCIDA && (txMesTC === mesActualStr || txMesEf === mesActualStr)) {
+        globalPagosTCVencidasMes += monto;
+      }
+    });
+
+    const deudaFacturadaNetaMes = Math.max(0, globalConsumosTCFacturadosMes - globalPrepagosTCFacturadosMes);
+    // Salida efectiva de efectivo por tarjeta en este mes: si ya se pagó se asienta el pago, si aún no, se compromete la deuda facturada
+    const salidaEfectivaTCDelMes = Math.max(deudaFacturadaNetaMes, globalPagosTCVencidasMes);
+    const pendientePagoTCDelMes = Math.max(0, deudaFacturadaNetaMes - globalPagosTCVencidasMes);
+
+    // Desglose de facturación del mes actual por tarjeta individual
+    const [anioAct, mesAct] = mesActualStr.split('-').map(Number);
+    const maxDiasMesAct = new Date(anioAct, mesAct, 0).getDate();
+    const pad = (n) => String(n).padStart(2, '0');
+
+    const facturacionTarjetasMesActual = tarjetasConfig.map(tarjeta => {
+      const cardId = String(tarjeta.id || '').trim().toLowerCase();
+      const cardName = String(tarjeta.nombre || '').trim().toLowerCase();
+      let consumos = 0;
+      let prepagos = 0;
+      let pagos = 0;
+
+      transaccionesConsolidadas.forEach(tx => {
+        const txCard = String(tx.tarjetaAfectada || '').trim().toLowerCase();
+        const coincideTarjeta = txCard !== '' && (
+          txCard === cardId ||
+          txCard === cardName ||
+          txCard.replace(/^tc[_-]/, '') === cardId.replace(/^tc[_-]/, '') ||
+          cardName.includes(txCard.replace(/^tc[_-]/, '')) ||
+          txCard.includes(cardName.replace(/\s+/g, '')) ||
+          cardName.replace(/\s+/g, '').includes(txCard)
+        );
+
+        if (coincideTarjeta) {
+          const monto = parseFloat(tx.monto) || 0;
+          const txMesTC = normalizarMes(tx.mesImpactoTC);
+          const txMesEf = normalizarMes(tx.mesImpactoEfectivo);
+
+          if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC && txMesTC === mesActualStr) {
+            consumos += monto;
+          }
+          if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC && txMesTC === mesActualStr) {
+            prepagos += monto;
+          }
+          if (tx.tipo === TIPOS_TRANSACCION.PAGO_TC_VENCIDA && (txMesTC === mesActualStr || txMesEf === mesActualStr)) {
+            pagos += monto;
+          }
+        }
+      });
+
+      const deudaBruta = consumos;
+      const deudaNeta = Math.max(0, deudaBruta - prepagos);
+      const pendiente = Math.max(0, deudaNeta - pagos);
+      const diaVencAct = Math.min(tarjeta.diaVencimiento || 1, maxDiasMesAct);
+      const fechaVenc = `${anioAct}-${pad(mesAct)}-${pad(diaVencAct)}`;
+
+      return {
+        id: tarjeta.id,
+        nombre: tarjeta.nombre,
+        colorHex: tarjeta.colorHex || '#3b82f6',
+        deudaFacturada: Number(deudaNeta.toFixed(2)),
+        pagado: Number(pagos.toFixed(2)),
+        pendiente: Number(pendiente.toFixed(2)),
+        fechaVencimiento: fechaVenc,
+        estado: pendiente <= 0 && deudaNeta > 0 ? 'PAGADO' : (pagos > 0 ? 'PARCIAL' : (deudaNeta > 0 ? 'PENDIENTE' : 'SIN_DEUDA'))
+      };
+    });
+
+    // 2. Métricas de Flujo de Efectivo del Mes en Curso (Impacto Efectivo === mesActualStr)
     let totalIngresos = 0;
     let totalIngresosFijos = 0;
     let totalIngresosVariables = 0;
@@ -644,7 +810,6 @@
     let totalGastosVariables = 0;
 
     let totalPrepagosRealizados = 0;
-    let totalPagosTCVencidas = 0;
 
     // Desglose por categorías para visualización
     const gastosPorCategoria = {};
@@ -674,9 +839,6 @@
         } else if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC) {
           totalPrepagosRealizados += monto;
           gastosPorCategoria['Prepago TC'] = (gastosPorCategoria['Prepago TC'] || 0) + monto;
-        } else if (tx.tipo === TIPOS_TRANSACCION.PAGO_TC_VENCIDA) {
-          totalPagosTCVencidas += monto;
-          gastosPorCategoria['Pago Factura TC'] = (gastosPorCategoria['Pago Factura TC'] || 0) + monto;
         }
       }
 
@@ -687,10 +849,18 @@
       }
     });
 
-    const totalSalidasEfectivo = totalGastosDirectos + totalPrepagosRealizados + totalPagosTCVencidas;
+    if (globalPagosTCVencidasMes > 0) {
+      gastosPorCategoria['Pago Factura TC'] = Number(globalPagosTCVencidasMes.toFixed(2));
+    }
+    if (pendientePagoTCDelMes > 0) {
+      gastosPorCategoria['Factura TC (Por Pagar)'] = Number(pendientePagoTCDelMes.toFixed(2));
+    }
+
+    // Total salidas considera gastos directos, prepagos realizados en efectivo y la obligación facturada de TC
+    const totalSalidasEfectivo = totalGastosDirectos + totalPrepagosRealizados + salidaEfectivaTCDelMes;
     const balanceLibreNeto = totalIngresos - totalSalidasEfectivo;
 
-    // 2. Proyección de Deuda de Tarjetas para el Mes Siguiente (mesSiguienteStr)
+    // 3. Proyección de Deuda de Tarjetas para el Mes Siguiente (mesSiguienteStr)
     const estadoTarjetas = tarjetasConfig.map(tarjeta => {
       let consumosCiclo = 0;
       let prepagosCiclo = 0;
@@ -732,8 +902,7 @@
 
       const [anioSig, mesSig] = mesSiguienteStr.split('-').map(Number);
       const maxDiasMes = new Date(anioSig, mesSig, 0).getDate();
-      const diaVencAjustado = Math.min(tarjeta.diaVencimiento, maxDiasMes);
-      const pad = (n) => String(n).padStart(2, '0');
+      const diaVencAjustado = Math.min(tarjeta.diaVencimiento || 1, maxDiasMes);
       const fechaVencimientoProxima = `${anioSig}-${pad(mesSig)}-${pad(diaVencAjustado)}`;
 
       return {
@@ -766,11 +935,24 @@
         gastosFijos: Number(totalGastosFijos.toFixed(2)),
         gastosVariables: Number(totalGastosVariables.toFixed(2)),
         prepagosRealizados: Number(totalPrepagosRealizados.toFixed(2)),
-        pagosTCVencidas: Number(totalPagosTCVencidas.toFixed(2)),
+        pagosTCVencidas: Number(globalPagosTCVencidasMes.toFixed(2)),
+        facturacionTC: {
+          totalFacturado: Number(deudaFacturadaNetaMes.toFixed(2)),
+          pagado: Number(globalPagosTCVencidasMes.toFixed(2)),
+          pendiente: Number(pendientePagoTCDelMes.toFixed(2)),
+          salidaEfectiva: Number(salidaEfectivaTCDelMes.toFixed(2)),
+          desglosePorTarjeta: facturacionTarjetasMesActual
+        },
         totalSalidas: Number(totalSalidasEfectivo.toFixed(2)),
         balanceLibreNeto: Number(balanceLibreNeto.toFixed(2))
       },
       tarjetasCredito: {
+        facturacionMesActual: {
+          totalFacturado: Number(deudaFacturadaNetaMes.toFixed(2)),
+          totalPagado: Number(globalPagosTCVencidasMes.toFixed(2)),
+          totalPendiente: Number(pendientePagoTCDelMes.toFixed(2)),
+          desgloseTarjetas: facturacionTarjetasMesActual
+        },
         nuevosConsumosCiclo: Number(totalNuevosConsumosTC.toFixed(2)),
         totalPrepagosAplicados: Number(totalPrepagosFuturos.toFixed(2)),
         deudaTotalProyectada: Number(totalDeudaProyectadaProximoMes.toFixed(2)),
@@ -782,7 +964,7 @@
       },
       presupuestos: calcularEstadoPresupuestos(gastosPorCategoria, presupuestosConfig),
       recurrentesEstadoMes: recurrentesEstadoMes,
-      historicoAhorro: calcularHistoricoAhorro(transaccionesConsolidadas, mesActualStr)
+      historicoAhorro: calcularHistoricoAhorro(transaccionesConsolidadas, mesActualStr, closedMonths)
     };
   }
 
@@ -960,6 +1142,7 @@
     calcularConsolidadoFinanciero,
     calcularEstadoPresupuestos,
     calcularHistoricoAhorro,
+    calcularResumenAnual,
     generarAlertasFinancieras
   };
 

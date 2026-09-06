@@ -14,6 +14,7 @@
     transactions: [],
     budgets: [],
     recurrentes: [],
+    closedMonths: [],
     currentFilter: 'ALL',
     deferredPrompt: null
   };
@@ -29,6 +30,7 @@
 
     // 2. Conectar eventos de la barra superior y modales
     setupTopBarEvents();
+    setupCloseMonthActions();
     setupSettingsModal();
     setupBudgetsModal();
     setupRecurrentesActions();
@@ -160,11 +162,12 @@
       syncBadge.className = 'text-[11px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30';
     }
 
-    const { cards, transactions, budgets, recurrentes, source } = await ApiService.fetchAllData();
+    const { cards, transactions, budgets, recurrentes, closedMonths, source } = await ApiService.fetchAllData();
     AppState.cards = cards;
     AppState.transactions = transactions;
     AppState.budgets = budgets || ApiService.getLocalBudgets();
     AppState.recurrentes = recurrentes || ApiService.getLocalRecurrentes();
+    AppState.closedMonths = closedMonths || ApiService.getLocalClosedMonths() || [];
     window.cachedCards = cards;
     window.cachedBudgets = AppState.budgets;
     window.cachedRecurrentes = AppState.recurrentes;
@@ -195,13 +198,130 @@
       AppState.cards,
       AppState.selectedMonth,
       AppState.budgets,
-      AppState.recurrentes
+      AppState.recurrentes,
+      AppState.closedMonths
     );
 
     window.cachedRecurrentesEstadoMes = summary.recurrentesEstadoMes;
+    window.lastSummary = summary;
     UIManager.renderDashboard(summary);
     UIManager.renderTransactionsList(AppState.transactions, AppState.currentFilter);
     UIManager.renderRecurrentesList(AppState.recurrentes, AppState.selectedMonth, summary.recurrentesEstadoMes);
+    UIManager.renderHistoricalSavings(summary.historicoAhorro, window.currentSavingsYear);
+  }
+
+  /**
+   * Configuración de Cierre Contable de Meses e Historial
+   */
+  function setupCloseMonthActions() {
+    const btnToggleClose = document.getElementById('btn-toggle-close-month');
+    const btnConfirmClose = document.getElementById('btn-confirm-close-month');
+
+    if (btnToggleClose) {
+      btnToggleClose.addEventListener('click', async () => {
+        const isClosed = AppState.closedMonths.some(m => m.mes === AppState.selectedMonth);
+        if (isClosed) {
+          if (confirm(`¿Deseas reabrir el periodo ${AppState.selectedMonth}?`)) {
+            await handleReopenMonth(AppState.selectedMonth);
+          }
+        } else {
+          const summary = FinancialEngine.calcularConsolidadoFinanciero(
+            AppState.transactions,
+            AppState.cards,
+            AppState.selectedMonth,
+            AppState.budgets,
+            AppState.recurrentes,
+            AppState.closedMonths
+          );
+          UIManager.openCloseMonthModal(summary);
+        }
+      });
+    }
+
+    if (btnConfirmClose) {
+      btnConfirmClose.addEventListener('click', async () => {
+        const summary = FinancialEngine.calcularConsolidadoFinanciero(
+          AppState.transactions,
+          AppState.cards,
+          AppState.selectedMonth,
+          AppState.budgets,
+          AppState.recurrentes,
+          AppState.closedMonths
+        );
+        const { flujoEfectivo, mesActual } = summary;
+        const notesInput = document.getElementById('close-modal-notes');
+        const notes = notesInput ? notesInput.value.trim() : '';
+
+        const tcComprometido = flujoEfectivo.facturacionTC ? flujoEfectivo.facturacionTC.salidaEfectiva : flujoEfectivo.pagosTCVencidas;
+        const monthData = {
+          mes: mesActual,
+          ingresosTotales: flujoEfectivo.ingresos,
+          gastosDirectos: flujoEfectivo.gastosDirectos,
+          prepagosTC: flujoEfectivo.prepagosRealizados,
+          pagosTC: tcComprometido,
+          flujoLibreNeto: flujoEfectivo.balanceLibreNeto,
+          ahorroNeto: flujoEfectivo.balanceLibreNeto,
+          tasaAhorro: flujoEfectivo.ingresos > 0 ? Math.round((flujoEfectivo.balanceLibreNeto / flujoEfectivo.ingresos) * 100) : 0,
+          notas: notes,
+          fechaCierre: new Date().toISOString()
+        };
+
+        btnConfirmClose.disabled = true;
+        btnConfirmClose.textContent = 'Guardando...';
+
+        try {
+          await ApiService.saveClosedMonth(monthData);
+          const existingIdx = AppState.closedMonths.findIndex(m => m.mes === mesActual);
+          if (existingIdx >= 0) {
+            AppState.closedMonths[existingIdx] = monthData;
+          } else {
+            AppState.closedMonths.push(monthData);
+          }
+
+          UIManager.closeCloseMonthModal();
+          UIManager.showToast(`Mes ${mesActual} cerrado formalmente`, 'success');
+          recalculateAndRender();
+        } catch (err) {
+          console.error('Error al cerrar mes:', err);
+          UIManager.showToast('Error al registrar cierre de mes', 'danger');
+        } finally {
+          btnConfirmClose.disabled = false;
+          btnConfirmClose.innerHTML = '<span>🔒</span> Confirmar Cierre';
+        }
+      });
+    }
+
+    window.onTriggerCloseMonth = (mes) => {
+      AppState.selectedMonth = mes;
+      updateMonthLabel();
+      const summary = FinancialEngine.calcularConsolidadoFinanciero(
+        AppState.transactions,
+        AppState.cards,
+        AppState.selectedMonth,
+        AppState.budgets,
+        AppState.recurrentes,
+        AppState.closedMonths
+      );
+      UIManager.openCloseMonthModal(summary);
+    };
+
+    window.onTriggerReopenMonth = async (mes) => {
+      if (confirm(`¿Deseas reabrir el periodo ${mes}?`)) {
+        await handleReopenMonth(mes);
+      }
+    };
+  }
+
+  async function handleReopenMonth(mes) {
+    try {
+      await ApiService.reopenMonth(mes);
+      AppState.closedMonths = AppState.closedMonths.filter(m => m.mes !== mes);
+      UIManager.showToast(`Mes ${mes} reabierto`, 'warning');
+      recalculateAndRender();
+    } catch (err) {
+      console.error('Error al reabrir mes:', err);
+      UIManager.showToast('Error al reabrir mes', 'danger');
+    }
   }
 
   /**

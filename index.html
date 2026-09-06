@@ -83,11 +83,16 @@
     </div>
 
     <!-- Navegador de Mes -->
-    <div class="flex items-center justify-between bg-slate-900/60 py-1.5 px-3 rounded-xl border border-slate-800">
+    <div class="flex items-center justify-between bg-slate-900/60 py-1.5 px-3 rounded-xl border border-slate-800 gap-2">
       <button id="btn-prev-month" class="p-1 rounded-lg text-slate-400 hover:text-white active:scale-90 transition">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
       </button>
-      <span id="current-month-display" class="font-bold text-sm tracking-wide text-slate-200">Septiembre 2026</span>
+      <div class="flex items-center gap-2">
+        <span id="current-month-display" class="font-bold text-sm tracking-wide text-slate-200">Septiembre 2026</span>
+        <button id="btn-toggle-close-month" class="text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-800 text-slate-400 border border-slate-700 hover:border-slate-500 transition cursor-pointer flex items-center gap-1">
+          <span>🔒</span> <span id="label-close-month-btn">Cerrar Mes</span>
+        </button>
+      </div>
       <button id="btn-next-month" class="p-1 rounded-lg text-slate-400 hover:text-white active:scale-90 transition">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
       </button>
@@ -163,10 +168,25 @@
           </span>
           <span id="metric-prepaids-current" class="font-bold text-amber-400 text-sm">-S/ 0.00</span>
         </div>
-        <div class="bg-slate-900/40 p-2.5 rounded-xl border border-slate-800/50">
-          <span class="text-[10px] text-slate-400 block font-medium">TC Vencida Pagada</span>
-          <span id="metric-expired-tc" class="font-bold text-purple-400 text-sm">-S/ 0.00</span>
+        <div class="bg-purple-950/20 p-2.5 rounded-xl border border-purple-500/20">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] text-purple-300 block font-medium">💳 Factura TC Mes</span>
+            <span id="metric-tc-badge" class="text-[9px] px-1.5 py-0.2 rounded font-bold bg-purple-900/60 text-purple-300">Comprometido</span>
+          </div>
+          <span id="metric-expired-tc" class="font-bold text-purple-400 text-sm block mt-0.5">-S/ 0.00</span>
+          <span id="metric-tc-sub" class="text-[9px] text-slate-400 block mt-0.5">Pagado: S/ 0 | Pend: S/ 0</span>
         </div>
+      </div>
+
+      <!-- Botón de Pago Rápido de Factura TC del Mes -->
+      <div id="quick-pay-tc-container" class="hidden mt-3 pt-3 border-t border-slate-800/80">
+        <button id="btn-quick-pay-tc" class="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center justify-between shadow-lg shadow-purple-600/25 active:scale-[0.98] transition cursor-pointer">
+          <span class="flex items-center gap-1.5">
+            <span>💳</span>
+            <span>Pagar Factura TC del Mes</span>
+          </span>
+          <span id="btn-quick-pay-amount" class="bg-black/30 px-2 py-0.5 rounded-lg text-purple-100 text-[11px] font-extrabold">S/ 0.00</span>
+        </button>
       </div>
     </section>
 
@@ -328,18 +348,48 @@
         </div>
       </section>
 
-      <!-- Gráfico 4: Historial de Ahorro Mensual (Meses Cerrados) -->
-      <section class="glass-card rounded-3xl p-5 shadow-2xl border border-slate-800 space-y-3">
+      <!-- Historial de Ahorro y Cierre Anual -->
+      <section class="glass-card rounded-3xl p-5 shadow-2xl border border-slate-800 space-y-4">
         <div class="flex items-center justify-between">
           <div>
             <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
-              <span>📈</span> Historial de Ahorro Mensual
+              <span>📈</span> Historial de Ahorro y Cierre Anual
             </h3>
-            <p class="text-[11px] text-slate-400">Resultados por mes cerrado</p>
+            <p class="text-[11px] text-slate-400">Resultados consolidados por mes y año</p>
           </div>
-          <span id="label-total-savings-history" class="text-xs font-extrabold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-500/30">
-            Ahorro Cerrado: S/ 0.00
-          </span>
+          <!-- Selector de Año -->
+          <div class="flex items-center gap-1 bg-slate-900 px-2 py-1 rounded-xl border border-slate-700">
+            <button id="btn-prev-savings-year" class="text-slate-400 hover:text-white p-0.5 text-xs active:scale-90">◀</button>
+            <span id="savings-year-display" class="font-extrabold text-xs text-sky-400 px-1">2026</span>
+            <button id="btn-next-savings-year" class="text-slate-400 hover:text-white p-0.5 text-xs active:scale-90">▶</button>
+          </div>
+        </div>
+
+        <!-- 4 Tarjetas KPI Anuales -->
+        <div class="grid grid-cols-2 gap-2 text-xs">
+          <div class="bg-emerald-950/30 p-3 rounded-2xl border border-emerald-500/30">
+            <span class="text-[10px] text-emerald-400 uppercase tracking-wider block font-medium">Ahorro Neto Anual</span>
+            <span id="annual-stat-savings" class="text-base font-black text-emerald-400">S/ 0.00</span>
+            <span id="annual-stat-rate" class="text-[10px] text-slate-400 block mt-0.5">Tasa promedio: 0%</span>
+          </div>
+          <div class="bg-slate-900/60 p-3 rounded-2xl border border-slate-800">
+            <span class="text-[10px] text-sky-400 uppercase tracking-wider block font-medium">Meses Cerrados</span>
+            <span id="annual-stat-closed-count" class="text-base font-black text-sky-400">0 / 12</span>
+            <span class="text-[10px] text-slate-400 block mt-0.5">Meses con cierre oficial</span>
+          </div>
+          <div class="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800">
+            <span class="text-[10px] text-slate-400 block font-medium">Total Ingresos Anual</span>
+            <span id="annual-stat-income" class="font-extrabold text-slate-200 text-xs">S/ 0.00</span>
+          </div>
+          <div class="bg-slate-900/60 p-2.5 rounded-xl border border-slate-800">
+            <span class="text-[10px] text-slate-400 block font-medium">Total Salidas Anual</span>
+            <span id="annual-stat-outflows" class="font-extrabold text-slate-200 text-xs">S/ 0.00</span>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between pt-2 border-t border-slate-800 text-xs font-semibold text-slate-400">
+          <span>Desglose por Mes</span>
+          <span id="label-total-savings-history" class="text-emerald-400 font-bold">Total Ahorro: S/ 0.00</span>
         </div>
 
         <div id="historical-savings-container" class="space-y-2 pt-1">
@@ -819,6 +869,62 @@
       <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
         <button id="btn-cancel-confirm-rec" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-semibold">Cancelar</button>
         <button id="btn-save-confirm-rec" class="px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-500 text-xs font-bold shadow-lg shadow-emerald-600/30">Confirmar este Mes</button>
+      </div>
+    </div>
+  <!-- ========================================================================
+       MODAL: CERRAR OFICIALMENTE EL MES
+       ======================================================================== -->
+  <div id="modal-close-month" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-sky-500/40 rounded-3xl w-full max-w-sm p-5 space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+        <div>
+          <h3 class="font-bold text-base text-white flex items-center gap-2">
+            <span>🔒</span> Cierre Contable de Mes
+          </h3>
+          <p id="close-month-target-label" class="text-[11px] text-slate-400">Congelar cifras para el historial de ahorro</p>
+        </div>
+        <button id="btn-close-close-modal" class="text-slate-400 hover:text-white p-1 rounded-lg">✕</button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div class="bg-slate-950/70 p-3 rounded-2xl border border-slate-800 space-y-2">
+          <div class="flex justify-between items-center text-slate-300">
+            <span>Total Ingresos:</span>
+            <span id="close-modal-income" class="font-bold text-emerald-400">S/ 0.00</span>
+          </div>
+          <div class="flex justify-between items-center text-slate-300">
+            <span>Gastos Directos + Fijos:</span>
+            <span id="close-modal-expenses" class="font-bold text-rose-400">S/ 0.00</span>
+          </div>
+          <div class="flex justify-between items-center text-slate-300">
+            <span>Prepagos Realizados:</span>
+            <span id="close-modal-prepayments" class="font-bold text-amber-400">S/ 0.00</span>
+          </div>
+          <div class="flex justify-between items-center text-slate-300">
+            <span>Factura TC Comprometida:</span>
+            <span id="close-modal-tc" class="font-bold text-purple-400">S/ 0.00</span>
+          </div>
+          <div class="pt-2 border-t border-slate-800 flex justify-between items-center">
+            <span class="font-extrabold text-white text-sm">Ahorro Neto:</span>
+            <span id="close-modal-net-savings" class="font-black text-emerald-400 text-base">S/ 0.00</span>
+          </div>
+          <div class="flex justify-between items-center text-[11px] text-slate-400">
+            <span>Tasa de Ahorro:</span>
+            <span id="close-modal-savings-rate" class="font-bold text-sky-300">0%</span>
+          </div>
+        </div>
+
+        <div>
+          <label class="text-slate-400 font-semibold block mb-1">Notas de Cierre (opcional)</label>
+          <input type="text" id="close-modal-notes" placeholder="Ej: Cierre conforme de fin de mes..." class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-sky-500">
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+        <button id="btn-cancel-close-month" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 text-xs font-semibold">Cancelar</button>
+        <button id="btn-confirm-close-month" class="px-4 py-2 rounded-xl bg-sky-600 text-white hover:bg-sky-500 text-xs font-bold shadow-lg shadow-sky-600/30 flex items-center gap-1">
+          <span>🔒</span> Confirmar Cierre
+        </button>
       </div>
     </div>
   </div>
