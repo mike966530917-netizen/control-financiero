@@ -25,113 +25,144 @@ const SHEETS = {
 function setupSheets() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   
-  // 1. Pestaña TRANSACCIONES
+  // 1. Pestaña TRANSACCIONES (NO destructivo: preserva todos los registros existentes)
   let sheetTx = ss.getSheetByName(SHEETS.TRANSACCIONES);
   if (!sheetTx) {
     sheetTx = ss.insertSheet(SHEETS.TRANSACCIONES);
+    const txHeaders = [
+      'ID', 'Fecha', 'Hora', 'Tipo', 'Metodo_Pago', 
+      'Tarjeta_Afectada', 'Categoria', 'Monto', 'Moneda', 
+      'Mes_Impacto_Efectivo', 'Mes_Impacto_TC', 'Notas'
+    ];
+    sheetTx.appendRow(txHeaders);
+    formatHeaderRow(sheetTx, '#1e293b', '#ffffff');
+    sheetTx.setFrozenRows(1);
+    sheetTx.getRange(2, 8, 500, 1).setNumberFormat('#,##0.00');
+  } else if (sheetTx.getLastRow() === 0) {
+    const txHeaders = [
+      'ID', 'Fecha', 'Hora', 'Tipo', 'Metodo_Pago', 
+      'Tarjeta_Afectada', 'Categoria', 'Monto', 'Moneda', 
+      'Mes_Impacto_Efectivo', 'Mes_Impacto_TC', 'Notas'
+    ];
+    sheetTx.appendRow(txHeaders);
+    formatHeaderRow(sheetTx, '#1e293b', '#ffffff');
+    sheetTx.setFrozenRows(1);
   }
-  sheetTx.clear();
-  const txHeaders = [
-    'ID', 'Fecha', 'Hora', 'Tipo', 'Metodo_Pago', 
-    'Tarjeta_Afectada', 'Categoria', 'Monto', 'Moneda', 
-    'Mes_Impacto_Efectivo', 'Mes_Impacto_TC', 'Notas'
-  ];
-  sheetTx.appendRow(txHeaders);
-  formatHeaderRow(sheetTx, '#1e293b', '#ffffff');
-  sheetTx.setFrozenRows(1);
-  sheetTx.getRange(2, 8, 500, 1).setNumberFormat('#,##0.00'); // Formato moneda en Monto
 
-  // 2. Pestaña TARJETAS_CONFIG
+  // 2. Pestaña TARJETAS_CONFIG (Preserva tarjetas personalizadas del usuario)
   let sheetCards = ss.getSheetByName(SHEETS.TARJETAS);
   if (!sheetCards) {
     sheetCards = ss.insertSheet(SHEETS.TARJETAS);
+    const cardHeaders = [
+      'ID_Tarjeta', 'Nombre_Tarjeta', 'Dia_Corte', 
+      'Dia_Vencimiento', 'Moneda', 'Limite_Credito', 'Color_Hex'
+    ];
+    sheetCards.appendRow(cardHeaders);
+    formatHeaderRow(sheetCards, '#0f766e', '#ffffff');
+    sheetCards.setFrozenRows(1);
+    sheetCards.appendRow(['TC_BCP', 'BCP Visa Signature', 20, 10, 'PEN', 10000, '#0033a0']);
+    sheetCards.appendRow(['TC_BBVA', 'BBVA Mastercard Black', 5, 25, 'PEN', 8000, '#004481']);
+    sheetCards.appendRow(['TC_INTERBANK', 'Interbank American Express', 15, 5, 'PEN', 6000, '#009933']);
+  } else if (sheetCards.getLastRow() === 0) {
+    const cardHeaders = [
+      'ID_Tarjeta', 'Nombre_Tarjeta', 'Dia_Corte', 
+      'Dia_Vencimiento', 'Moneda', 'Limite_Credito', 'Color_Hex'
+    ];
+    sheetCards.appendRow(cardHeaders);
+    formatHeaderRow(sheetCards, '#0f766e', '#ffffff');
+    sheetCards.setFrozenRows(1);
   }
-  sheetCards.clear();
-  const cardHeaders = [
-    'ID_Tarjeta', 'Nombre_Tarjeta', 'Dia_Corte', 
-    'Dia_Vencimiento', 'Moneda', 'Limite_Credito', 'Color_Hex'
-  ];
-  sheetCards.appendRow(cardHeaders);
-  formatHeaderRow(sheetCards, '#0f766e', '#ffffff');
-  sheetCards.setFrozenRows(1);
-
-  // Tarjetas de ejemplo iniciales
-  sheetCards.appendRow(['TC_BCP', 'BCP Visa Signature', 20, 10, 'PEN', 10000, '#0033a0']);
-  sheetCards.appendRow(['TC_BBVA', 'BBVA Mastercard Black', 5, 25, 'PEN', 8000, '#004481']);
-  sheetCards.appendRow(['TC_INTERBANK', 'Interbank American Express', 15, 5, 'PEN', 6000, '#009933']);
 
   // 3. Pestaña CONSOLIDADO_MENSUAL
   let sheetCons = ss.getSheetByName(SHEETS.CONSOLIDADO);
   if (!sheetCons) {
     sheetCons = ss.insertSheet(SHEETS.CONSOLIDADO);
+    const consHeaders = [
+      'Mes (YYYY-MM)', 'Ingresos_Totales', 'Gastos_Directos', 
+      'Prepagos_TC', 'TC_Vencidas_Pagadas', 'Flujo_Libre_Neto', 
+      'Nuevos_Consumos_TC', 'Deuda_Proyectada_Mes_Siguiente'
+    ];
+    sheetCons.appendRow(consHeaders);
+    formatHeaderRow(sheetCons, '#4338ca', '#ffffff');
+    sheetCons.setFrozenRows(1);
+    sheetCons.getRange(2, 2, 100, 7).setNumberFormat('#,##0.00');
+  } else if (sheetCons.getLastRow() === 0) {
+    const consHeaders = [
+      'Mes (YYYY-MM)', 'Ingresos_Totales', 'Gastos_Directos', 
+      'Prepagos_TC', 'TC_Vencidas_Pagadas', 'Flujo_Libre_Neto', 
+      'Nuevos_Consumos_TC', 'Deuda_Proyectada_Mes_Siguiente'
+    ];
+    sheetCons.appendRow(consHeaders);
+    formatHeaderRow(sheetCons, '#4338ca', '#ffffff');
+    sheetCons.setFrozenRows(1);
   }
-  sheetCons.clear();
-  const consHeaders = [
-    'Mes (YYYY-MM)', 'Ingresos_Totales', 'Gastos_Directos', 
-    'Prepagos_TC', 'TC_Vencidas_Pagadas', 'Flujo_Libre_Neto', 
-    'Nuevos_Consumos_TC', 'Deuda_Proyectada_Mes_Siguiente'
-  ];
-  sheetCons.appendRow(consHeaders);
-  formatHeaderRow(sheetCons, '#4338ca', '#ffffff');
-  sheetCons.setFrozenRows(1);
-  sheetCons.getRange(2, 2, 100, 7).setNumberFormat('#,##0.00');
 
-  // 4. Pestaña PRESUPUESTOS
+  // 4. Pestaña PRESUPUESTOS (Preserva presupuestos creados por el usuario)
   let sheetBudgets = ss.getSheetByName(SHEETS.PRESUPUESTOS);
   if (!sheetBudgets) {
     sheetBudgets = ss.insertSheet(SHEETS.PRESUPUESTOS);
+    const budgetHeaders = ['Categoria', 'Presupuesto_Mensual', 'Moneda'];
+    sheetBudgets.appendRow(budgetHeaders);
+    formatHeaderRow(sheetBudgets, '#0284c7', '#ffffff');
+    sheetBudgets.setFrozenRows(1);
+    sheetBudgets.getRange(2, 2, 100, 1).setNumberFormat('#,##0.00');
+
+    const defaultBudgets = [
+      ['Supermercado', 800, 'PEN'],
+      ['Alimentación', 500, 'PEN'],
+      ['Transporte', 250, 'PEN'],
+      ['Servicios', 350, 'PEN'],
+      ['Suscripciones', 100, 'PEN'],
+      ['Restaurantes', 300, 'PEN'],
+      ['Compras', 400, 'PEN'],
+      ['Salud', 200, 'PEN'],
+      ['Entretenimiento', 200, 'PEN'],
+      ['Varios', 200, 'PEN']
+    ];
+    defaultBudgets.forEach(b => sheetBudgets.appendRow(b));
+  } else if (sheetBudgets.getLastRow() === 0) {
+    const budgetHeaders = ['Categoria', 'Presupuesto_Mensual', 'Moneda'];
+    sheetBudgets.appendRow(budgetHeaders);
+    formatHeaderRow(sheetBudgets, '#0284c7', '#ffffff');
+    sheetBudgets.setFrozenRows(1);
   }
-  sheetBudgets.clear();
-  const budgetHeaders = ['Categoria', 'Presupuesto_Mensual', 'Moneda'];
-  sheetBudgets.appendRow(budgetHeaders);
-  formatHeaderRow(sheetBudgets, '#0284c7', '#ffffff');
-  sheetBudgets.setFrozenRows(1);
-  sheetBudgets.getRange(2, 2, 100, 1).setNumberFormat('#,##0.00');
 
-  const defaultBudgets = [
-    ['Supermercado', 800, 'PEN'],
-    ['Alimentación', 500, 'PEN'],
-    ['Transporte', 250, 'PEN'],
-    ['Servicios', 350, 'PEN'],
-    ['Suscripciones', 100, 'PEN'],
-    ['Restaurantes', 300, 'PEN'],
-    ['Compras', 400, 'PEN'],
-    ['Salud', 200, 'PEN'],
-    ['Entretenimiento', 200, 'PEN'],
-    ['Varios', 200, 'PEN']
-  ];
-  defaultBudgets.forEach(b => sheetBudgets.appendRow(b));
-
-  // 5. Pestaña RECURRENTES (Ingresos y Gastos Fijos Mensuales)
+  // 5. Pestaña RECURRENTES (Preserva movimientos fijos creados por el usuario)
   let sheetRec = ss.getSheetByName(SHEETS.RECURRENTES);
   if (!sheetRec) {
     sheetRec = ss.insertSheet(SHEETS.RECURRENTES);
-  }
-  sheetRec.clear();
-  const recHeaders = ['ID', 'Nombre', 'Tipo', 'Monto', 'Categoria', 'Metodo_Pago', 'Dia_Mes', 'Activo', 'Notas'];
-  sheetRec.appendRow(recHeaders);
-  formatHeaderRow(sheetRec, '#6366f1', '#ffffff');
-  sheetRec.setFrozenRows(1);
-  sheetRec.getRange(2, 4, 100, 1).setNumberFormat('#,##0.00');
+    const recHeaders = ['ID', 'Nombre', 'Tipo', 'Monto', 'Categoria', 'Metodo_Pago', 'Dia_Mes', 'Activo', 'Notas'];
+    sheetRec.appendRow(recHeaders);
+    formatHeaderRow(sheetRec, '#6366f1', '#ffffff');
+    sheetRec.setFrozenRows(1);
+    sheetRec.getRange(2, 4, 100, 1).setNumberFormat('#,##0.00');
 
-  const defaultRecurrentes = [
-    ['REC-1', 'Sueldo Principal', 'Ingreso_Fijo', 3500, 'Sueldo', 'Transferencia', 28, 'SI', 'Planilla mensual'],
-    ['REC-2', 'Alquiler de Vivienda', 'Gasto_Fijo', 1200, 'Hogar', 'Transferencia', 1, 'SI', 'Alquiler mensual'],
-    ['REC-3', 'Servicios Luz y Agua', 'Gasto_Fijo', 180, 'Servicios', 'Débito BCP', 15, 'SI', 'Recibos básicos'],
-    ['REC-4', 'Internet Hogar', 'Gasto_Fijo', 120, 'Servicios', 'Débito BCP', 18, 'SI', 'Fibra óptica'],
-    ['REC-5', 'Suscripciones Digitales', 'Gasto_Fijo', 70, 'Ocio', 'Tarjeta', 20, 'SI', 'Streaming']
-  ];
-  defaultRecurrentes.forEach(r => sheetRec.appendRow(r));
+    const defaultRecurrentes = [
+      ['REC-1', 'Sueldo Principal', 'Ingreso_Fijo', 3500, 'Sueldo', 'Transferencia', 28, 'SI', 'Planilla mensual'],
+      ['REC-2', 'Alquiler de Vivienda', 'Gasto_Fijo', 1200, 'Hogar', 'Transferencia', 1, 'SI', 'Alquiler mensual'],
+      ['REC-3', 'Servicios Luz y Agua', 'Gasto_Fijo', 180, 'Servicios', 'Débito BCP', 15, 'SI', 'Recibos básicos'],
+      ['REC-4', 'Internet Hogar', 'Gasto_Fijo', 120, 'Servicios', 'Débito BCP', 18, 'SI', 'Fibra óptica'],
+      ['REC-5', 'Suscripciones Digitales', 'Gasto_Fijo', 70, 'Ocio', 'Tarjeta', 20, 'SI', 'Streaming']
+    ];
+    defaultRecurrentes.forEach(r => sheetRec.appendRow(r));
+  } else if (sheetRec.getLastRow() === 0) {
+    const recHeaders = ['ID', 'Nombre', 'Tipo', 'Monto', 'Categoria', 'Metodo_Pago', 'Dia_Mes', 'Activo', 'Notas'];
+    sheetRec.appendRow(recHeaders);
+    formatHeaderRow(sheetRec, '#6366f1', '#ffffff');
+    sheetRec.setFrozenRows(1);
+  }
 
   // Autoajuste de columnas
   [sheetTx, sheetCards, sheetCons, sheetBudgets, sheetRec].forEach(s => {
-    for (let c = 1; c <= s.getLastColumn(); c++) {
-      s.autoResizeColumn(c);
+    if (s) {
+      for (let c = 1; c <= s.getLastColumn(); c++) {
+        s.autoResizeColumn(c);
+      }
     }
   });
 
   SpreadsheetApp.flush();
-  Logger.log('✅ Hojas y estructuras configuradas exitosamente en Google Sheets.');
+  Logger.log('✅ Hojas y estructuras verificadas exitosamente (datos existentes preservados intactos).');
 }
 
 /**
