@@ -916,23 +916,20 @@
           gastosPorCategoria[cat] = (gastosPorCategoria[cat] || 0) + monto;
         } else if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC) {
           totalPrepagosRealizados += monto;
-          gastosPorCategoria['Prepago TC'] = (gastosPorCategoria['Prepago TC'] || 0) + monto;
         }
       }
 
-      // En la gráfica de gastos por categoría, incluir también los consumos con tarjeta realizados en este mes
+      // En la gráfica de gastos por categoría, incluir los consumos con tarjeta realizados en este mes en sus categorías reales
       if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC && txMesFecha === mesActualStr && tx.estado !== 'LIQUIDADO' && tx.estado !== 'LIQUIDADA' && !tx.esLiquidado) {
         const cat = normalizarCategoria(tx.categoria, TIPOS_TRANSACCION.CONSUMO_TC);
         gastosPorCategoria[cat] = (gastosPorCategoria[cat] || 0) + monto;
       }
     });
 
-    if (globalPagosTCVencidasMes > 0) {
-      gastosPorCategoria['Pago Factura TC'] = Number(globalPagosTCVencidasMes.toFixed(2));
-    }
-    if (pendientePagoTCDelMes > 0) {
-      gastosPorCategoria['Factura TC (Por Pagar)'] = Number(pendientePagoTCDelMes.toFixed(2));
-    }
+    // Asegurar formato de dos decimales para cada categoría real
+    Object.keys(gastosPorCategoria).forEach(k => {
+      gastosPorCategoria[k] = Number(gastosPorCategoria[k].toFixed(2));
+    });
 
     // Total salidas considera gastos directos, prepagos realizados en efectivo y la obligación facturada de TC
     const totalSalidasEfectivo = totalGastosDirectos + totalPrepagosRealizados + salidaEfectivaTCDelMes;
@@ -1097,7 +1094,8 @@
       },
       presupuestos: calcularEstadoPresupuestos(gastosPorCategoria, presupuestosConfig),
       recurrentesEstadoMes: recurrentesEstadoMes,
-      historicoAhorro: calcularHistoricoAhorro(transaccionesConsolidadas, mesActualStr, closedMonths)
+      historicoAhorro: calcularHistoricoAhorro(transaccionesConsolidadas, mesActualStr, closedMonths),
+      transaccionesConsolidadas: transaccionesConsolidadas
     };
   }
 
@@ -1263,6 +1261,87 @@
     return alertas.sort((a, b) => a.prioridad - b.prioridad);
   }
 
+  /**
+   * Obtiene el desglose detallado de todos los movimientos (directos, consumos TC y fijos)
+   * que contribuyen al gasto de una categoría específica en un mes determinado.
+   *
+   * @param {Array} transaccionesConsolidadas - Transacciones consolidadas del mes (incluye fijos generados)
+   * @param {string} categoria - Nombre de la categoría (ej. 'Supermercado', 'Servicios')
+   * @param {string} mesActualStr - Mes en formato 'YYYY-MM'
+   * @returns {Object} { categoria, mes, totalGastado, movimientosCount, movimientos: Array }
+   */
+  function obtenerDetalleGastosPorCategoria(transaccionesConsolidadas = [], categoria = '', mesActualStr = null) {
+    if (!mesActualStr) {
+      mesActualStr = obtenerMesImpacto(new Date());
+    } else {
+      mesActualStr = normalizarMes(mesActualStr);
+    }
+
+    const catBuscada = normalizarCategoria(categoria, TIPOS_TRANSACCION.GASTO_DIRECTO);
+    const movimientos = [];
+    let totalGastado = 0;
+
+    (transaccionesConsolidadas || []).forEach(tx => {
+      if (tx.estado === 'LIQUIDADO' || tx.estado === 'LIQUIDADA' || tx.esLiquidado === true) {
+        return;
+      }
+
+      const monto = parseFloat(tx.monto) || 0;
+      const txMesEfectivo = normalizarMes(tx.mesImpactoEfectivo);
+      const txMesFecha = normalizarMes(tx.fecha);
+      const esFijo = !!(tx.esFijoProyectado || tx.recurrenteId || (tx.notas && String(tx.notas).includes('[Fijo')));
+
+      // 1. Gastos Directos del mes
+      if (tx.tipo === TIPOS_TRANSACCION.GASTO_DIRECTO && txMesEfectivo === mesActualStr) {
+        const catTx = normalizarCategoria(tx.categoria, TIPOS_TRANSACCION.GASTO_DIRECTO);
+        if (catTx === catBuscada) {
+          totalGastado += monto;
+          movimientos.push({
+            id: tx.id,
+            fecha: tx.fecha || '',
+            concepto: tx.notas || tx.nombre || tx.categoria,
+            tipo: esFijo ? 'Gasto_Fijo' : 'Gasto_Directo',
+            tipoLabel: esFijo ? 'Gasto Fijo' : 'Gasto Directo',
+            icono: esFijo ? '⚙️' : '📉',
+            origen: tx.metodoPago || 'Efectivo',
+            monto: monto,
+            esFijo: esFijo
+          });
+        }
+      }
+
+      // 2. Consumos con Tarjeta de Crédito realizados en este mes
+      if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC && txMesFecha === mesActualStr) {
+        const catTx = normalizarCategoria(tx.categoria, TIPOS_TRANSACCION.CONSUMO_TC);
+        if (catTx === catBuscada) {
+          totalGastado += monto;
+          movimientos.push({
+            id: tx.id,
+            fecha: tx.fecha || '',
+            concepto: tx.notas || tx.nombre || tx.categoria,
+            tipo: 'Consumo_TC',
+            tipoLabel: 'Tarjeta de Crédito',
+            icono: '💳',
+            origen: tx.tarjetaAfectada || 'Tarjeta de Crédito',
+            monto: monto,
+            cuotaInfo: tx.numeroCuota && tx.totalCuotas ? `Cuota ${tx.numeroCuota}/${tx.totalCuotas}` : null
+          });
+        }
+      }
+    });
+
+    // Ordenar movimientos por fecha descendente
+    movimientos.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
+
+    return {
+      categoria: catBuscada,
+      mes: mesActualStr,
+      totalGastado: Number(totalGastado.toFixed(2)),
+      movimientosCount: movimientos.length,
+      movimientos: movimientos
+    };
+  }
+
   // Exportar para Node.js y Navegador
   const FinancialEngine = {
     TIPOS_TRANSACCION,
@@ -1277,6 +1356,7 @@
     sumarMesesAFecha,
     dividirEnCuotas,
     obtenerComprasEnCuotasPendientes,
+    obtenerDetalleGastosPorCategoria,
     prepararTransaccion,
     calcularConsolidadoFinanciero,
     calcularEstadoPresupuestos,

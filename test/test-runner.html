@@ -621,6 +621,84 @@
       `Prepagos mes: S/ ${consolidadoLiquidado.flujoEfectivo.prepagosRealizados}, Futuras restantes: S/ ${bcpPostLiq ? bcpPostLiq.cuotasFuturasComprometidas : 0}, Línea Disp: S/ ${bcpPostLiq ? bcpPostLiq.lineaDisponible : 0}, Cuotas activas: ${comprasPostLiq[0] ? comprasPostLiq[0].cuotasRestantesCount : 0}`
     );
 
+    // Prueba 32: TOP 5 MOVIMIENTOS RECIENTES (Orden cronológico descendente)
+    const listaTestTxs = [
+      { id: 'T1', fecha: '2026-09-01', hora: '10:00:00', tipo: TIPOS_TRANSACCION.GASTO_DIRECTO, monto: 10 },
+      { id: 'T2', fecha: '2026-09-02', hora: '11:00:00', tipo: TIPOS_TRANSACCION.GASTO_DIRECTO, monto: 20 },
+      { id: 'T3', fecha: '2026-09-03', hora: '12:00:00', tipo: TIPOS_TRANSACCION.GASTO_DIRECTO, monto: 30 },
+      { id: 'T4', fecha: '2026-09-04', hora: '13:00:00', tipo: TIPOS_TRANSACCION.GASTO_DIRECTO, monto: 40 },
+      { id: 'T5', fecha: '2026-09-05', hora: '14:00:00', tipo: TIPOS_TRANSACCION.GASTO_DIRECTO, monto: 50 },
+      { id: 'T6', fecha: '2026-09-06', hora: '15:00:00', tipo: TIPOS_TRANSACCION.GASTO_DIRECTO, monto: 60 },
+      { id: 'T7', fecha: '2026-09-07', hora: '09:00:00', tipo: TIPOS_TRANSACCION.GASTO_DIRECTO, monto: 70 },
+      { id: 'T-LIQ', fecha: '2026-09-08', hora: '09:00:00', tipo: TIPOS_TRANSACCION.GASTO_DIRECTO, monto: 80, estado: 'LIQUIDADO' }
+    ];
+
+    const filteredTxs = listaTestTxs.filter(t => t.estado !== 'LIQUIDADO' && !t.esLiquidado);
+    const sortedTxs = [...filteredTxs].sort((a, b) => {
+      const dateA = (a.fecha || '') + ' ' + (a.hora || '00:00:00');
+      const dateB = (b.fecha || '') + ' ' + (b.hora || '00:00:00');
+      return dateB.localeCompare(dateA);
+    });
+    const top5 = sortedTxs.slice(0, 5);
+
+    const okTop5Count = top5.length === 5;
+    const okPrimerItem = top5[0].id === 'T7'; // 2026-09-07 es el más reciente no liquidado
+    const okUltimoTop5 = top5[4].id === 'T3'; // 2026-09-03 es el 5to
+    const okExcluyeLiquidado = !top5.some(t => t.id === 'T-LIQ');
+
+    report('Top 5 Movimientos Recientes: Orden cronológico descendente, exclusión de liquidados y corte estricto a 5 items',
+      okTop5Count && okPrimerItem && okUltimoTop5 && okExcluyeLiquidado,
+      `Mostrados: ${top5.length} de ${listaTestTxs.length}. Primero: ${top5[0].id} (${top5[0].fecha}), Quinto: ${top5[4].id} (${top5[4].fecha})`
+    );
+
+    // Prueba 33: DESGLOSE DE GASTOS POR CATEGORÍA
+    const txsPresupuestoDetalle = [
+      prepararTransaccion({ id: 'TX-D1', fecha: '2026-09-02', tipo: TIPOS_TRANSACCION.GASTO_DIRECTO, categoria: 'Supermercado', monto: 120, notas: 'Compra semanal Plaza Vea' }, tarjetasConfig),
+      prepararTransaccion({ id: 'TX-TC1', fecha: '2026-09-10', tipo: TIPOS_TRANSACCION.CONSUMO_TC, tarjetaAfectada: 'TC_BCP', categoria: 'Supermercado', monto: 130, notas: 'Wong carnes' }, tarjetasConfig),
+      prepararTransaccion({ id: 'TX-FIJO1', fecha: '2026-09-01', tipo: TIPOS_TRANSACCION.GASTO_DIRECTO, categoria: 'Supermercado', monto: 50, notas: '[Fijo] Despensa básica mensual', esFijoProyectado: true }, tarjetasConfig),
+      prepararTransaccion({ id: 'TX-REST', fecha: '2026-09-05', tipo: TIPOS_TRANSACCION.GASTO_DIRECTO, categoria: 'Restaurantes', monto: 80 }, tarjetasConfig)
+    ];
+
+    const presupuestosDemo = [{ categoria: 'Supermercado', limite: 400 }];
+    const consolidadoPresupuesto = calcularConsolidadoFinanciero(txsPresupuestoDetalle, tarjetasConfig, '2026-09', presupuestosDemo);
+    const superPresupuesto = consolidadoPresupuesto.presupuestos.find(p => p.categoria === 'Supermercado');
+
+    const detalleGastos = FinancialEngine.obtenerDetalleGastosPorCategoria(
+      consolidadoPresupuesto.transaccionesConsolidadas,
+      'Supermercado',
+      '2026-09'
+    );
+
+    const okGastoPresupuesto300 = superPresupuesto && superPresupuesto.gastado === 300; // 120 + 130 + 50 = 300
+    const okDetalleSuma300 = detalleGastos.totalGastado === 300;
+    const okDetalleItemsCount = detalleGastos.movimientosCount === 3;
+    const okSumaCoincideAlCentimo = Math.abs(detalleGastos.totalGastado - superPresupuesto.gastado) < 0.001;
+
+    report('Desglose de Gastos en Presupuestos: Inspección de los movimientos individuales que suman exactamente el monto consumido (S/ 300.00 de S/ 400.00)',
+      okGastoPresupuesto300 && okDetalleSuma300 && okDetalleItemsCount && okSumaCoincideAlCentimo,
+      `Presupuesto Gastado: S/ ${superPresupuesto ? superPresupuesto.gastado : 0}, Suma Desglose: S/ ${detalleGastos.totalGastado}, Movimientos contribuyentes: ${detalleGastos.movimientosCount}`
+    );
+
+    // Prueba 34: CATEGORIZACIÓN REAL DE CONSUMOS TC (Sin pseudo-categoría Factura TC por pagar)
+    const txsConsumosReales = [
+      prepararTransaccion({ id: 'TX-FARMA', fecha: '2026-09-04', tipo: TIPOS_TRANSACCION.CONSUMO_TC, tarjetaAfectada: 'TC_BCP', categoria: 'Salud', monto: 150 }, tarjetasConfig),
+      prepararTransaccion({ id: 'TX-CINE', fecha: '2026-09-06', tipo: TIPOS_TRANSACCION.CONSUMO_TC, tarjetaAfectada: 'TC_BCP', categoria: 'Entretenimiento', monto: 75 }, tarjetasConfig),
+      prepararTransaccion({ id: 'TX-PAGO-MES', fecha: '2026-09-05', tipo: TIPOS_TRANSACCION.PAGO_TC_VENCIDA, tarjetaAfectada: 'TC_BCP', monto: 200, mesImpactoTC: '2026-09', mesImpactoEfectivo: '2026-09' }, tarjetasConfig)
+    ];
+
+    const consolidadoCategorias = calcularConsolidadoFinanciero(txsConsumosReales, tarjetasConfig, '2026-09');
+    const gastosCat = consolidadoCategorias.categorias.gastos;
+
+    const okSalud = gastosCat['Salud'] === 150;
+    const okEntretenimiento = gastosCat['Entretenimiento'] === 75;
+    const sinFacturaPorPagar = !('Factura TC (Por Pagar)' in gastosCat);
+    const sinPagoFacturaTC = !('Pago Factura TC' in gastosCat);
+
+    report('Categorización Estricta de Consumos TC: Consumos caen en Salud (S/ 150) y Entretenimiento (S/ 75), eliminando pseudo-categorías "Factura TC (Por Pagar)"',
+      okSalud && okEntretenimiento && sinFacturaPorPagar && sinPagoFacturaTC,
+      `Salud: S/ ${gastosCat['Salud']}, Entretenimiento: S/ ${gastosCat['Entretenimiento']}, Tiene 'Factura TC (Por Pagar)': ${'Factura TC (Por Pagar)' in gastosCat}, Tiene 'Pago Factura TC': ${'Pago Factura TC' in gastosCat}`
+    );
+
     summaryBox.innerHTML = `
       <div class="flex items-center justify-between">
         <span class="font-bold ${failedCount === 0 ? 'text-emerald-400' : 'text-rose-400'} text-base">

@@ -42,6 +42,7 @@
       this.currentView = 'view-dashboard';
       this.categoryChart = null;
       this.cashflowChart = null;
+      this.showAllTransactions = false;
     }
 
     init() {
@@ -64,6 +65,20 @@
       const cancelLiquidarBtn = document.getElementById('btn-cancel-liquidar');
       if (closeLiquidarModalBtn) closeLiquidarModalBtn.addEventListener('click', () => this.closeLiquidarCuotasModal());
       if (cancelLiquidarBtn) cancelLiquidarBtn.addEventListener('click', () => this.closeLiquidarCuotasModal());
+
+      const closeDetalleCatBtn = document.getElementById('btn-close-detalle-cat-modal');
+      const okDetalleCatBtn = document.getElementById('btn-ok-detalle-cat');
+      if (closeDetalleCatBtn) closeDetalleCatBtn.addEventListener('click', () => this.closeDetalleCategoriaModal());
+      if (okDetalleCatBtn) okDetalleCatBtn.addEventListener('click', () => this.closeDetalleCategoriaModal());
+
+      const btnToggleTxs = document.getElementById('btn-toggle-all-txs');
+      if (btnToggleTxs) {
+        btnToggleTxs.addEventListener('click', () => {
+          this.showAllTransactions = !this.showAllTransactions;
+          const allTxs = window.cachedTransactions || [];
+          this.renderTransactionsList(allTxs, this.currentFilter || 'ALL');
+        });
+      }
 
       // Selector de año en Historial de Ahorro
       const btnPrevYear = document.getElementById('btn-prev-savings-year');
@@ -1024,15 +1039,25 @@
               const pct = totalGastado > 0 ? Math.round((val / totalGastado) * 100) : 0;
               const color = colors[idx % colors.length];
               return `
-                <div class="flex items-center justify-between p-2 bg-slate-900/60 rounded-xl border border-slate-800">
+                <div class="btn-inspect-category flex items-center justify-between p-2 bg-slate-900/60 hover:bg-slate-800/80 rounded-xl border border-slate-800 hover:border-sky-500/40 cursor-pointer transition" data-categoria="${label}" title="Toca para ver los gastos de ${label}">
                   <div class="flex items-center gap-2 truncate">
                     <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: ${color}"></span>
                     <span class="text-slate-300 font-medium truncate text-xs">${label}</span>
                   </div>
-                  <span class="font-bold text-slate-100 flex-shrink-0 ml-1 text-xs">${pct}%</span>
+                  <div class="flex items-center gap-1 flex-shrink-0 ml-1">
+                    <span class="text-[11px] text-slate-400">S/ ${val.toFixed(2)}</span>
+                    <span class="font-bold text-sky-400 text-xs">(${pct}%)</span>
+                  </div>
                 </div>
               `;
             }).join('');
+
+            catLegend.querySelectorAll('.btn-inspect-category').forEach(el => {
+              el.addEventListener('click', () => {
+                const cat = el.getAttribute('data-categoria');
+                this.openDetalleCategoriaModal(cat);
+              });
+            });
           }
         }
       }
@@ -1087,15 +1112,24 @@
     }
 
     // ==========================================================================
-    // RENDERIZADO DE MOVIMIENTOS RECIENTES
+    // ==========================================================================
+    // RENDERIZADO DE MOVIMIENTOS RECIENTES (Límite 5 más recientes por defecto)
     // ==========================================================================
     renderTransactionsList(transactions, currentFilter = 'ALL') {
       const container = document.getElementById('recent-transactions-list');
+      const toggleContainer = document.getElementById('tx-toggle-container');
+      const btnToggle = document.getElementById('btn-toggle-all-txs');
       if (!container) return;
 
-      let filtered = transactions;
+      this.currentFilter = currentFilter;
+
+      let filtered = (transactions || []).filter(t => {
+        if (t.estado === 'LIQUIDADO' || t.estado === 'LIQUIDADA' || t.esLiquidado === true) return false;
+        return true;
+      });
+
       if (currentFilter !== 'ALL') {
-        filtered = transactions.filter(t => t.tipo === currentFilter);
+        filtered = filtered.filter(t => t.tipo === currentFilter);
       }
 
       if (!filtered.length) {
@@ -1105,10 +1139,34 @@
             No hay transacciones registradas en este periodo.
           </div>
         `;
+        if (toggleContainer) toggleContainer.classList.add('hidden');
         return;
       }
 
-      container.innerHTML = filtered.slice(0, 20).map(tx => {
+      // Ordenar cronológicamente descendente (más recientes primero)
+      const sorted = [...filtered].sort((a, b) => {
+        const dateA = (a.fecha || '') + ' ' + (a.hora || '00:00:00');
+        const dateB = (b.fecha || '') + ' ' + (b.hora || '00:00:00');
+        return dateB.localeCompare(dateA);
+      });
+
+      // Limitar a los 5 más recientes por defecto
+      let itemsToShow = sorted;
+      if (sorted.length > 5) {
+        if (toggleContainer) toggleContainer.classList.remove('hidden');
+        if (this.showAllTransactions) {
+          itemsToShow = sorted;
+          if (btnToggle) btnToggle.innerHTML = 'Mostrar solo los 5 más recientes';
+        } else {
+          itemsToShow = sorted.slice(0, 5);
+          if (btnToggle) btnToggle.innerHTML = `👁️ Mostrar más movimientos (${sorted.length - 5} restantes)`;
+        }
+      } else {
+        if (toggleContainer) toggleContainer.classList.add('hidden');
+        itemsToShow = sorted;
+      }
+
+      container.innerHTML = itemsToShow.map(tx => {
         let badgeColor = 'bg-slate-700 text-slate-300';
         let sign = '';
         let amountColor = 'text-slate-100';
@@ -1164,7 +1222,7 @@
               <span class="text-sm ${amountColor}">
                 ${sign}S/ ${(parseFloat(tx.monto) || 0).toFixed(2)}
               </span>
-              <button class="btn-delete-tx text-slate-500 hover:text-rose-400 p-1 rounded active:scale-90 transition" data-tx-id="${tx.id}" title="Eliminar">
+              <button class="btn-delete-tx text-slate-500 hover:text-rose-400 p-1 rounded active:scale-90 transition cursor-pointer" data-tx-id="${tx.id}" title="Eliminar">
                 ✕
               </button>
             </div>
@@ -1221,9 +1279,12 @@
         const widthPercent = Math.min(100, Math.max(3, p.porcentaje));
 
         return `
-          <div class="p-3 bg-slate-900/60 rounded-2xl border border-slate-800 space-y-1.5">
+          <div class="btn-inspect-category p-3 bg-slate-900/60 hover:bg-slate-800/80 rounded-2xl border border-slate-800 hover:border-sky-500/40 space-y-1.5 cursor-pointer transition" data-categoria="${p.categoria}" title="Toca para ver qué gastos suman este monto">
             <div class="flex items-center justify-between text-xs">
-              <span class="font-bold text-slate-200">${p.categoria}</span>
+              <div class="flex items-center gap-1.5 font-bold text-slate-200">
+                <span>${p.categoria}</span>
+                <span class="text-[10px] text-sky-400 font-normal">🔍 Ver detalle</span>
+              </div>
               <span class="text-[10px] font-bold px-2 py-0.5 rounded-md border ${badgeBg}">
                 ${statusBadge}
               </span>
@@ -1245,6 +1306,13 @@
           </div>
         `;
       }).join('');
+
+      container.querySelectorAll('.btn-inspect-category').forEach(el => {
+        el.addEventListener('click', () => {
+          const cat = el.getAttribute('data-categoria');
+          this.openDetalleCategoriaModal(cat);
+        });
+      });
     }
 
     // ==========================================================================
@@ -2017,6 +2085,152 @@
         cuotasSeleccionadas,
         totalMonto
       };
+    }
+
+    openDetalleCategoriaModal(categoria) {
+      const modal = document.getElementById('modal-detalle-categoria');
+      if (!modal) return;
+
+      const titleEl = document.getElementById('detalle-cat-title');
+      const subtitleEl = document.getElementById('detalle-cat-subtitle');
+      const iconEl = document.getElementById('detalle-cat-icon');
+      const summaryEl = document.getElementById('detalle-cat-summary');
+      const countEl = document.getElementById('detalle-cat-count');
+      const listEl = document.getElementById('detalle-cat-movements-list');
+      const footerTotalEl = document.getElementById('detalle-cat-total-footer');
+
+      const summary = window.lastSummary || {};
+      const mesActual = summary.mesActual || (window.AppState?.selectedMonth) || '';
+      const txs = summary.transaccionesConsolidadas || window.cachedTransactions || [];
+
+      // Obtener desglose desde el motor financiero
+      const detalle = FinancialEngine.obtenerDetalleGastosPorCategoria(txs, categoria, mesActual);
+
+      // Buscar si tiene presupuesto configurado
+      const presupuesto = (summary.presupuestos || []).find(p => p.categoria.toLowerCase() === (categoria || '').toLowerCase()) || null;
+
+      if (titleEl) titleEl.textContent = detalle.categoria;
+      if (subtitleEl) subtitleEl.textContent = `Periodo: ${mesActual || 'Mes en curso'}`;
+
+      // Iconos representativos por categoría
+      const iconos = {
+        'Supermercado': '🛒',
+        'Restaurantes': '🍽️',
+        'Servicios': '💡',
+        'Transporte': '🚗',
+        'Hogar': '🏠',
+        'Educación': '📚',
+        'Salud': '💊',
+        'Entretenimiento': '🎬',
+        'Otros': '📦'
+      };
+      if (iconEl) iconEl.textContent = iconos[detalle.categoria] || '📊';
+
+      // Resumen del presupuesto
+      if (summaryEl) {
+        if (presupuesto) {
+          let badgeBg = 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
+          let badgeText = `${presupuesto.porcentaje}% consumido`;
+          let barBg = 'bg-emerald-400';
+          if (presupuesto.estado === 'PELIGRO') {
+            badgeBg = 'bg-rose-500/20 text-rose-400 border-rose-500/30';
+            barBg = 'bg-rose-500';
+            badgeText = `Excedido (+S/ ${Math.abs(presupuesto.restante).toFixed(2)})`;
+          } else if (presupuesto.estado === 'ALERTA') {
+            badgeBg = 'bg-amber-500/20 text-amber-400 border-amber-500/30';
+            barBg = 'bg-amber-400';
+          }
+          const widthPercent = Math.min(100, Math.max(2, presupuesto.porcentaje));
+
+          summaryEl.innerHTML = `
+            <div class="flex items-center justify-between text-xs mb-1">
+              <span class="text-slate-400 font-semibold">Presupuesto asignado:</span>
+              <span class="text-slate-200 font-bold">S/ ${presupuesto.limite.toFixed(2)}</span>
+            </div>
+            <div class="flex items-center justify-between text-xs mb-2">
+              <span class="text-slate-300 font-extrabold">Total gastado:</span>
+              <span class="text-white font-extrabold text-sm">S/ ${detalle.totalGastado.toFixed(2)}</span>
+            </div>
+            <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden mb-1.5">
+              <div class="${barBg} h-full rounded-full transition-all duration-500" style="width: ${widthPercent}%"></div>
+            </div>
+            <div class="flex items-center justify-between text-[11px]">
+              <span class="text-slate-400">Disponible: <b class="${presupuesto.restante < 0 ? 'text-rose-400' : 'text-emerald-400'}">S/ ${presupuesto.restante.toFixed(2)}</b></span>
+              <span class="px-2 py-0.5 rounded border text-[10px] font-bold ${badgeBg}">${badgeText}</span>
+            </div>
+          `;
+        } else {
+          summaryEl.innerHTML = `
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-slate-400 font-semibold">Total gastado en ${detalle.categoria}:</span>
+              <span class="text-white font-extrabold text-sm">S/ ${detalle.totalGastado.toFixed(2)}</span>
+            </div>
+            <p class="text-[10px] text-slate-500 mt-1">Sin límite de presupuesto asignado para esta categoría.</p>
+          `;
+        }
+      }
+
+      // Contador
+      if (countEl) {
+        countEl.textContent = `${detalle.movimientosCount} ${detalle.movimientosCount === 1 ? 'gasto' : 'gastos'}`;
+      }
+
+      // Lista de movimientos contribuyentes
+      if (listEl) {
+        if (!detalle.movimientos || detalle.movimientos.length === 0) {
+          listEl.innerHTML = `
+            <div class="p-4 text-center text-xs text-slate-500 bg-slate-950/40 rounded-xl border border-slate-800/80">
+              No hay gastos registrados en ${detalle.categoria} para este periodo.
+            </div>
+          `;
+        } else {
+          listEl.innerHTML = detalle.movimientos.map(m => {
+            const iconBadge = m.icono || (m.tipo === 'Consumo_TC' ? '💳' : (m.esFijo ? '⚙️' : '📉'));
+            let badgeTipo = `<span class="text-[9px] px-1.5 py-0.5 rounded font-bold bg-slate-800 text-slate-300">${m.tipoLabel}</span>`;
+            if (m.tipo === 'Consumo_TC') {
+              badgeTipo = `<span class="text-[9px] px-1.5 py-0.5 rounded font-bold bg-purple-950 text-purple-300 border border-purple-500/30">💳 TC</span>`;
+            } else if (m.esFijo) {
+              badgeTipo = `<span class="text-[9px] px-1.5 py-0.5 rounded font-bold bg-sky-950 text-sky-300 border border-sky-500/30">⚙️ Fijo</span>`;
+            }
+
+            return `
+              <div class="p-2.5 rounded-xl bg-slate-950/60 hover:bg-slate-900/80 border border-slate-800/80 flex items-center justify-between gap-2 transition">
+                <div class="flex items-center gap-2.5 min-w-0 flex-1">
+                  <div class="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-sm flex-shrink-0">
+                    ${iconBadge}
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                      <span class="font-bold text-xs text-slate-200 truncate">${m.concepto || detalle.categoria}</span>
+                      ${badgeTipo}
+                      ${m.cuotaInfo ? `<span class="text-[9px] px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-500/30 font-semibold">${m.cuotaInfo}</span>` : ''}
+                    </div>
+                    <div class="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
+                      <span>📅 ${m.fecha || 'Sin fecha'}</span>
+                      <span>•</span>
+                      <span class="truncate">🏦 ${m.origen || 'General'}</span>
+                    </div>
+                  </div>
+                </div>
+                <span class="text-xs font-black text-rose-400 flex-shrink-0 ml-2">
+                  -S/ ${m.monto.toFixed(2)}
+                </span>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+
+      if (footerTotalEl) {
+        footerTotalEl.textContent = `Total en ${detalle.categoria}: S/ ${detalle.totalGastado.toFixed(2)}`;
+      }
+
+      modal.classList.remove('hidden');
+    }
+
+    closeDetalleCategoriaModal() {
+      const modal = document.getElementById('modal-detalle-categoria');
+      if (modal) modal.classList.add('hidden');
     }
 
     // ==========================================================================
