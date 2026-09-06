@@ -11,11 +11,21 @@
     TRANSACTIONS: 'finanzas_pwa_txs',
     CARDS: 'finanzas_pwa_cards',
     BUDGETS: 'finanzas_pwa_budgets',
+    RECURRENTES: 'finanzas_pwa_recurrentes',
     OFFLINE_QUEUE: 'finanzas_pwa_offline_queue'
   };
 
   // URL predeterminada para sincronización automática en cualquier dispositivo (GitHub Pages)
   const DEFAULT_API_URL = '';
+
+  // Datos semilla iniciales para ingresos y gastos fijos recurrentes
+  const SEED_RECURRENTES = [
+    { id: 'REC-1', nombre: 'Sueldo Principal', tipo: 'Ingreso_Fijo', monto: 3500, categoria: 'Sueldo', metodoPago: 'Transferencia', diaMes: 28, activo: true, notas: 'Planilla mensual' },
+    { id: 'REC-2', nombre: 'Alquiler de Vivienda', tipo: 'Gasto_Fijo', monto: 1200, categoria: 'Hogar', metodoPago: 'Transferencia', diaMes: 1, activo: true, notas: 'Alquiler mensual' },
+    { id: 'REC-3', nombre: 'Servicios Luz y Agua', tipo: 'Gasto_Fijo', monto: 180, categoria: 'Servicios', metodoPago: 'Débito BCP', diaMes: 15, activo: true, notas: 'Recibos básicos' },
+    { id: 'REC-4', nombre: 'Internet Hogar', tipo: 'Gasto_Fijo', monto: 120, categoria: 'Servicios', metodoPago: 'Débito BCP', diaMes: 18, activo: true, notas: 'Fibra óptica' },
+    { id: 'REC-5', nombre: 'Suscripciones Digitales', tipo: 'Gasto_Fijo', monto: 70, categoria: 'Ocio', metodoPago: 'Tarjeta', diaMes: 20, activo: true, notas: 'Streaming' }
+  ];
 
   // Presupuestos predeterminados semilla
   const SEED_BUDGETS = [
@@ -117,6 +127,75 @@
       }
     }
 
+    getLocalRecurrentes() {
+      const raw = localStorage.getItem(STORAGE_KEYS.RECURRENTES);
+      if (!raw) {
+        localStorage.setItem(STORAGE_KEYS.RECURRENTES, JSON.stringify(SEED_RECURRENTES));
+        return SEED_RECURRENTES;
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) && parsed.length > 0 ? parsed : SEED_RECURRENTES;
+      } catch (e) {
+        return SEED_RECURRENTES;
+      }
+    }
+
+    saveLocalRecurrentes(items) {
+      localStorage.setItem(STORAGE_KEYS.RECURRENTES, JSON.stringify(items));
+    }
+
+    async saveRecurrente(item) {
+      const list = this.getLocalRecurrentes();
+      const idx = list.findIndex(r => r.id === item.id);
+      if (idx >= 0) {
+        list[idx] = { ...list[idx], ...item };
+      } else {
+        if (!item.id) item.id = 'REC-' + Date.now();
+        list.push(item);
+      }
+      this.saveLocalRecurrentes(list);
+
+      if (!this.apiUrl || !this.isOnline) {
+        return { success: true, offline: true, recurrente: item };
+      }
+
+      try {
+        await fetch(this.apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'saveRecurrente', recurrente: item }),
+          redirect: 'follow'
+        });
+        return { success: true, recurrente: item };
+      } catch (err) {
+        console.warn('[API] Error al guardar recurrente en Sheets:', err);
+        return { success: true, offline: true, recurrente: item };
+      }
+    }
+
+    async deleteRecurrente(id) {
+      const list = this.getLocalRecurrentes().filter(r => r.id !== id);
+      this.saveLocalRecurrentes(list);
+
+      if (!this.apiUrl || !this.isOnline) {
+        return { success: true, localOnly: true };
+      }
+
+      try {
+        await fetch(this.apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'deleteRecurrente', id: id }),
+          redirect: 'follow'
+        });
+        return { success: true };
+      } catch (err) {
+        console.warn('[API] Error al eliminar recurrente en Sheets:', err);
+        return { success: true, localOnly: true };
+      }
+    }
+
     getLocalCards() {
       const raw = localStorage.getItem(STORAGE_KEYS.CARDS);
       if (!raw) {
@@ -199,12 +278,14 @@
       const localCards = this.getLocalCards();
       const localTxs = this.getLocalTransactions();
       const localBudgets = this.getLocalBudgets();
+      const localRecurrentes = this.getLocalRecurrentes();
 
       if (!this.apiUrl || !this.isOnline) {
         return {
           cards: localCards,
           transactions: localTxs,
           budgets: localBudgets,
+          recurrentes: localRecurrentes,
           source: 'local'
         };
       }
@@ -222,24 +303,27 @@
           const cards = data.cards && data.cards.length > 0 ? data.cards : localCards;
           const transactions = data.transactions || [];
           const budgets = data.budgets && data.budgets.length > 0 ? data.budgets : localBudgets;
+          const recurrentes = data.recurrentes && data.recurrentes.length > 0 ? data.recurrentes : localRecurrentes;
 
           // Actualizar caché local
           this.saveLocalCards(cards);
           this.saveLocalTransactions(transactions);
           this.setLocalBudgets(budgets);
+          this.saveLocalRecurrentes(recurrentes);
 
           return {
             cards: cards,
             transactions: transactions,
             budgets: budgets,
+            recurrentes: recurrentes,
             source: 'remote'
           };
         } else {
-          return { cards: localCards, transactions: localTxs, budgets: localBudgets, source: 'local_fallback' };
+          return { cards: localCards, transactions: localTxs, budgets: localBudgets, recurrentes: localRecurrentes, source: 'local_fallback' };
         }
       } catch (err) {
         console.warn('[API] Error al consultar Google Sheets, usando datos locales:', err);
-        return { cards: localCards, transactions: localTxs, budgets: localBudgets, source: 'local_fallback' };
+        return { cards: localCards, transactions: localTxs, budgets: localBudgets, recurrentes: localRecurrentes, source: 'local_fallback' };
       }
     }
 
@@ -275,6 +359,43 @@
         console.warn('[API] Error al enviar a Sheets, guardado en cola offline:', err);
         this.addToOfflineQueue('addTransaction', preparedTx);
         return { success: true, savedLocally: true, offlineQueued: true };
+      }
+    }
+
+    /**
+     * Guarda un lote de transacciones (ej: cuotas sin intereses o fijos del mes)
+     */
+    async saveTransactions(txArray) {
+      if (!Array.isArray(txArray) || txArray.length === 0) return { success: true };
+
+      // 1. Guardar de inmediato localmente
+      const localTxs = this.getLocalTransactions();
+      localTxs.unshift(...txArray);
+      this.saveLocalTransactions(localTxs);
+
+      // 2. Si no hay conexión, encolar cada una
+      if (!this.apiUrl || !this.isOnline) {
+        txArray.forEach(tx => this.addToOfflineQueue('addTransaction', tx));
+        return { success: true, savedLocally: true, offlineQueued: true, count: txArray.length };
+      }
+
+      // 3. Enviar a Apps Script vía batchSync
+      try {
+        const res = await fetch(this.apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'batchSync',
+            data: txArray
+          }),
+          redirect: 'follow'
+        });
+        const json = await res.json();
+        return json;
+      } catch (err) {
+        console.warn('[API] Error al enviar lote a Sheets, guardado en cola offline:', err);
+        txArray.forEach(tx => this.addToOfflineQueue('addTransaction', tx));
+        return { success: true, savedLocally: true, offlineQueued: true, count: txArray.length };
       }
     }
 

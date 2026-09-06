@@ -13,7 +13,8 @@ const SHEETS = {
   TRANSACCIONES: 'TRANSACCIONES',
   TARJETAS: 'TARJETAS_CONFIG',
   CONSOLIDADO: 'CONSOLIDADO_MENSUAL',
-  PRESUPUESTOS: 'PRESUPUESTOS'
+  PRESUPUESTOS: 'PRESUPUESTOS',
+  RECURRENTES: 'RECURRENTES'
 };
 
 /**
@@ -101,8 +102,29 @@ function setupSheets() {
   ];
   defaultBudgets.forEach(b => sheetBudgets.appendRow(b));
 
+  // 5. Pestaña RECURRENTES (Ingresos y Gastos Fijos Mensuales)
+  let sheetRec = ss.getSheetByName(SHEETS.RECURRENTES);
+  if (!sheetRec) {
+    sheetRec = ss.insertSheet(SHEETS.RECURRENTES);
+  }
+  sheetRec.clear();
+  const recHeaders = ['ID', 'Nombre', 'Tipo', 'Monto', 'Categoria', 'Metodo_Pago', 'Dia_Mes', 'Activo', 'Notas'];
+  sheetRec.appendRow(recHeaders);
+  formatHeaderRow(sheetRec, '#6366f1', '#ffffff');
+  sheetRec.setFrozenRows(1);
+  sheetRec.getRange(2, 4, 100, 1).setNumberFormat('#,##0.00');
+
+  const defaultRecurrentes = [
+    ['REC-1', 'Sueldo Principal', 'Ingreso_Fijo', 3500, 'Sueldo', 'Transferencia', 28, 'SI', 'Planilla mensual'],
+    ['REC-2', 'Alquiler de Vivienda', 'Gasto_Fijo', 1200, 'Hogar', 'Transferencia', 1, 'SI', 'Alquiler mensual'],
+    ['REC-3', 'Servicios Luz y Agua', 'Gasto_Fijo', 180, 'Servicios', 'Débito BCP', 15, 'SI', 'Recibos básicos'],
+    ['REC-4', 'Internet Hogar', 'Gasto_Fijo', 120, 'Servicios', 'Débito BCP', 18, 'SI', 'Fibra óptica'],
+    ['REC-5', 'Suscripciones Digitales', 'Gasto_Fijo', 70, 'Ocio', 'Tarjeta', 20, 'SI', 'Streaming']
+  ];
+  defaultRecurrentes.forEach(r => sheetRec.appendRow(r));
+
   // Autoajuste de columnas
-  [sheetTx, sheetCards, sheetCons, sheetBudgets].forEach(s => {
+  [sheetTx, sheetCards, sheetCons, sheetBudgets, sheetRec].forEach(s => {
     for (let c = 1; c <= s.getLastColumn(); c++) {
       s.autoResizeColumn(c);
     }
@@ -143,16 +165,23 @@ function doGet(e) {
       const cards = getCardsConfig_();
       const transactions = getTransactions_();
       const budgets = getBudgetsConfig_();
+      const recurrentes = getRecurrentesConfig_();
       responseData = {
         success: true,
         cards: cards,
         transactions: transactions,
-        budgets: budgets
+        budgets: budgets,
+        recurrentes: recurrentes
       };
     } else if (action === 'getBudgets') {
       responseData = {
         success: true,
         budgets: getBudgetsConfig_()
+      };
+    } else if (action === 'getRecurrentes') {
+      responseData = {
+        success: true,
+        recurrentes: getRecurrentesConfig_()
       };
     } else {
       responseData = { success: false, error: 'Acción no reconocida' };
@@ -190,6 +219,12 @@ function doPost(e) {
       result = saveCard_(payload.card);
     } else if (action === 'saveBudgets') {
       result = saveBudgets_(payload.budgets);
+    } else if (action === 'saveRecurrente') {
+      result = saveRecurrente_(payload.recurrente);
+    } else if (action === 'saveAllRecurrentes') {
+      result = saveAllRecurrentes_(payload.recurrentes);
+    } else if (action === 'deleteRecurrente') {
+      result = deleteRecurrente_(payload.id);
     } else {
       result = { success: false, error: 'Acción POST no reconocida' };
     }
@@ -306,6 +341,117 @@ function saveBudgets_(budgetsList) {
   return { success: true, count: budgetsList.length };
 }
 
+function getRecurrentesConfig_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEETS.RECURRENTES);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEETS.RECURRENTES);
+    const headers = ['ID', 'Nombre', 'Tipo', 'Monto', 'Categoria', 'Metodo_Pago', 'Dia_Mes', 'Activo', 'Notas'];
+    sheet.appendRow(headers);
+    formatHeaderRow(sheet, '#6366f1', '#ffffff');
+    sheet.setFrozenRows(1);
+    sheet.getRange(2, 4, 100, 1).setNumberFormat('#,##0.00');
+
+    const defaults = [
+      ['REC-1', 'Sueldo Principal', 'Ingreso_Fijo', 3500, 'Sueldo', 'Transferencia', 28, 'SI', 'Planilla mensual'],
+      ['REC-2', 'Alquiler de Vivienda', 'Gasto_Fijo', 1200, 'Hogar', 'Transferencia', 1, 'SI', 'Alquiler mensual'],
+      ['REC-3', 'Servicios Luz y Agua', 'Gasto_Fijo', 180, 'Servicios', 'Débito BCP', 15, 'SI', 'Recibos básicos'],
+      ['REC-4', 'Internet Hogar', 'Gasto_Fijo', 120, 'Servicios', 'Débito BCP', 18, 'SI', 'Fibra óptica'],
+      ['REC-5', 'Suscripciones Digitales', 'Gasto_Fijo', 70, 'Ocio', 'Tarjeta', 20, 'SI', 'Streaming']
+    ];
+    defaults.forEach(r => sheet.appendRow(r));
+    SpreadsheetApp.flush();
+  }
+
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+
+  const items = [];
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    if (row[0] && row[1]) {
+      const activoVal = String(row[7] || '').trim().toUpperCase();
+      const esActivo = (activoVal === 'SI' || activoVal === 'TRUE' || activoVal === '1' || activoVal === '');
+      items.push({
+        id: String(row[0]).trim(),
+        nombre: String(row[1]).trim(),
+        tipo: String(row[2] || 'Gasto_Fijo').trim(),
+        monto: parseFloat(row[3]) || 0,
+        categoria: String(row[4] || 'Varios').trim(),
+        metodoPago: String(row[5] || 'Efectivo').trim(),
+        diaMes: parseInt(row[6], 10) || 1,
+        activo: esActivo,
+        notas: String(row[8] || '').trim()
+      });
+    }
+  }
+  return items;
+}
+
+function saveRecurrente_(item) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEETS.RECURRENTES);
+  if (!sheet) {
+    getRecurrentesConfig_();
+    sheet = ss.getSheetByName(SHEETS.RECURRENTES);
+  }
+
+  const data = sheet.getDataRange().getValues();
+  let foundRow = -1;
+  const id = item.id || ('REC-' + new Date().getTime());
+
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === String(id).trim()) {
+      foundRow = i + 1;
+      break;
+    }
+  }
+
+  const activoStr = (item.activo === false || String(item.activo) === 'false') ? 'NO' : 'SI';
+  const rowData = [
+    id,
+    String(item.nombre || '').trim(),
+    String(item.tipo || 'Gasto_Fijo').trim(),
+    parseFloat(item.monto) || 0,
+    String(item.categoria || 'Varios').trim(),
+    String(item.metodoPago || 'Efectivo').trim(),
+    parseInt(item.diaMes, 10) || 1,
+    activoStr,
+    String(item.notas || '').trim()
+  ];
+
+  if (foundRow > 0) {
+    sheet.getRange(foundRow, 1, 1, 9).setValues([rowData]);
+  } else {
+    sheet.appendRow(rowData);
+  }
+
+  SpreadsheetApp.flush();
+  return { success: true, recurrente: { ...item, id: id, activo: activoStr === 'SI' } };
+}
+
+function saveAllRecurrentes_(lista) {
+  if (!Array.isArray(lista)) return { success: false, error: 'Array esperado' };
+  lista.forEach(item => saveRecurrente_(item));
+  return { success: true, count: lista.length };
+}
+
+function deleteRecurrente_(id) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEETS.RECURRENTES);
+  if (!sheet) return { success: false, error: 'Hoja RECURRENTES no encontrada' };
+
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === String(id).trim()) {
+      sheet.deleteRow(i + 1);
+      SpreadsheetApp.flush();
+      return { success: true, deletedId: id };
+    }
+  }
+  return { success: false, error: 'Item recurrente no encontrado' };
+}
+
 function getTransactions_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(SHEETS.TRANSACCIONES);
@@ -408,6 +554,21 @@ function calcularCicloTC_(fechaStr, diaCorte, diaVencimiento) {
 }
 
 /**
+ * Suma meses a una fecha 'YYYY-MM-DD' ajustando días máximos del mes destino
+ */
+function sumarMesesAFechaTC_(fechaStr, n) {
+  const norm = String(fechaStr).slice(0, 10);
+  const partes = norm.split('-').map(Number);
+  const target = new Date(partes[0], partes[1] - 1 + n, 1);
+  const y = target.getFullYear();
+  const m = target.getMonth() + 1;
+  const maxDias = new Date(y, m, 0).getDate();
+  const d = Math.min(partes[2], maxDias);
+  const pad = (num) => ('0' + num).slice(-2);
+  return y + '-' + pad(m) + '-' + pad(d);
+}
+
+/**
  * Añade una transacción calculando de forma estricta los impactos contables
  */
 function addTransaction_(tx) {
@@ -427,6 +588,37 @@ function addTransaction_(tx) {
   const tarjetaAfectada = tx.tarjetaAfectada || '';
   const notas = tx.notas || '';
 
+  // Soporte de compras en cuotas sin intereses
+  const numCuotas = parseInt(tx.cuotas, 10) || 1;
+  if (tipo === 'Consumo_TC' && numCuotas > 1 && !tx.cuotaActual) {
+    const card = cards.find(c => c.id === tarjetaAfectada);
+    if (!card) throw new Error('Tarjeta no encontrada: ' + tarjetaAfectada);
+    const montoTotal = Math.round((parseFloat(tx.monto) || 0) * 100) / 100;
+    const montoCuotaBase = Math.floor((montoTotal / numCuotas) * 100) / 100;
+    const residuo = Math.round((montoTotal - (montoCuotaBase * numCuotas)) * 100) / 100;
+
+    for (let c = 1; c <= numCuotas; c++) {
+      const cuotaMonto = (c === 1) ? (montoCuotaBase + residuo) : montoCuotaBase;
+      const cuotaFecha = sumarMesesAFechaTC_(fecha, c - 1);
+      const cicloCuota = calcularCicloTC_(cuotaFecha, card.diaCorte, card.diaVencimiento);
+      const cuotaId = `${id}_C${c}`;
+      const cuotaNotas = notas ? `${notas} (Cuota ${c}/${numCuotas})` : `Cuota ${c}/${numCuotas} sin intereses`;
+
+      sheet.appendRow([
+        cuotaId, cuotaFecha, hora, tipo, metodoPago,
+        tarjetaAfectada, categoria, cuotaMonto, moneda,
+        '', "'" + cicloCuota.mesImpactoTC, cuotaNotas
+      ]);
+    }
+    SpreadsheetApp.flush();
+    try {
+      verificarYEnviarAlertasAutomaticas_();
+    } catch (e) {
+      console.warn('Error al verificar alertas:', e);
+    }
+    return { success: true, count: numCuotas, id: id };
+  }
+
   const mesTransaccion = fecha.slice(0, 7); // 'YYYY-MM'
   let mesImpactoEfectivo = '';
   let mesImpactoTC = '';
@@ -439,7 +631,7 @@ function addTransaction_(tx) {
     if (!card) throw new Error('Tarjeta no encontrada: ' + tarjetaAfectada);
     const ciclo = calcularCicloTC_(fecha, card.diaCorte, card.diaVencimiento);
     mesImpactoEfectivo = ''; // NO resta efectivo al consumir con tarjeta
-    mesImpactoTC = ciclo.mesImpactoTC;
+    mesImpactoTC = tx.mesImpactoTC || ciclo.mesImpactoTC;
   } else if (tipo === 'Prepago_TC') {
     const card = cards.find(c => c.id === tarjetaAfectada);
     if (!card) throw new Error('Tarjeta no encontrada para Prepago: ' + tarjetaAfectada);

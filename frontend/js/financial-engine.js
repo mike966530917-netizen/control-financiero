@@ -131,12 +131,98 @@
   }
 
   /**
+   * Suma meses a una fecha 'YYYY-MM-DD' ajustando días máximos del mes de destino.
+   */
+  function sumarMesesAFecha(fechaStr, n) {
+    if (!fechaStr) return '';
+    const norm = String(fechaStr).slice(0, 10);
+    const [anio, mes, dia] = norm.split('-').map(Number);
+    const target = new Date(anio, mes - 1 + n, 1);
+    const y = target.getFullYear();
+    const m = target.getMonth() + 1;
+    const maxDias = new Date(y, m, 0).getDate();
+    const d = Math.min(dia, maxDias);
+    const pad = (num) => String(num).padStart(2, '0');
+    return `${y}-${pad(m)}-${pad(d)}`;
+  }
+
+  /**
+   * Divide un consumo con tarjeta de crédito en cuotas sin intereses.
+   * Ajusta los céntimos residuales en la primera cuota y asigna cada cuota a su respectivo ciclo.
+   */
+  function dividirEnCuotas(tx, tarjetasConfig = []) {
+    const numCuotas = parseInt(tx.cuotas, 10) || 1;
+    if (numCuotas <= 1 || tx.tipo !== TIPOS_TRANSACCION.CONSUMO_TC) {
+      return [prepararTransaccion(tx, tarjetasConfig)];
+    }
+
+    const montoTotal = Math.round((parseFloat(tx.monto) || 0) * 100) / 100;
+    const montoCuotaBase = Math.floor((montoTotal / numCuotas) * 100) / 100;
+    const residuo = Math.round((montoTotal - (montoCuotaBase * numCuotas)) * 100) / 100;
+
+    const tarjeta = tarjetasConfig.find(t => {
+      const tId = String(t.id || '').toLowerCase();
+      const tNom = String(t.nombre || '').toLowerCase();
+      const af = String(tx.tarjetaAfectada || '').toLowerCase();
+      return tId === af || tNom === af || tId.replace(/^tc[_-]/, '') === af.replace(/^tc[_-]/, '');
+    });
+
+    const fechaOriginal = tx.fecha || new Date().toISOString().slice(0, 10);
+    const notasBase = (tx.notas || '').trim();
+    const cuotasList = [];
+
+    for (let i = 1; i <= numCuotas; i++) {
+      const montoCuota = (i === 1) ? Number((montoCuotaBase + residuo).toFixed(2)) : Number(montoCuotaBase.toFixed(2));
+      const fechaCuota = sumarMesesAFecha(fechaOriginal, i - 1);
+      
+      let mesImpactoTC = '';
+      let fechaVencimientoTC = '';
+
+      if (tarjeta) {
+        const ciclo = calcularCicloTarjeta(fechaCuota, tarjeta.diaCorte, tarjeta.diaVencimiento);
+        mesImpactoTC = ciclo.mesImpactoTC;
+        fechaVencimientoTC = ciclo.fechaVencimiento;
+      } else {
+        const mesEfectivo = obtenerMesImpacto(fechaCuota);
+        mesImpactoTC = sumarMeses(mesEfectivo, 1);
+      }
+
+      const notaCuota = notasBase 
+        ? `${notasBase} (Cuota ${i}/${numCuotas})`
+        : `Cuota ${i}/${numCuotas} sin intereses`;
+
+      cuotasList.push({
+        ...tx,
+        id: `${tx.id || ('TX-' + Date.now())}_C${i}`,
+        idCompraPadre: tx.id || '',
+        fecha: fechaCuota,
+        fechaCompraOriginal: fechaOriginal,
+        tipo: TIPOS_TRANSACCION.CONSUMO_TC,
+        monto: montoCuota,
+        montoTotalCompra: montoTotal,
+        cuotaActual: i,
+        totalCuotas: numCuotas,
+        esSinIntereses: true,
+        mesImpactoEfectivo: '',
+        mesImpactoTC: mesImpactoTC,
+        fechaVencimientoTC: fechaVencimientoTC,
+        notas: notaCuota
+      });
+    }
+
+    return cuotasList;
+  }
+
+  /**
    * Procesa una transacción antes de guardarla para imputar correctamente
    * los impactos contables según el modelo financiero.
    */
   function prepararTransaccion(tx, tarjetasConfig = []) {
     const copia = { ...tx };
     copia.monto = parseFloat(copia.monto) || 0;
+    if (copia.cuotas) copia.cuotas = parseInt(copia.cuotas, 10) || 1;
+    if (copia.cuotaActual) copia.cuotaActual = parseInt(copia.cuotaActual, 10);
+    if (copia.totalCuotas) copia.totalCuotas = parseInt(copia.totalCuotas, 10);
     const mesEfectivo = obtenerMesImpacto(copia.fecha);
 
     switch (copia.tipo) {
@@ -654,6 +740,8 @@
     normalizarMes,
     obtenerMesImpacto,
     sumarMeses,
+    sumarMesesAFecha,
+    dividirEnCuotas,
     prepararTransaccion,
     calcularConsolidadoFinanciero,
     calcularEstadoPresupuestos,

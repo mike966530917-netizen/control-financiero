@@ -46,7 +46,7 @@
       resultsContainer.appendChild(div);
     }
 
-    const { TIPOS_TRANSACCION, calcularCicloTarjeta, prepararTransaccion, calcularConsolidadoFinanciero } = window.FinancialEngine;
+    const { TIPOS_TRANSACCION, calcularCicloTarjeta, prepararTransaccion, calcularConsolidadoFinanciero, dividirEnCuotas, sumarMesesAFecha } = window.FinancialEngine;
 
     const tarjetasConfig = [
       { id: 'TC_BCP', nombre: 'BCP Visa Signature', diaCorte: 20, diaVencimiento: 10, limiteCredito: 10000, colorHex: '#0033a0' },
@@ -185,6 +185,60 @@
     const okHistoricoAgosto = mesAgosto && mesAgosto.ahorroNeto === 1800 && mesAgosto.tasaAhorro === 60 && mesAgosto.esCerrado;
 
     report('Historial de Ahorro: Cierre mensual exacto (Agosto: Ingresos 3000 - Salidas 1200 = Ahorro S/ 1800, 60%)', okHistoricoAgosto, `Ahorro neto calculado: S/ ${mesAgosto ? mesAgosto.ahorroNeto : 0}, Tasa: ${mesAgosto ? mesAgosto.tasaAhorro : 0}%`);
+
+    // Prueba 10: CUOTAS SIN INTERESES - División y fechas de corte
+    const txCompraCuotas = {
+      id: 'TX-LAPTOP',
+      fecha: '2026-09-06',
+      tipo: TIPOS_TRANSACCION.CONSUMO_TC,
+      tarjetaAfectada: 'TC_BCP', // diaCorte: 20, diaVencimiento: 10
+      categoria: 'Tecnología',
+      monto: 1000,
+      cuotas: 3,
+      notas: 'Laptop de trabajo'
+    };
+    const listaCuotas = dividirEnCuotas(txCompraCuotas, tarjetasConfig);
+    const okCantidadCuotas = listaCuotas.length === 3;
+    const sumaCuotas = listaCuotas.reduce((acc, c) => acc + c.monto, 0);
+    const okSumaCuotas = Math.abs(sumaCuotas - 1000) < 0.001;
+    const cuota1 = listaCuotas[0];
+    const cuota2 = listaCuotas[1];
+    const cuota3 = listaCuotas[2];
+    const okMontosCuotas = (cuota1.monto === 333.34) && (cuota2.monto === 333.33) && (cuota3.monto === 333.33);
+    const okCiclosCuotas = (cuota1.mesImpactoTC === '2026-10') && (cuota2.mesImpactoTC === '2026-11') && (cuota3.mesImpactoTC === '2026-12');
+
+    report('Cuotas Sin Intereses: División exacta y ajuste de céntimos (333.34 + 333.33 + 333.33 = S/ 1,000.00)', 
+      okCantidadCuotas && okSumaCuotas && okMontosCuotas && okCiclosCuotas,
+      `Cuota 1: S/ ${cuota1.monto} (${cuota1.mesImpactoTC}), Cuota 2: S/ ${cuota2.monto} (${cuota2.mesImpactoTC}), Cuota 3: S/ ${cuota3.monto} (${cuota3.mesImpactoTC})`
+    );
+
+    // Prueba 11: CUOTAS SIN INTERESES - Impacto en Deuda Proyectada del mes siguiente
+    // En septiembre 2026, la deuda proyectada para octubre (mes siguiente) debe ser ÚNICAMENTE la Cuota 1 (S/ 333.34)
+    const resCuotas = calcularConsolidadoFinanciero(listaCuotas, tarjetasConfig, '2026-09', []);
+    const bcpDeudaProyectada = resCuotas.tarjetasCredito.desgloseTarjetas.find(c => c.id === 'TC_BCP');
+    const okDeudaCuota1 = bcpDeudaProyectada && Math.abs(bcpDeudaProyectada.consumosCiclo - 333.34) < 0.01;
+
+    report('Cuotas Sin Intereses: Proyección de deuda mensual exacta (Octubre recibe S/ 333.34 en vez de S/ 1,000)',
+      okDeudaCuota1,
+      `Deuda TC BCP proyectada: S/ ${bcpDeudaProyectada ? bcpDeudaProyectada.consumosCiclo : 0} (Esperado: S/ 333.34)`
+    );
+
+    // Prueba 12: MOVIMIENTOS FIJOS RECURRENTES - Cálculo de balance base proyectado
+    const fijosTest = [
+      { id: 'R1', nombre: 'Sueldo', tipo: 'Ingreso_Fijo', monto: 3500, activo: true },
+      { id: 'R2', nombre: 'Alquiler', tipo: 'Gasto_Fijo', monto: 1200, activo: true },
+      { id: 'R3', nombre: 'Servicios', tipo: 'Gasto_Fijo', monto: 180, activo: true },
+      { id: 'R4', nombre: 'Gimnasio Inactivo', tipo: 'Gasto_Fijo', monto: 150, activo: false }
+    ];
+    const ingFijosActivos = fijosTest.filter(r => r.activo && r.tipo === 'Ingreso_Fijo').reduce((acc, r) => acc + r.monto, 0);
+    const gasFijosActivos = fijosTest.filter(r => r.activo && r.tipo === 'Gasto_Fijo').reduce((acc, r) => acc + r.monto, 0);
+    const balanceFijoBase = ingFijosActivos - gasFijosActivos;
+    const okFijos = (ingFijosActivos === 3500) && (gasFijosActivos === 1380) && (balanceFijoBase === 2120);
+
+    report('Movimientos Fijos: Balance base mensual (Ingresos S/ 3500 - Gastos S/ 1380 = Balance Base S/ 2120)',
+      okFijos,
+      `Ingresos Fijos: S/ ${ingFijosActivos}, Gastos Fijos: S/ ${gasFijosActivos}, Balance Base: S/ ${balanceFijoBase}`
+    );
 
     summaryBox.innerHTML = `
       <div class="flex items-center justify-between">

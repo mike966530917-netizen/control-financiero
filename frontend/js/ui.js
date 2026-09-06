@@ -53,7 +53,7 @@
 
     switchView(viewId) {
       this.currentView = viewId;
-      const views = ['view-dashboard', 'view-charts', 'view-alerts'];
+      const views = ['view-dashboard', 'view-recurrentes', 'view-charts', 'view-alerts'];
       views.forEach(v => {
         const el = document.getElementById(v);
         if (el) {
@@ -66,11 +66,16 @@
       tabBtns.forEach(btn => {
         const btnView = btn.getAttribute('data-view');
         if (btnView === viewId) {
-          btn.className = 'tab-nav-btn py-1.5 rounded-lg flex items-center justify-center gap-1.5 bg-sky-600 text-white shadow-sm transition';
+          btn.className = 'tab-nav-btn py-1.5 rounded-lg flex items-center justify-center gap-1 bg-sky-600 text-white shadow-sm transition';
         } else {
-          btn.className = 'tab-nav-btn py-1.5 rounded-lg flex items-center justify-center gap-1.5 text-slate-400 hover:text-slate-200 transition';
+          btn.className = 'tab-nav-btn py-1.5 rounded-lg flex items-center justify-center gap-1 text-slate-400 hover:text-slate-200 transition';
         }
       });
+
+      // Si se abre la pestaña de fijos recurrentes, refrescar lista
+      if (viewId === 'view-recurrentes' && window.cachedRecurrentes) {
+        this.renderRecurrentesList(window.cachedRecurrentes);
+      }
 
       // Redibujar gráficos si se abre la pestaña de gráficos
       if (viewId === 'view-charts' && window.lastSummary) {
@@ -223,19 +228,33 @@
       }
 
       // Visibilidad condicional
+      const cuotasContainer = document.getElementById('field-cuotas-container');
+      const cuotasSelect = document.getElementById('tx-cuotas-select');
+      const cuotaBadge = document.getElementById('tx-cuota-preview-badge');
+
       if (this.currentType === 'Ingreso') {
         if (cardContainer) cardContainer.classList.add('hidden');
         if (methodContainer) methodContainer.classList.remove('hidden');
+        if (cuotasContainer) cuotasContainer.classList.add('hidden');
+        if (cuotasSelect) cuotasSelect.value = '1';
+        if (cuotaBadge) cuotaBadge.textContent = '1 cuota (Directo)';
       } else if (this.currentType === 'Gasto_Directo') {
         if (cardContainer) cardContainer.classList.add('hidden');
         if (methodContainer) methodContainer.classList.remove('hidden');
+        if (cuotasContainer) cuotasContainer.classList.add('hidden');
+        if (cuotasSelect) cuotasSelect.value = '1';
+        if (cuotaBadge) cuotaBadge.textContent = '1 cuota (Directo)';
       } else if (this.currentType === 'Consumo_TC') {
         if (cardContainer) cardContainer.classList.remove('hidden');
         if (methodContainer) methodContainer.classList.add('hidden');
+        if (cuotasContainer) cuotasContainer.classList.remove('hidden');
       } else if (this.currentType === 'Prepago_TC') {
         // En prepago se requieren AMBOS: la tarjeta que se amortiza y la cuenta de donde sale el dinero
         if (cardContainer) cardContainer.classList.remove('hidden');
         if (methodContainer) methodContainer.classList.remove('hidden');
+        if (cuotasContainer) cuotasContainer.classList.add('hidden');
+        if (cuotasSelect) cuotasSelect.value = '1';
+        if (cuotaBadge) cuotaBadge.textContent = '1 cuota (Directo)';
       }
     }
 
@@ -260,15 +279,32 @@
           </div>
         `;
       } else if (this.currentType === 'Consumo_TC') {
+        const cuotasSelect = document.getElementById('tx-cuotas-select');
+        const numCuotas = cuotasSelect ? (parseInt(cuotasSelect.value, 10) || 1) : 1;
+
         if (tarjeta) {
           const ciclo = FinancialEngine.calcularCicloTarjeta(this.selectedDate, tarjeta.diaCorte, tarjeta.diaVencimiento);
-          previewBox.innerHTML = `
-            <div class="text-xs text-blue-300">
-              <p class="font-medium text-blue-400">💳 Consumo diferido (${tarjeta.nombre}):</p>
-              <p>• <strong>NO</strong> resta efectivo hoy.</p>
-              <p>• Corte: <strong>${ciclo.fechaCorte}</strong> | Se pagará el: <strong>${ciclo.fechaVencimiento}</strong> (Mes ${ciclo.mesImpactoTC}).</p>
-            </div>
-          `;
+          if (numCuotas > 1) {
+            const montoCuota = (monto / numCuotas).toFixed(2);
+            const ultimoMes = FinancialEngine.sumarMeses(ciclo.mesImpactoTC, numCuotas - 1);
+            previewBox.innerHTML = `
+              <div class="text-xs text-sky-300 bg-sky-950/40 p-2.5 rounded-2xl border border-sky-500/30 space-y-0.5">
+                <p class="font-bold text-sky-400 flex items-center gap-1">🔢 COMPRA EN ${numCuotas} CUOTAS SIN INTERESES (${tarjeta.nombre}):</p>
+                <p>• <strong>Monto mensual:</strong> S/ ${montoCuota} cada mes.</p>
+                <p>• <strong>Primera cuota vence:</strong> ${ciclo.fechaVencimiento} (Mes ${ciclo.mesImpactoTC}).</p>
+                <p>• <strong>Última cuota vence en:</strong> Mes ${ultimoMes}.</p>
+                <p>• <strong>NO</strong> resta efectivo hoy.</p>
+              </div>
+            `;
+          } else {
+            previewBox.innerHTML = `
+              <div class="text-xs text-blue-300">
+                <p class="font-medium text-blue-400">💳 Consumo directo (${tarjeta.nombre}):</p>
+                <p>• <strong>NO</strong> resta efectivo hoy.</p>
+                <p>• Corte: <strong>${ciclo.fechaCorte}</strong> | Se pagará el: <strong>${ciclo.fechaVencimiento}</strong> (Mes ${ciclo.mesImpactoTC}).</p>
+              </div>
+            `;
+          }
         }
       } else if (this.currentType === 'Prepago_TC') {
         const nombreTarjeta = tarjeta ? tarjeta.nombre : 'Tarjeta Seleccionada';
@@ -294,6 +330,8 @@
       const cardSelect = document.getElementById('tx-card-select');
       const methodSelect = document.getElementById('tx-method-select');
       const categorySelect = document.getElementById('tx-category-select');
+      const cuotasSelect = document.getElementById('tx-cuotas-select');
+      const cuotaBadge = document.getElementById('tx-cuota-preview-badge');
 
       if (dateInput) {
         dateInput.value = this.selectedDate;
@@ -320,6 +358,16 @@
       if (categorySelect) {
         categorySelect.addEventListener('change', (e) => {
           this.selectedCategory = e.target.value;
+        });
+      }
+
+      if (cuotasSelect) {
+        cuotasSelect.addEventListener('change', (e) => {
+          const val = parseInt(e.target.value, 10) || 1;
+          if (cuotaBadge) {
+            cuotaBadge.textContent = val > 1 ? `${val} cuotas sin intereses` : '1 cuota (Directo)';
+          }
+          this.updateImpactPreview();
         });
       }
 
@@ -817,13 +865,15 @@
                 ${typeIcon}
               </div>
               <div>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2 flex-wrap">
                   <span class="font-bold text-sm text-slate-100">${tx.categoria || tx.tipo}</span>
                   <span class="text-[10px] px-2 py-0.5 rounded-md ${badgeColor}">${tx.tipo.replace('_', ' ')}</span>
+                  ${(tx.totalCuotas && tx.totalCuotas > 1) ? `<span class="text-[10px] px-2 py-0.5 rounded-md bg-sky-950/80 border border-sky-500/40 text-sky-300 font-extrabold">Cuota ${tx.cuotaActual}/${tx.totalCuotas}</span>` : ''}
                 </div>
                 <p class="text-[11px] text-slate-400">
                   ${tx.fecha} • ${tx.tarjetaAfectada || tx.metodoPago || 'Efectivo'}
                   ${tx.mesImpactoTC ? `(Vence ${(window.FinancialEngine && window.FinancialEngine.normalizarMes) ? window.FinancialEngine.normalizarMes(tx.mesImpactoTC) : tx.mesImpactoTC})` : ''}
+                  ${tx.notas ? `• <span class="text-slate-300">${tx.notas}</span>` : ''}
                 </p>
               </div>
             </div>
@@ -1032,6 +1082,202 @@
         });
       });
       return list;
+    }
+
+    // ==========================================================================
+    // RENDERIZADO DE MOVIMIENTOS RECURRENTES / FIJOS
+    // ==========================================================================
+    renderRecurrentesList(recurrentes = []) {
+      window.cachedRecurrentes = recurrentes;
+
+      const incomeListEl = document.getElementById('recurrentes-ingresos-list');
+      const expenseListEl = document.getElementById('recurrentes-gastos-list');
+      const totalIncomeEl = document.getElementById('rec-total-income');
+      const totalExpenseEl = document.getElementById('rec-total-expenses');
+      const netBalanceEl = document.getElementById('rec-net-balance');
+      const countIncomeEl = document.getElementById('rec-income-count');
+      const countExpenseEl = document.getElementById('rec-expense-count');
+
+      const ingresos = recurrentes.filter(r => r.tipo === 'Ingreso_Fijo');
+      const gastos = recurrentes.filter(r => r.tipo === 'Gasto_Fijo');
+
+      const sumIngresos = ingresos.filter(r => r.activo).reduce((acc, r) => acc + (parseFloat(r.monto) || 0), 0);
+      const sumGastos = gastos.filter(r => r.activo).reduce((acc, r) => acc + (parseFloat(r.monto) || 0), 0);
+      const balanceFijo = sumIngresos - sumGastos;
+
+      if (totalIncomeEl) totalIncomeEl.textContent = `+S/ ${sumIngresos.toFixed(2)}`;
+      if (totalExpenseEl) totalExpenseEl.textContent = `-S/ ${sumGastos.toFixed(2)}`;
+      if (netBalanceEl) {
+        netBalanceEl.textContent = `${balanceFijo >= 0 ? '+' : ''}S/ ${balanceFijo.toFixed(2)}`;
+        netBalanceEl.className = `font-extrabold text-sm ${balanceFijo >= 0 ? 'text-sky-300' : 'text-rose-400'}`;
+      }
+      if (countIncomeEl) countIncomeEl.textContent = `${ingresos.length} items (${ingresos.filter(r => r.activo).length} activos)`;
+      if (countExpenseEl) countExpenseEl.textContent = `${gastos.length} items (${gastos.filter(r => r.activo).length} activos)`;
+
+      const renderItem = (item, isIncome) => {
+        const monto = parseFloat(item.monto) || 0;
+        const colorClass = isIncome ? 'text-emerald-400' : 'text-rose-400';
+        const sign = isIncome ? '+' : '-';
+        const opacityClass = item.activo ? 'opacity-100' : 'opacity-50 grayscale';
+
+        return `
+          <div class="p-3.5 rounded-2xl glass-panel border border-slate-800 flex items-center justify-between gap-3 ${opacityClass} transition">
+            <div class="flex items-center gap-3 flex-1 min-w-0">
+              <button class="btn-toggle-rec text-lg p-1.5 rounded-xl ${item.activo ? 'bg-sky-500/20 text-sky-300' : 'bg-slate-800 text-slate-500'}" data-rec-id="${item.id}" title="${item.activo ? 'Desactivar' : 'Activar'}">
+                ${item.activo ? '✓' : '○'}
+              </button>
+              <div class="truncate">
+                <div class="flex items-center gap-2">
+                  <span class="font-bold text-sm text-slate-100 truncate">${item.nombre}</span>
+                  <span class="text-[10px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 font-semibold">${item.categoria}</span>
+                </div>
+                <p class="text-[11px] text-slate-400 truncate">
+                  Día habitual: ${item.diaMes || 1} • ${item.metodoPago || 'Efectivo'} ${item.notas ? `• ${item.notas}` : ''}
+                </p>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <span class="text-sm font-extrabold ${colorClass}">
+                ${sign}S/ ${monto.toFixed(2)}
+              </span>
+              <button class="btn-edit-rec text-slate-400 hover:text-sky-400 p-1.5 rounded-lg active:scale-90 transition" data-rec-id="${item.id}" title="Editar">
+                ✏️
+              </button>
+              <button class="btn-delete-rec text-slate-500 hover:text-rose-400 p-1.5 rounded-lg active:scale-90 transition" data-rec-id="${item.id}" title="Eliminar">
+                ✕
+              </button>
+            </div>
+          </div>
+        `;
+      };
+
+      if (incomeListEl) {
+        incomeListEl.innerHTML = ingresos.length === 0
+          ? `<p class="text-xs text-slate-500 p-3 text-center">No hay ingresos fijos configurados.</p>`
+          : ingresos.map(r => renderItem(r, true)).join('');
+      }
+
+      if (expenseListEl) {
+        expenseListEl.innerHTML = gastos.length === 0
+          ? `<p class="text-xs text-slate-500 p-3 text-center">No hay gastos fijos configurados.</p>`
+          : gastos.map(r => renderItem(r, false)).join('');
+      }
+
+      // Eventos de botones toggle, edit y delete
+      document.querySelectorAll('.btn-toggle-rec').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-rec-id');
+          if (window.onToggleRecurrente) window.onToggleRecurrente(id);
+        });
+      });
+
+      document.querySelectorAll('.btn-edit-rec').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-rec-id');
+          const found = recurrentes.find(r => r.id === id);
+          if (found) this.openRecurrenteModal(found);
+        });
+      });
+
+      document.querySelectorAll('.btn-delete-rec').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.getAttribute('data-rec-id');
+          if (confirm('¿Eliminar este movimiento fijo?')) {
+            if (window.onDeleteRecurrente) window.onDeleteRecurrente(id);
+          }
+        });
+      });
+    }
+
+    openRecurrenteModal(item = null) {
+      const modal = document.getElementById('recurrente-modal');
+      const title = document.getElementById('recurrente-modal-title');
+      const idInput = document.getElementById('rec-id-input');
+      const nombreInput = document.getElementById('rec-nombre-input');
+      const tipoSelect = document.getElementById('rec-tipo-select');
+      const montoInput = document.getElementById('rec-monto-input');
+      const catSelect = document.getElementById('rec-categoria-select');
+      const diaInput = document.getElementById('rec-dia-input');
+      const metodoSelect = document.getElementById('rec-metodo-select');
+      const notasInput = document.getElementById('rec-notas-input');
+      const activoInput = document.getElementById('rec-activo-input');
+
+      if (!modal) return;
+
+      // Llenar categorías
+      const allCats = ['Sueldo', 'Freelance', 'Inversión', 'Vivienda', 'Hogar', 'Alimentación', 'Transporte', 'Servicios', 'Suscripciones', 'Salud', 'Educación', 'Ocio', 'Otros'];
+      catSelect.innerHTML = allCats.map(c => `<option value="${c}">${c}</option>`).join('');
+
+      // Llenar métodos de pago
+      metodoSelect.innerHTML = this.paymentMethods.map(m => `<option value="${m}">${m}</option>`).join('');
+
+      if (item) {
+        title.innerHTML = '<span>✏️</span> Editar Movimiento Fijo';
+        idInput.value = item.id || '';
+        nombreInput.value = item.nombre || '';
+        tipoSelect.value = item.tipo || 'Gasto_Fijo';
+        montoInput.value = item.monto || '';
+        catSelect.value = item.categoria || 'Otros';
+        diaInput.value = item.diaMes || 1;
+        metodoSelect.value = item.metodoPago || this.paymentMethods[0];
+        notasInput.value = item.notas || '';
+        activoInput.checked = item.activo !== false;
+      } else {
+        title.innerHTML = '<span>➕</span> Nuevo Movimiento Fijo';
+        idInput.value = '';
+        nombreInput.value = '';
+        tipoSelect.value = 'Gasto_Fijo';
+        montoInput.value = '';
+        catSelect.value = 'Servicios';
+        diaInput.value = 1;
+        metodoSelect.value = this.paymentMethods[0];
+        notasInput.value = '';
+        activoInput.checked = true;
+      }
+
+      modal.classList.remove('hidden');
+    }
+
+    closeRecurrenteModal() {
+      const modal = document.getElementById('recurrente-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    getRecurrenteFromModal() {
+      const idInput = document.getElementById('rec-id-input');
+      const nombreInput = document.getElementById('rec-nombre-input');
+      const tipoSelect = document.getElementById('rec-tipo-select');
+      const montoInput = document.getElementById('rec-monto-input');
+      const catSelect = document.getElementById('rec-categoria-select');
+      const diaInput = document.getElementById('rec-dia-input');
+      const metodoSelect = document.getElementById('rec-metodo-select');
+      const notasInput = document.getElementById('rec-notas-input');
+      const activoInput = document.getElementById('rec-activo-input');
+
+      const nombre = (nombreInput.value || '').trim();
+      const monto = parseFloat(montoInput.value) || 0;
+
+      if (!nombre) {
+        this.showToast('Ingresa un concepto o nombre', 'error');
+        return null;
+      }
+      if (monto <= 0) {
+        this.showToast('Ingresa un monto mayor a 0', 'error');
+        return null;
+      }
+
+      return {
+        id: idInput.value || ('REC-' + Date.now()),
+        nombre: nombre,
+        tipo: tipoSelect.value,
+        monto: monto,
+        categoria: catSelect.value,
+        diaMes: parseInt(diaInput.value, 10) || 1,
+        metodoPago: metodoSelect.value,
+        notas: (notasInput.value || '').trim(),
+        activo: activoInput.checked
+      };
     }
 
     // ==========================================================================
