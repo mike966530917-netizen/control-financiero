@@ -13,6 +13,7 @@
     cards: [],
     transactions: [],
     budgets: [],
+    recurrentes: [],
     currentFilter: 'ALL',
     deferredPrompt: null
   };
@@ -30,6 +31,7 @@
     setupTopBarEvents();
     setupSettingsModal();
     setupBudgetsModal();
+    setupRecurrentesActions();
     setupSaveTransactionAction();
     setupFilterPills();
 
@@ -158,15 +160,18 @@
       syncBadge.className = 'text-[11px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30';
     }
 
-    const { cards, transactions, budgets, source } = await ApiService.fetchAllData();
+    const { cards, transactions, budgets, recurrentes, source } = await ApiService.fetchAllData();
     AppState.cards = cards;
     AppState.transactions = transactions;
     AppState.budgets = budgets || ApiService.getLocalBudgets();
+    AppState.recurrentes = recurrentes || ApiService.getLocalRecurrentes();
     window.cachedCards = cards;
     window.cachedBudgets = AppState.budgets;
+    window.cachedRecurrentes = AppState.recurrentes;
 
     // Actualizar campos dinámicos de la UI con las tarjetas cargadas
     UIManager.renderDynamicFormFields(cards);
+    UIManager.renderRecurrentesList(AppState.recurrentes);
 
     if (syncBadge) {
       if (source === 'remote') {
@@ -228,7 +233,122 @@
   }
 
   /**
-   * Guardar transacción desde el Numpad Drawer
+   * Configuración de la gestión de Movimientos Fijos Recurrentes
+   */
+  function setupRecurrentesActions() {
+    const btnAdd = document.getElementById('btn-add-recurrente');
+    const btnCloseModal = document.getElementById('btn-close-recurrente-modal');
+    const btnCancelModal = document.getElementById('btn-cancel-recurrente');
+    const btnSaveModal = document.getElementById('btn-save-recurrente');
+    const btnApplyMonth = document.getElementById('btn-apply-recurrentes-month');
+
+    if (btnAdd) {
+      btnAdd.addEventListener('click', () => {
+        UIManager.openRecurrenteModal();
+      });
+    }
+
+    if (btnCloseModal) btnCloseModal.addEventListener('click', () => UIManager.closeRecurrenteModal());
+    if (btnCancelModal) btnCancelModal.addEventListener('click', () => UIManager.closeRecurrenteModal());
+
+    if (btnSaveModal) {
+      btnSaveModal.addEventListener('click', async () => {
+        const item = UIManager.getRecurrenteFromModal();
+        if (!item) return;
+
+        const idx = AppState.recurrentes.findIndex(r => r.id === item.id);
+        if (idx >= 0) {
+          AppState.recurrentes[idx] = item;
+        } else {
+          AppState.recurrentes.push(item);
+        }
+
+        UIManager.closeRecurrenteModal();
+        UIManager.renderRecurrentesList(AppState.recurrentes);
+        UIManager.showToast(`Movimiento fijo "${item.nombre}" guardado`, 'success');
+        await ApiService.saveRecurrente(item);
+      });
+    }
+
+    // Toggle activo/inactivo
+    window.onToggleRecurrente = async (id) => {
+      const item = AppState.recurrentes.find(r => r.id === id);
+      if (!item) return;
+      item.activo = !item.activo;
+      UIManager.renderRecurrentesList(AppState.recurrentes);
+      await ApiService.saveRecurrente(item);
+      UIManager.showToast(`"${item.nombre}" ${item.activo ? 'activado' : 'desactivado'}`, 'info');
+    };
+
+    // Eliminar recurrente
+    window.onDeleteRecurrente = async (id) => {
+      AppState.recurrentes = AppState.recurrentes.filter(r => r.id !== id);
+      UIManager.renderRecurrentesList(AppState.recurrentes);
+      await ApiService.deleteRecurrente(id);
+      UIManager.showToast('Movimiento fijo eliminado', 'warning');
+    };
+
+    // Botón Registrar en este Mes
+    if (btnApplyMonth) {
+      btnApplyMonth.addEventListener('click', async () => {
+        const activos = AppState.recurrentes.filter(r => r.activo);
+        if (activos.length === 0) {
+          UIManager.showToast('No hay movimientos fijos activos para registrar', 'warning');
+          return;
+        }
+
+        const mes = AppState.selectedMonth; // 'YYYY-MM'
+        const [anio, mesNum] = mes.split('-').map(Number);
+        const maxDiasMes = new Date(anio, mesNum, 0).getDate();
+        const pad = (n) => String(n).padStart(2, '0');
+
+        const newTxs = [];
+        for (let i = 0; i < activos.length; i++) {
+          const rec = activos[i];
+          const diaAjustado = Math.min(rec.diaMes || 1, maxDiasMes);
+          const fechaTx = `${anio}-${pad(mesNum)}-${pad(diaAjustado)}`;
+          const tagFijo = `[Fijo] ${rec.nombre}`;
+
+          const yaExiste = AppState.transactions.some(t => 
+            t.fecha && t.fecha.startsWith(mes) && (t.notas === tagFijo || (t.categoria === rec.categoria && Math.abs(t.monto - rec.monto) < 0.01 && t.tipo === (rec.tipo === 'Ingreso_Fijo' ? 'Ingreso' : 'Gasto_Directo')))
+          );
+
+          if (!yaExiste) {
+            const rawTx = {
+              id: 'TX-REC-' + Date.now() + '-' + i,
+              fecha: fechaTx,
+              tipo: rec.tipo === 'Ingreso_Fijo' ? 'Ingreso' : 'Gasto_Directo',
+              monto: rec.monto,
+              categoria: rec.categoria,
+              metodoPago: rec.metodoPago || 'Efectivo',
+              notas: tagFijo
+            };
+            const prepared = FinancialEngine.prepararTransaccion(rawTx, AppState.cards);
+            newTxs.push(prepared);
+          }
+        }
+
+        if (newTxs.length === 0) {
+          UIManager.showToast(`Los movimientos fijos ya estaban registrados para ${mes}`, 'info');
+          return;
+        }
+
+        btnApplyMonth.disabled = true;
+        btnApplyMonth.textContent = 'Registrando...';
+
+        await ApiService.saveTransactions(newTxs);
+        AppState.transactions.unshift(...newTxs);
+        recalculateAndRender();
+
+        btnApplyMonth.disabled = false;
+        btnApplyMonth.innerHTML = '<span>⚡</span> <span>Registrar en este Mes</span>';
+        UIManager.showToast(`✅ Se registraron ${newTxs.length} movimientos fijos en ${mes}!`, 'success');
+      });
+    }
+  }
+
+  /**
+   * Guardar transacción desde el Numpad Drawer (con soporte de cuotas sin intereses)
    */
   function setupSaveTransactionAction() {
     const saveBtn = document.getElementById('btn-save-transaction');
@@ -248,6 +368,9 @@
       const metodoPago = document.getElementById('tx-method-select').value;
       const notas = (document.getElementById('tx-notes-input').value || '').trim();
 
+      const cuotasSelect = document.getElementById('tx-cuotas-select');
+      const numCuotas = (tipo === 'Consumo_TC' && cuotasSelect) ? (parseInt(cuotasSelect.value, 10) || 1) : 1;
+
       // Construir objeto de transacción crudo
       const rawTx = {
         id: 'TX-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
@@ -257,31 +380,36 @@
         categoria: categoria,
         tarjetaAfectada: (tipo === 'Consumo_TC' || tipo === 'Prepago_TC') ? tarjetaAfectada : '',
         metodoPago: (tipo === 'Ingreso' || tipo === 'Gasto_Directo' || tipo === 'Prepago_TC') ? metodoPago : '',
+        cuotas: numCuotas,
         notas: notas
       };
 
       try {
-        // Preparar con la lógica financiera (calcula cortes, vencimientos y doble impacto contable)
-        const preparedTx = FinancialEngine.prepararTransaccion(rawTx, AppState.cards);
-
-        // Desactivar botón durante guardado
         saveBtn.disabled = true;
         saveBtn.textContent = 'Guardando...';
 
-        // Guardar vía API (con guardado local inmediato y sincronización a Sheets)
-        await ApiService.saveTransaction(preparedTx);
-
-        // Actualizar estado local
-        AppState.transactions.unshift(preparedTx);
-
-        // Cerrar drawer y refrescar vista
-        UIManager.closeDrawer();
-        recalculateAndRender();
-
-        if (tipo === 'Prepago_TC') {
-          UIManager.showToast(`⚡ Prepago de S/ ${monto.toFixed(2)} registrado: redujo la deuda del próximo mes!`, 'success');
+        if (tipo === 'Consumo_TC' && numCuotas > 1) {
+          // Dividir en cuotas sin intereses
+          const cuotasList = FinancialEngine.dividirEnCuotas(rawTx, AppState.cards);
+          await ApiService.saveTransactions(cuotasList);
+          AppState.transactions.unshift(...cuotasList);
+          UIManager.closeDrawer();
+          recalculateAndRender();
+          const montoCuota = (monto / numCuotas).toFixed(2);
+          UIManager.showToast(`🎉 Compra en ${numCuotas} cuotas registrada (S/ ${montoCuota}/mes)`, 'success');
         } else {
-          UIManager.showToast('Transacción registrada exitosamente', 'success');
+          // Transacción única normal
+          const preparedTx = FinancialEngine.prepararTransaccion(rawTx, AppState.cards);
+          await ApiService.saveTransaction(preparedTx);
+          AppState.transactions.unshift(preparedTx);
+          UIManager.closeDrawer();
+          recalculateAndRender();
+
+          if (tipo === 'Prepago_TC') {
+            UIManager.showToast(`⚡ Prepago de S/ ${monto.toFixed(2)} registrado: redujo la deuda del próximo mes!`, 'success');
+          } else {
+            UIManager.showToast('Transacción registrada exitosamente', 'success');
+          }
         }
       } catch (err) {
         console.error('Error al registrar transacción:', err);
