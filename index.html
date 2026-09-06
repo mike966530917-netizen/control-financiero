@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#090d16">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Finanzas PWA">
+  
+  <title>Control Financiero, Tarjetas & Prepagos</title>
+  
+  <!-- Manifest PWA e Iconos -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+  <link rel="apple-touch-icon" href="icons/icon.svg">
+
+  <!-- Tailwind CSS CDN para estilización rápida y liviana -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              500: '#0284c7',
+              600: '#0369a1',
+              900: '#0c4a6e',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Chart.js para gráficos interactivos en el móvil -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="bg-slate-950 text-slate-100 flex flex-col min-h-screen safe-top safe-bottom">
+
+  <!-- ========================================================================
+       BARRA SUPERIOR (HEADER STICKY)
+       ======================================================================== -->
+  <header class="sticky top-0 z-30 glass-panel px-4 py-3 border-b border-slate-800/80 flex flex-col gap-2">
+    <div class="flex items-center justify-between">
+      <!-- Logo y Título -->
+      <div class="flex items-center gap-2.5">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20">
+          <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>
+        <div>
+          <h1 class="font-extrabold text-base tracking-tight text-white flex items-center gap-1.5">
+            Finanzas Pro
+            <span id="sync-status-badge" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
+              Cargando...
+            </span>
+          </h1>
+          <p class="text-[10px] text-slate-400 font-medium">Flujo de Caja & Prepagos TC</p>
+        </div>
+      </div>
+
+      <!-- Acciones Header -->
+      <div class="flex items-center gap-1.5">
+        <!-- Botón Instalar PWA (Oculto hasta que el navegador lo permita) -->
+        <button id="btn-install-pwa" class="hidden text-xs bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 font-semibold px-2.5 py-1.5 rounded-xl border border-sky-500/40 flex items-center gap-1 active:scale-95 transition">
+          📲 Instalar
+        </button>
+
+        <!-- Botón Configuración / Sheets -->
+        <button id="btn-open-settings" class="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 active:scale-95 transition border border-slate-700/60" title="Configurar Google Sheets">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Navegador de Mes -->
+    <div class="flex items-center justify-between bg-slate-900/60 py-1.5 px-3 rounded-xl border border-slate-800">
+      <button id="btn-prev-month" class="p-1 rounded-lg text-slate-400 hover:text-white active:scale-90 transition">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      </button>
+      <span id="current-month-display" class="font-bold text-sm tracking-wide text-slate-200">Septiembre 2026</span>
+      <button id="btn-next-month" class="p-1 rounded-lg text-slate-400 hover:text-white active:scale-90 transition">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+      </button>
+    </div>
+
+    <!-- Barra de Pestañas de Navegación Móvil -->
+    <nav class="grid grid-cols-3 gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800 text-xs font-semibold">
+      <button id="tab-btn-dashboard" class="tab-nav-btn py-1.5 rounded-lg flex items-center justify-center gap-1.5 bg-sky-600 text-white shadow-sm transition" data-view="view-dashboard">
+        <span>📱</span> <span>Dashboard</span>
+      </button>
+      <button id="tab-btn-charts" class="tab-nav-btn py-1.5 rounded-lg flex items-center justify-center gap-1.5 text-slate-400 hover:text-slate-200 transition" data-view="view-charts">
+        <span>📊</span> <span>Gráficos</span>
+      </button>
+      <button id="tab-btn-alerts" class="tab-nav-btn py-1.5 rounded-lg flex items-center justify-center gap-1.5 text-slate-400 hover:text-slate-200 transition relative" data-view="view-alerts">
+        <span>🔔</span> <span>Alertas</span>
+        <span id="alerts-count-badge" class="hidden text-[10px] bg-rose-500 text-white font-extrabold px-1.5 py-0.2 rounded-full">0</span>
+      </button>
+    </nav>
+  </header>
+
+  <!-- ========================================================================
+       CONTENIDO PRINCIPAL
+       ======================================================================== -->
+  <main class="flex-1 overflow-y-auto px-4 py-4 space-y-4 pb-24">
+
+    <!-- ====================================================================
+         VISTA 1: DASHBOARD PRINCIPAL (FLUJO, CARDS, TARJETAS Y MOVIMIENTOS)
+         ==================================================================== -->
+    <div id="view-dashboard" class="space-y-4">
+      
+      <!-- Banner de Alerta Rápida Inminente -->
+      <div id="quick-alert-banner" class="hidden p-3 rounded-2xl glass-panel border border-amber-500/40 bg-amber-950/30 flex items-center justify-between gap-2 text-xs">
+        <!-- Renderizado dinámico -->
+      </div>
+
+    <!-- ----------------------------------------------------------------------
+         TARJETA 1: FLUJO DISPONIBLE DEL MES
+         ---------------------------------------------------------------------- -->
+    <section class="glass-card rounded-3xl p-5 shadow-2xl relative overflow-hidden">
+      <!-- Glow ambiental -->
+      <div class="absolute -right-10 -top-10 w-36 h-36 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none"></div>
+
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-400"></span> Flujo Disponible Este Mes
+        </span>
+        <span class="text-[11px] text-slate-400 font-medium">Efectivo Real</span>
+      </div>
+
+      <div id="metric-free-balance" class="text-3xl font-black text-emerald-400 my-1 tracking-tight">
+        S/ 0.00
+      </div>
+      <p class="text-xs text-slate-400 mb-4">Ingresos menos gastos directos, facturas TC vencidas y prepagos realizados hoy.</p>
+
+      <!-- Desglose de flujo -->
+      <div class="grid grid-cols-2 gap-2 pt-3 border-t border-slate-800/80 text-xs">
+        <div class="bg-slate-900/40 p-2.5 rounded-xl border border-slate-800/50">
+          <span class="text-[10px] text-slate-400 block font-medium">Total Ingresos</span>
+          <span id="metric-total-income" class="font-bold text-emerald-400 text-sm">+S/ 0.00</span>
+        </div>
+        <div class="bg-slate-900/40 p-2.5 rounded-xl border border-slate-800/50">
+          <span class="text-[10px] text-slate-400 block font-medium">Gastos Directos</span>
+          <span id="metric-total-outflows" class="font-bold text-rose-400 text-sm">-S/ 0.00</span>
+        </div>
+        <div class="bg-amber-950/20 p-2.5 rounded-xl border border-amber-500/20">
+          <span class="text-[10px] text-amber-300 block font-medium flex items-center gap-1">
+            ⚡ Prepagos Hechos Hoy
+          </span>
+          <span id="metric-prepaids-current" class="font-bold text-amber-400 text-sm">-S/ 0.00</span>
+        </div>
+        <div class="bg-slate-900/40 p-2.5 rounded-xl border border-slate-800/50">
+          <span class="text-[10px] text-slate-400 block font-medium">TC Vencida Pagada</span>
+          <span id="metric-expired-tc" class="font-bold text-purple-400 text-sm">-S/ 0.00</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ----------------------------------------------------------------------
+         TARJETA 2: DEUDA PROYECTADA TARJETAS PARA EL PRÓXIMO MES
+         ---------------------------------------------------------------------- -->
+    <section class="glass-card rounded-3xl p-5 shadow-2xl relative overflow-hidden border border-sky-500/20">
+      <!-- Glow ambiental -->
+      <div class="absolute -left-10 -top-10 w-36 h-36 bg-sky-500/10 rounded-full blur-2xl pointer-events-none"></div>
+
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-xs font-semibold uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
+          <span class="w-2 h-2 rounded-full bg-sky-400"></span> Deuda Proyectada TC
+        </span>
+        <span id="label-next-month" class="text-[11px] font-semibold text-slate-300 bg-sky-950/60 px-2 py-0.5 rounded-md border border-sky-500/30">
+          Próximo Mes
+        </span>
+      </div>
+
+      <div id="metric-projected-debt" class="text-3xl font-black text-sky-300 my-1 tracking-tight">
+        S/ 0.00
+      </div>
+      <p class="text-xs text-slate-400 mb-4">Total acumulado a liquidar en las fechas de vencimiento del siguiente ciclo.</p>
+
+      <div class="grid grid-cols-2 gap-2 pt-3 border-t border-slate-800/80 text-xs">
+        <div class="bg-slate-900/40 p-2.5 rounded-xl border border-slate-800/50">
+          <span class="text-[10px] text-slate-400 block font-medium">Consumos en Ciclo</span>
+          <span id="metric-gross-tc" class="font-bold text-slate-200 text-sm">S/ 0.00</span>
+        </div>
+        <div class="bg-amber-950/30 p-2.5 rounded-xl border border-amber-500/30">
+          <span class="text-[10px] text-amber-300 block font-medium flex items-center gap-1">
+            ⚡ Prepagos Amortizados
+          </span>
+          <span id="metric-applied-prepaids" class="font-bold text-amber-300 text-sm">-S/ 0.00</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ----------------------------------------------------------------------
+         TARJETA 3: CALENDARIO DE VENCIMIENTOS & ESTADO POR TARJETA
+         ---------------------------------------------------------------------- -->
+    <section class="space-y-3">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-bold text-slate-300 flex items-center gap-2">
+          <span>💳</span> Calendario de Vencimientos por Tarjeta
+        </h3>
+        <span class="text-[11px] text-slate-500">Corte & Pago</span>
+      </div>
+
+      <!-- Tarjetas renderizadas dinámicamente -->
+      <div id="cards-schedule-container" class="space-y-3">
+        <!-- Renderizado dinámico desde ui.js -->
+      </div>
+    </section>
+
+    <!-- ----------------------------------------------------------------------
+         MOVIMIENTOS RECIENTES Y FILTROS
+         ---------------------------------------------------------------------- -->
+    <section class="space-y-3 pt-2">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-bold text-slate-300 flex items-center gap-2">
+          <span>🕒</span> Movimientos Registrados
+        </h3>
+      </div>
+
+      <!-- Pills de Filtro -->
+      <div class="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+        <button class="tx-filter-pill px-3 py-1.5 rounded-xl text-xs font-semibold bg-sky-500/20 text-sky-400 border border-sky-500/40 cursor-pointer" data-filter="ALL">
+          Todos
+        </button>
+        <button class="tx-filter-pill px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700/50 cursor-pointer" data-filter="Ingreso">
+          Ingresos
+        </button>
+        <button class="tx-filter-pill px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700/50 cursor-pointer" data-filter="Gasto_Directo">
+          Gastos
+        </button>
+        <button class="tx-filter-pill px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700/50 cursor-pointer" data-filter="Consumo_TC">
+          Tarjetas
+        </button>
+        <button class="tx-filter-pill px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700/50 cursor-pointer" data-filter="Prepago_TC">
+          ⚡ Prepagos
+        </button>
+      </div>
+
+      <!-- Lista de transacciones -->
+      <div id="recent-transactions-list" class="space-y-2.5">
+        <!-- Renderizado dinámico -->
+      </div>
+    </section>
+
+    </div> <!-- Fin view-dashboard -->
+
+    <!-- ====================================================================
+         VISTA 2: GRÁFICOS INTERACTIVOS & ANALÍTICA
+         ==================================================================== -->
+    <div id="view-charts" class="space-y-4 hidden">
+      
+      <!-- Métricas Clave de Analítica -->
+      <div class="grid grid-cols-3 gap-2 text-center">
+        <div class="p-3 rounded-2xl glass-panel border border-slate-800">
+          <span class="text-[10px] text-slate-400 font-semibold uppercase block">Tasa Ahorro</span>
+          <span id="chart-stat-savings" class="text-sm font-black text-emerald-400">0%</span>
+        </div>
+        <div class="p-3 rounded-2xl glass-panel border border-slate-800">
+          <span class="text-[10px] text-slate-400 font-semibold uppercase block">Mayor Gasto</span>
+          <span id="chart-stat-top-cat" class="text-xs font-bold text-sky-300 truncate block">Ninguno</span>
+        </div>
+        <div class="p-3 rounded-2xl glass-panel border border-amber-500/20 bg-amber-950/20">
+          <span class="text-[10px] text-amber-300 font-semibold uppercase block">Amortizado</span>
+          <span id="chart-stat-prepaids" class="text-xs font-extrabold text-amber-400 block">S/ 0.00</span>
+        </div>
+      </div>
+
+      <!-- Gráfico 1: Dona de Gastos por Categoría -->
+      <section class="glass-card rounded-3xl p-5 shadow-2xl border border-slate-800 space-y-3">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+            <span>🍩</span> Gastos por Categoría
+          </h3>
+          <span id="chart-cat-total" class="text-xs font-bold text-rose-400">S/ 0.00</span>
+        </div>
+        <div class="relative w-full aspect-square max-h-60 mx-auto flex items-center justify-center">
+          <canvas id="chart-categories-canvas"></canvas>
+        </div>
+        <div id="chart-categories-legend" class="grid grid-cols-2 gap-2 pt-2 text-xs">
+          <!-- Renderizado dinámico de la leyenda -->
+        </div>
+      </section>
+
+      <!-- Gráfico 2: Comparativa de Flujo Mensual (Barras) -->
+      <section class="glass-card rounded-3xl p-5 shadow-2xl border border-slate-800 space-y-3">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+            <span>📊</span> Flujo vs Salidas vs Deuda TC
+          </h3>
+          <span class="text-[11px] text-slate-400">Mes Actual</span>
+        </div>
+        <div class="relative w-full h-52">
+          <canvas id="chart-cashflow-canvas"></canvas>
+        </div>
+      </section>
+
+      <!-- Gráfico 3: Presupuestos por Categoría y Control al 90% -->
+      <section class="glass-card rounded-3xl p-5 shadow-2xl border border-slate-800 space-y-3">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+              <span>🎯</span> Presupuesto por Categoría
+            </h3>
+            <p class="text-[11px] text-slate-400">Control de límites y alertas al 90%</p>
+          </div>
+          <button id="btn-open-budgets-modal" class="text-xs font-semibold px-2.5 py-1 rounded-xl bg-sky-500/20 text-sky-300 border border-sky-500/30 hover:bg-sky-500/30 active:scale-95 transition flex items-center gap-1">
+            <span>⚙️</span> Ajustar
+          </button>
+        </div>
+
+        <div id="budgets-progress-container" class="space-y-2.5 pt-1">
+          <!-- Renderizado dinámico de barras de presupuestos -->
+        </div>
+      </section>
+
+      <!-- Gráfico 4: Historial de Ahorro Mensual (Meses Cerrados) -->
+      <section class="glass-card rounded-3xl p-5 shadow-2xl border border-slate-800 space-y-3">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+              <span>📈</span> Historial de Ahorro Mensual
+            </h3>
+            <p class="text-[11px] text-slate-400">Resultados por mes cerrado</p>
+          </div>
+          <span id="label-total-savings-history" class="text-xs font-extrabold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-500/30">
+            Ahorro Cerrado: S/ 0.00
+          </span>
+        </div>
+
+        <div id="historical-savings-container" class="space-y-2 pt-1">
+          <!-- Renderizado dinámico de historial de ahorro -->
+        </div>
+      </section>
+
+    </div>
+
+    <!-- ====================================================================
+         VISTA 3: CENTRO DE ALERTAS FINANCIERAS INTELIGENTES
+         ==================================================================== -->
+    <div id="view-alerts" class="space-y-3 hidden">
+      <div class="flex items-center justify-between px-1">
+        <div>
+          <h3 class="text-base font-extrabold text-white flex items-center gap-2">
+            <span>🔔</span> Centro de Alertas Inteligentes
+          </h3>
+          <p class="text-xs text-slate-400">Vencimientos, cortes de ciclo, liquidez y recomendaciones.</p>
+        </div>
+      </div>
+
+      <div id="alerts-list-container" class="space-y-3 pt-1">
+        <!-- Renderizado dinámico de alertas -->
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ========================================================================
+       BARRA INFERIOR FLOTANTE (ACCESO RÁPIDO & FAB)
+       ======================================================================== -->
+  <footer class="fixed bottom-0 left-0 right-0 z-30 glass-panel border-t border-slate-800/80 px-4 py-2.5 safe-bottom">
+    <div class="max-w-md mx-auto flex items-center justify-between gap-2">
+      
+      <!-- Botones de 1 toque directo -->
+      <button onclick="UIManager.openDrawer('Ingreso')" class="flex-1 py-2.5 px-2 rounded-xl bg-emerald-950/40 hover:bg-emerald-900/40 border border-emerald-500/30 text-emerald-400 font-bold text-xs flex flex-col items-center gap-1 active:scale-95 transition">
+        <span>📈</span>
+        <span>+ Ingreso</span>
+      </button>
+
+      <button onclick="UIManager.openDrawer('Gasto_Directo')" class="flex-1 py-2.5 px-2 rounded-xl bg-rose-950/40 hover:bg-rose-900/40 border border-rose-500/30 text-rose-400 font-bold text-xs flex flex-col items-center gap-1 active:scale-95 transition">
+        <span>📉</span>
+        <span>- Gasto</span>
+      </button>
+
+      <button onclick="UIManager.openDrawer('Consumo_TC')" class="flex-1 py-2.5 px-2 rounded-xl bg-blue-950/40 hover:bg-blue-900/40 border border-blue-500/30 text-blue-400 font-bold text-xs flex flex-col items-center gap-1 active:scale-95 transition">
+        <span>💳</span>
+        <span>Tarjeta</span>
+      </button>
+
+      <button onclick="UIManager.openDrawer('Prepago_TC')" class="flex-1 py-2.5 px-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 font-bold text-xs flex flex-col items-center gap-1 active:scale-95 transition pulse-badge">
+        <span>⚡</span>
+        <span>Prepago</span>
+      </button>
+
+      <!-- FAB principal para abrir el numpad genérico -->
+      <button id="fab-add-transaction" class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-sky-500 to-indigo-600 text-white flex items-center justify-center shadow-lg shadow-sky-500/30 active:scale-90 transition">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/>
+        </svg>
+      </button>
+
+    </div>
+  </footer>
+
+  <!-- ========================================================================
+       DRAWER INFERIOR: NUMPAD & FORMULARIO RÁPIDO
+       ======================================================================== -->
+  <div id="drawer-backdrop" class="drawer-backdrop fixed inset-0 bg-black/70 backdrop-blur-sm z-40"></div>
+
+  <div id="transaction-drawer" class="drawer-content fixed bottom-0 left-0 right-0 z-50 bg-slate-900 rounded-t-[32px] border-t border-slate-700/80 max-h-[92vh] flex flex-col overflow-hidden safe-bottom">
+    
+    <!-- Barra de arrastre y encabezado del Drawer -->
+    <div class="px-5 pt-3 pb-2 flex items-center justify-between border-b border-slate-800">
+      <div class="w-10 h-1 bg-slate-700 rounded-full mx-auto absolute left-0 right-0 top-2"></div>
+      <h3 class="font-bold text-sm text-slate-200">Registrar Movimiento</h3>
+      <button id="btn-close-drawer" class="text-slate-400 hover:text-white p-1 rounded-lg">
+        ✕
+      </button>
+    </div>
+
+    <!-- Contenido Scrollable del Drawer -->
+    <div class="p-4 overflow-y-auto space-y-3.5 flex-1">
+
+      <!-- 1. Pantalla de Importe (Display Grande) -->
+      <div class="bg-slate-950/80 rounded-2xl p-4 text-center border border-slate-800 shadow-inner">
+        <span class="text-xs text-slate-400 font-medium uppercase tracking-wider block mb-1">Monto a Registrar</span>
+        <div id="numpad-display-amount" class="text-4xl font-extrabold text-white tracking-tight">
+          S/ 0.00
+        </div>
+      </div>
+
+      <!-- 2. Selectores Rápidos de Tipo en 1 Toque -->
+      <div class="grid grid-cols-4 gap-1.5">
+        <div class="type-chip" data-type="Ingreso">
+          <span>📈</span><span>Ingreso</span>
+        </div>
+        <div class="type-chip active-gasto" data-type="Gasto_Directo">
+          <span>📉</span><span>Gasto</span>
+        </div>
+        <div class="type-chip" data-type="Consumo_TC">
+          <span>💳</span><span>Tarjeta</span>
+        </div>
+        <div class="type-chip" data-type="Prepago_TC">
+          <span>⚡</span><span>Prepago</span>
+        </div>
+      </div>
+
+      <!-- 3. Vista Previa del Impacto Financiero en Vivo -->
+      <div id="impact-preview-box">
+        <!-- Renderizado dinámico -->
+      </div>
+
+      <!-- 4. Campos Contextuales Dinámicos -->
+      <div class="grid grid-cols-2 gap-2 text-xs">
+        
+        <!-- Tarjeta Afectada (Visible en Consumo_TC y Prepago_TC) -->
+        <div id="field-card-container" class="col-span-2 hidden">
+          <label class="text-slate-400 font-semibold block mb-1">Tarjeta de Crédito</label>
+          <select id="tx-card-select" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-100 focus:outline-none focus:border-sky-500">
+            <!-- Renderizado dinámico -->
+          </select>
+        </div>
+
+        <!-- Método de Pago / Cuenta Origen (Visible en Gasto, Ingreso y Prepago) -->
+        <div id="field-method-container" class="col-span-1">
+          <label class="text-slate-400 font-semibold block mb-1">Fondo / Cuenta</label>
+          <select id="tx-method-select" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-100 focus:outline-none focus:border-sky-500">
+            <!-- Renderizado dinámico -->
+          </select>
+        </div>
+
+        <!-- Categoría -->
+        <div id="field-category-container" class="col-span-1">
+          <label class="text-slate-400 font-semibold block mb-1">Categoría</label>
+          <select id="tx-category-select" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-100 focus:outline-none focus:border-sky-500">
+            <!-- Renderizado dinámico -->
+          </select>
+        </div>
+
+        <!-- Fecha -->
+        <div class="col-span-1">
+          <label class="text-slate-400 font-semibold block mb-1">Fecha</label>
+          <input type="date" id="tx-date-input" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-sky-500">
+        </div>
+
+        <!-- Notas breves -->
+        <div class="col-span-1">
+          <label class="text-slate-400 font-semibold block mb-1">Notas (opcional)</label>
+          <input type="text" id="tx-notes-input" placeholder="Detalle..." class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-sky-500">
+        </div>
+
+      </div>
+
+      <!-- 5. TECLADO NUMÉRICO TÁCTIL (NUMPAD TIPO POS) -->
+      <div class="grid grid-cols-3 gap-2 pt-1">
+        <button type="button" class="numpad-btn" data-numpad-key="1">1</button>
+        <button type="button" class="numpad-btn" data-numpad-key="2">2</button>
+        <button type="button" class="numpad-btn" data-numpad-key="3">3</button>
+
+        <button type="button" class="numpad-btn" data-numpad-key="4">4</button>
+        <button type="button" class="numpad-btn" data-numpad-key="5">5</button>
+        <button type="button" class="numpad-btn" data-numpad-key="6">6</button>
+
+        <button type="button" class="numpad-btn" data-numpad-key="7">7</button>
+        <button type="button" class="numpad-btn" data-numpad-key="8">8</button>
+        <button type="button" class="numpad-btn" data-numpad-key="9">9</button>
+
+        <button type="button" class="numpad-btn font-black text-xl" data-numpad-key=".">.</button>
+        <button type="button" class="numpad-btn" data-numpad-key="0">0</button>
+        <button type="button" class="numpad-btn font-semibold text-lg" data-numpad-key="00">00</button>
+
+        <button type="button" class="numpad-btn btn-delete text-sm font-bold" data-numpad-key="clear">C</button>
+        <button type="button" class="numpad-btn btn-delete text-lg" data-numpad-key="backspace">⌫</button>
+        <button id="btn-save-transaction" type="button" class="numpad-btn btn-action text-sm font-extrabold tracking-wide uppercase shadow-lg shadow-sky-500/30">
+          Guardar
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL DE CONFIGURACIÓN (GOOGLE SHEETS & TARJETAS)
+       ======================================================================== -->
+  <div id="settings-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-3xl p-5 w-full max-w-md max-h-[90vh] overflow-y-auto space-y-4 shadow-2xl">
+      
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="font-bold text-base text-white flex items-center gap-2">
+          <span>⚙️</span> Configuración del Sistema
+        </h3>
+        <button id="btn-close-settings" class="text-slate-400 hover:text-white p-1">✕</button>
+      </div>
+
+      <!-- Sección Google Sheets -->
+      <div class="space-y-2">
+        <label class="text-xs font-semibold text-slate-300 block">URL del Web App de Google Apps Script</label>
+        <input type="url" id="setting-api-url" placeholder="https://script.google.com/macros/s/.../exec" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-100 focus:outline-none focus:border-sky-500">
+        <p class="text-[11px] text-slate-400">Si dejas este campo vacío, la app guardará y calculará todo localmente en tu teléfono.</p>
+        <div class="flex gap-2 pt-1">
+          <button id="btn-test-connection" class="flex-1 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700">
+            Probar Conexión
+          </button>
+          <button id="btn-save-settings" class="flex-1 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-xs font-bold text-white shadow-md shadow-sky-600/30">
+            Guardar y Sincronizar
+          </button>
+        </div>
+      </div>
+
+      <!-- Sección Tarjetas de Crédito -->
+      <div class="space-y-3 pt-3 border-t border-slate-800">
+        <div class="flex items-center justify-between">
+          <label class="text-xs font-semibold text-slate-300">Tarjetas de Crédito Configuradas</label>
+          <button id="btn-add-new-card" class="text-xs bg-indigo-500/20 text-indigo-300 font-semibold px-2.5 py-1 rounded-lg border border-indigo-500/30 hover:bg-indigo-500/30">
+            + Nueva Tarjeta
+          </button>
+        </div>
+        <div id="settings-cards-list" class="space-y-2">
+          <!-- Renderizado dinámico -->
+        </div>
+      </div>
+
+      <div class="text-center pt-2">
+        <p class="text-[10px] text-slate-500">Finanzas PWA v1.0 • Diseñada para móviles</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       MODAL DE EDICIÓN DE PRESUPUESTOS POR CATEGORÍA
+       ======================================================================== -->
+  <div id="budgets-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-3xl p-5 w-full max-w-md max-h-[90vh] overflow-y-auto space-y-4 shadow-2xl">
+      
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div>
+          <h3 class="font-bold text-base text-white flex items-center gap-2">
+            <span>🎯</span> Presupuestos por Categoría
+          </h3>
+          <p class="text-[11px] text-slate-400">Define tu tope mensual para cada categoría</p>
+        </div>
+        <button id="btn-close-budgets-modal" class="text-slate-400 hover:text-white p-1 text-base">✕</button>
+      </div>
+
+      <div id="budgets-form-container" class="space-y-2.5 max-h-[55vh] overflow-y-auto pr-1">
+        <!-- Renderizado dinámico de categorías y montos -->
+      </div>
+
+      <div class="flex gap-2 pt-2 border-t border-slate-800">
+        <button id="btn-cancel-budgets" class="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300">
+          Cancelar
+        </button>
+        <button id="btn-save-budgets" class="flex-1 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-xs font-bold text-white shadow-lg shadow-sky-600/30">
+          Guardar Presupuestos
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Contenedor flotante de notificaciones Toast -->
+  <div id="toast-container" class="fixed top-5 left-4 right-4 z-50 flex flex-col gap-2 pointer-events-none max-w-sm mx-auto"></div>
+
+  <!-- Scripts en orden de dependencia -->
+  <script src="js/financial-engine.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/app.js"></script>
+
+</body>
+</html>
