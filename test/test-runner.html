@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Verificación y Pruebas del Motor Financiero</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="../frontend/js/financial-engine.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 p-6 font-sans">
+  <div class="max-w-2xl mx-auto space-y-6">
+    <div class="border-b border-slate-800 pb-4">
+      <h1 class="text-2xl font-black text-sky-400">🧪 Batería de Pruebas Financieras</h1>
+      <p class="text-sm text-slate-400">Verificación de Reglas Contables, Ciclos de Tarjetas de Crédito y Prepagos</p>
+    </div>
+
+    <div id="test-results" class="space-y-3">
+      <!-- Resultados dinámicos -->
+    </div>
+
+    <div id="summary-box" class="p-4 rounded-2xl bg-slate-900 border border-slate-800">
+      <p class="text-sm font-semibold text-slate-300">Ejecutando pruebas...</p>
+    </div>
+  </div>
+
+  <script>
+    const resultsContainer = document.getElementById('test-results');
+    const summaryBox = document.getElementById('summary-box');
+    let passedCount = 0;
+    let failedCount = 0;
+
+    function report(name, passed, details) {
+      if (passed) passedCount++;
+      else failedCount++;
+
+      const div = document.createElement('div');
+      div.className = `p-3.5 rounded-xl border flex items-start gap-3 text-xs ${
+        passed ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-200' : 'bg-rose-950/40 border-rose-500/30 text-rose-200'
+      }`;
+      div.innerHTML = `
+        <span class="text-base">${passed ? '✅' : '❌'}</span>
+        <div>
+          <strong class="text-sm block text-white">${name}</strong>
+          <span class="opacity-80">${details}</span>
+        </div>
+      `;
+      resultsContainer.appendChild(div);
+    }
+
+    const { TIPOS_TRANSACCION, calcularCicloTarjeta, prepararTransaccion, calcularConsolidadoFinanciero } = window.FinancialEngine;
+
+    const tarjetasConfig = [
+      { id: 'TC_BCP', nombre: 'BCP Visa Signature', diaCorte: 20, diaVencimiento: 10, limiteCredito: 10000, colorHex: '#0033a0' },
+      { id: 'TC_BBVA', nombre: 'BBVA Mastercard Black', diaCorte: 5, diaVencimiento: 25, limiteCredito: 8000, colorHex: '#004481' }
+    ];
+
+    // Prueba 1: Ciclos
+    const c1 = calcularCicloTarjeta('2026-09-15', 20, 10);
+    report('Ciclo antes de corte (15 <= 20)', c1.fechaCorte === '2026-09-20' && c1.fechaVencimiento === '2026-10-10', `Corte: ${c1.fechaCorte}, Vencimiento: ${c1.fechaVencimiento}`);
+
+    const c2 = calcularCicloTarjeta('2026-09-22', 20, 10);
+    report('Ciclo después de corte (22 > 20)', c2.fechaCorte === '2026-10-20' && c2.fechaVencimiento === '2026-11-10', `Corte pasa a ${c2.fechaCorte}, Vencimiento a ${c2.fechaVencimiento}`);
+
+    // Prueba 2: Caso Base del Usuario
+    const txsBase = [
+      prepararTransaccion({ id: '1', fecha: '2026-09-01', tipo: TIPOS_TRANSACCION.INGRESO, monto: 2000, categoria: 'Sueldo' }, tarjetasConfig),
+      prepararTransaccion({ id: '2', fecha: '2026-09-02', tipo: TIPOS_TRANSACCION.GASTO_DIRECTO, monto: 100, categoria: 'Efectivo' }, tarjetasConfig),
+      prepararTransaccion({ id: '3', fecha: '2026-09-05', tipo: TIPOS_TRANSACCION.PAGO_TC_VENCIDA, monto: 500, tarjetaAfectada: 'TC_BCP' }, tarjetasConfig)
+    ];
+    const resBase = calcularConsolidadoFinanciero(txsBase, tarjetasConfig, '2026-09');
+    const okBase = resBase.flujoEfectivo.balanceLibreNeto === 1400;
+    report('Caso Base: Ingreso 2000 - Gasto 100 - TC Vencida 500', okBase, `Balance Libre: S/ ${resBase.flujoEfectivo.balanceLibreNeto} (Esperado: S/ 1400.00)`);
+
+    // Prueba 3: Caso con Prepago del Usuario
+    const txsPrepago = [
+      ...txsBase,
+      prepararTransaccion({ id: '4', fecha: '2026-09-10', tipo: TIPOS_TRANSACCION.CONSUMO_TC, tarjetaAfectada: 'TC_BCP', monto: 600 }, tarjetasConfig),
+      prepararTransaccion({ id: '5', fecha: '2026-09-15', tipo: TIPOS_TRANSACCION.PREPAGO_TC, tarjetaAfectada: 'TC_BCP', monto: 100 }, tarjetasConfig)
+    ];
+    const resPrepago = calcularConsolidadoFinanciero(txsPrepago, tarjetasConfig, '2026-09');
+    const okMesActual = resPrepago.flujoEfectivo.balanceLibreNeto === 1300 && resPrepago.flujoEfectivo.prepagosRealizados === 100;
+    report('Caso con Prepago: Salida de Flujo en Mes Actual (2000 - 700)', okMesActual, `Balance Libre Mes Actual: S/ ${resPrepago.flujoEfectivo.balanceLibreNeto} (Esperado: S/ 1300.00)`);
+
+    const okMesSiguiente = resPrepago.tarjetasCredito.deudaTotalProyectada === 500;
+    report('Caso con Prepago: Deuda Proyectada Mes Siguiente (600 - 100)', okMesSiguiente, `Deuda TC Mes Siguiente: S/ ${resPrepago.tarjetasCredito.deudaTotalProyectada} (Esperado: S/ 500.00)`);
+
+    // Prueba 4: Umbral de Gasto Progresivo (50% y +10% en cada aumento)
+    const { generarAlertasFinancieras } = window.FinancialEngine;
+    
+    // Sub-caso: Gasto 35% (< 50%) -> Sin alerta
+    const alertas35 = generarAlertasFinancieras(resPrepago, '2026-09-06');
+    const sinAlertaSub50 = !alertas35.some(a => a.id.startsWith('alerta-gasto-'));
+    report('Regla 1: Gasto al 35% (<50%) NO genera alerta de umbral', sinAlertaSub50, 'Sin falsos positivos por debajo del 50%');
+
+    // Sub-caso: Gasto 55% (>= 50%) -> Alerta escalón 50%
+    const txsGasto55 = [
+      ...txsPrepago,
+      prepararTransaccion({ id: '6', fecha: '2026-09-18', tipo: TIPOS_TRANSACCION.GASTO_DIRECTO, monto: 400, categoria: 'Compras' }, tarjetasConfig)
+    ];
+    const resGasto55 = calcularConsolidadoFinanciero(txsGasto55, tarjetasConfig, '2026-09');
+    const alertas55 = generarAlertasFinancieras(resGasto55, '2026-09-18');
+    const ok50 = alertas55.some(a => a.id === 'alerta-gasto-50');
+    report('Regla 1: Gasto al 55% dispara alerta al superar el 50%', ok50, 'Alerta 50% activada correctamente');
+
+    // Sub-caso: Gasto 65% (>= 60%) -> Alerta escalón 60% (+10% adicional)
+    const txsGasto65 = [
+      ...txsGasto55,
+      prepararTransaccion({ id: '7', fecha: '2026-09-20', tipo: TIPOS_TRANSACCION.GASTO_DIRECTO, monto: 200, categoria: 'Servicios' }, tarjetasConfig)
+    ];
+    const resGasto65 = calcularConsolidadoFinanciero(txsGasto65, tarjetasConfig, '2026-09');
+    const alertas65 = generarAlertasFinancieras(resGasto65, '2026-09-20');
+    const ok60 = alertas65.some(a => a.id === 'alerta-gasto-60');
+    report('Regla 1: Gasto al 65% dispara alerta al superar el 60% (+10%)', ok60, 'Alerta 60% activada correctamente');
+
+    // Prueba 5: Alerta de Vencimiento de Tarjeta cuando faltan <= 5 días
+    // resPrepago proyecta la deuda de TC_BCP para octubre con vencimiento el 2026-10-10 (deuda: S/ 500)
+    const alertasVenc = generarAlertasFinancieras(resPrepago, '2026-10-06'); // 4 días antes del 2026-10-10
+    const okVenc = alertasVenc.some(a => a.id === 'venc-TC_BCP');
+    report('Regla 2: Alerta cuando faltan <= 5 días para vencimiento de tarjeta', okVenc, 'Alerta de vencimiento en 4 días generada con éxito');
+
+    // Prueba 6: CASO REPORTADO POR EL USUARIO (Google Sheets Date string + Tarjeta IO BCP / TC_IO)
+    const tarjetasUsuario = [
+      { id: 'TC_IO', nombre: 'IO BCP', diaCorte: 20, diaVencimiento: 10, limiteCredito: 5000, colorHex: '#0ea5e9' }
+    ];
+    const txsUsuarioSheets = [
+      {
+        id: 'TX-1',
+        fecha: '2026-09-06',
+        tipo: TIPOS_TRANSACCION.CONSUMO_TC,
+        tarjetaAfectada: 'TC_IO',
+        categoria: 'Supermercado',
+        monto: 93.08,
+        // String largo tal como lo serializaba Google Sheets:
+        mesImpactoTC: 'Thu Oct 01 2026 00:00:00 GMT-0500 (hora estándar de Perú)'
+      },
+      {
+        id: 'TX-2',
+        fecha: '2026-09-06',
+        tipo: TIPOS_TRANSACCION.CONSUMO_TC,
+        tarjetaAfectada: 'TC_IO',
+        categoria: 'Suscripciones',
+        monto: 18.99,
+        mesImpactoTC: 'Thu Oct 01 2026 00:00:00 GMT-0500 (hora estándar de Perú)'
+      }
+    ];
+    const resUsuario = calcularConsolidadoFinanciero(txsUsuarioSheets, tarjetasUsuario, '2026-09');
+    const cardRes = resUsuario.tarjetasCredito.desgloseTarjetas[0];
+    const totalEsperado = 112.07; // 93.08 + 18.99
+    const okSumaTC = cardRes && Math.abs(cardRes.consumosCiclo - totalEsperado) < 0.001;
+    const okCategorias = (resUsuario.categorias.gastos['Supermercado'] === 93.08) &&
+                         (resUsuario.categorias.gastos['Suscripciones'] === 18.99);
+
+    report('Caso Real Usuario: Suma consumos TC (93.08 + 18.99 = S/ 112.07) con fecha Date de Sheets', okSumaTC, `Consumo TC IO BCP: S/ ${cardRes ? cardRes.consumosCiclo : 0} (Esperado: S/ 112.07)`);
+    report('Caso Real Usuario: Categorías para gráficos (Supermercado S/ 93.08, Suscripciones S/ 18.99)', okCategorias, `Supermercado: S/ ${resUsuario.categorias.gastos['Supermercado']}, Suscripciones: S/ ${resUsuario.categorias.gastos['Suscripciones']}`);
+
+    // Prueba 7: PRESUPUESTOS - Alerta al alcanzar el 90%
+    const presupuestosTest = [
+      { categoria: 'Supermercado', monto: 500, moneda: 'PEN' },
+      { categoria: 'Restaurantes', monto: 200, moneda: 'PEN' }
+    ];
+    const txsPresupuesto = [
+      { id: 'P1', fecha: '2026-09-02', tipo: TIPOS_TRANSACCION.GASTO_DIRECTO, categoria: 'Supermercado', monto: 460, mesImpactoEfectivo: '2026-09' }, // 92% (>= 90%)
+      { id: 'P2', fecha: '2026-09-03', tipo: TIPOS_TRANSACCION.GASTO_DIRECTO, categoria: 'Restaurantes', monto: 230, mesImpactoEfectivo: '2026-09' }  // 115% (>= 100%)
+    ];
+    const resPresupuesto = calcularConsolidadoFinanciero(txsPresupuesto, [], '2026-09', presupuestosTest);
+    const alertasPresupuesto = generarAlertasFinancieras(resPresupuesto, '2026-09-05');
+
+    const okAlerta90 = alertasPresupuesto.some(a => a.id === 'alerta-presupuesto-90-Supermercado');
+    report('Regla Presupuestos: Alerta al alcanzar >= 90% (Supermercado S/ 460 de S/ 500 = 92%)', okAlerta90, 'Alerta predictiva del 90% generada');
+
+    // Prueba 8: PRESUPUESTOS - Alerta al superar el 100% (Excedido)
+    const okAlerta100 = alertasPresupuesto.some(a => a.id === 'alerta-presupuesto-exceso-Restaurantes');
+    report('Regla Presupuestos: Alerta crítica al exceder 100% (Restaurantes S/ 230 de S/ 200 = 115%)', okAlerta100, 'Alerta crítica de sobregiro generada');
+
+    // Prueba 9: HISTORIAL DE AHORRO MENSUAL (MESES CERRADOS)
+    const txsHistoricas = [
+      // Mes cerrado: 2026-08 (Ingreso 3000, Gasto 1200 -> Ahorro 1800, Tasa 60%)
+      { id: 'H1', fecha: '2026-08-01', tipo: TIPOS_TRANSACCION.INGRESO, monto: 3000, mesImpactoEfectivo: '2026-08' },
+      { id: 'H2', fecha: '2026-08-15', tipo: TIPOS_TRANSACCION.GASTO_DIRECTO, monto: 1200, mesImpactoEfectivo: '2026-08' },
+      // Mes en curso: 2026-09 (Ingreso 2000, Gasto 500 -> Ahorro 1500)
+      { id: 'H3', fecha: '2026-09-01', tipo: TIPOS_TRANSACCION.INGRESO, monto: 2000, mesImpactoEfectivo: '2026-09' },
+      { id: 'H4', fecha: '2026-09-02', tipo: TIPOS_TRANSACCION.GASTO_DIRECTO, monto: 500, mesImpactoEfectivo: '2026-09' }
+    ];
+    const resHistorico = calcularConsolidadoFinanciero(txsHistoricas, [], '2026-09', []);
+    const mesAgosto = resHistorico.historicoAhorro.mesesCerrados.find(m => m.mes === '2026-08');
+    const okHistoricoAgosto = mesAgosto && mesAgosto.ahorroNeto === 1800 && mesAgosto.tasaAhorro === 60 && mesAgosto.esCerrado;
+
+    report('Historial de Ahorro: Cierre mensual exacto (Agosto: Ingresos 3000 - Salidas 1200 = Ahorro S/ 1800, 60%)', okHistoricoAgosto, `Ahorro neto calculado: S/ ${mesAgosto ? mesAgosto.ahorroNeto : 0}, Tasa: ${mesAgosto ? mesAgosto.tasaAhorro : 0}%`);
+
+    summaryBox.innerHTML = `
+      <div class="flex items-center justify-between">
+        <span class="font-bold ${failedCount === 0 ? 'text-emerald-400' : 'text-rose-400'} text-base">
+          ${failedCount === 0 ? '🎉 TODAS LAS PRUEBAS PASARON EXITOSAMENTE' : '⚠️ ALGUNAS PRUEBAS FALLARON'}
+        </span>
+        <span class="text-xs text-slate-400">${passedCount} pasadas, ${failedCount} falladas</span>
+      </div>
+    `;
+  </script>
+</body>
+</html>

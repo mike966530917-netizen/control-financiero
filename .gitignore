@@ -1,0 +1,15 @@
+﻿# Python
+__pycache__/
+*.pyc
+
+# Logs & temporales
+*.log
+test_output.html
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+Desktop.ini

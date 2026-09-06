@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="50%" stop-color="#1e1b4b" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#2563eb" />
+    </linearGradient>
+    <linearGradient id="boltGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fde047" />
+      <stop offset="100%" stop-color="#eab308" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="12" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background container -->
+  <rect width="512" height="512" rx="110" fill="url(#bgGrad)" />
+
+  <!-- Credit Card Shape -->
+  <rect x="76" y="140" width="360" height="230" rx="24" fill="url(#cardGrad)" opacity="0.95" filter="drop-shadow(0 15px 25px rgba(0,0,0,0.5))" />
+  
+  <!-- Magnetic Stripe / Chip -->
+  <rect x="76" y="195" width="360" height="42" fill="#0f172a" opacity="0.3" />
+  <rect x="115" y="260" width="55" height="42" rx="8" fill="#fbbf24" opacity="0.9" />
+
+  <!-- Cash Flow / Pulse Graph Lines -->
+  <path d="M 120 320 Q 200 290, 260 325 T 390 280" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" opacity="0.85" />
+
+  <!-- Lightning Bolt (Prepagos / Anticipo) -->
+  <g filter="url(#glow)">
+    <polygon points="350,85 305,210 365,210 320,335 415,190 355,190" fill="url(#boltGrad)" />
+  </g>
+
+  <!-- Currency Symbol or Badge -->
+  <circle cx="370" cy="315" r="32" fill="#10b981" />
+  <text x="370" y="326" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="30" font-weight="900" fill="#ffffff" text-anchor="middle">S/</text>
+</svg>
