@@ -602,9 +602,9 @@
         fecha: fecha,
         tipo: tipo,
         monto: monto,
-        categoria: categoria,
-        tarjetaAfectada: (tipo === 'Consumo_TC' || tipo === 'Prepago_TC') ? tarjetaAfectada : '',
-        metodoPago: (tipo === 'Ingreso' || tipo === 'Gasto_Directo' || tipo === 'Prepago_TC') ? metodoPago : '',
+        categoria: categoria || (tipo === 'Pago_TC_Vencida' ? 'Pago Factura TC' : 'General'),
+        tarjetaAfectada: (tipo === 'Consumo_TC' || tipo === 'Prepago_TC' || tipo === 'Pago_TC_Vencida') ? tarjetaAfectada : '',
+        metodoPago: (tipo === 'Ingreso' || tipo === 'Gasto_Directo' || tipo === 'Prepago_TC' || tipo === 'Pago_TC_Vencida') ? metodoPago : '',
         cuotas: numCuotas,
         notas: notas
       };
@@ -632,6 +632,10 @@
 
           if (tipo === 'Prepago_TC') {
             UIManager.showToast(`⚡ Prepago de S/ ${monto.toFixed(2)} registrado: redujo la deuda del próximo mes!`, 'success');
+          } else if (tipo === 'Pago_TC_Vencida') {
+            const cardObj = AppState.cards.find(c => c.id === tarjetaAfectada);
+            const cardNom = cardObj ? cardObj.nombre : 'Tarjeta';
+            UIManager.showToast(`🏦 Pago de factura de S/ ${monto.toFixed(2)} registrado para ${cardNom}!`, 'success');
           } else {
             UIManager.showToast('Transacción registrada exitosamente', 'success');
           }

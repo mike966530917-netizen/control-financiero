@@ -498,6 +498,56 @@
       `Julio cerrado: ${julioCerrado ? julioCerrado.ahorroNeto : 0}, Meses cerrados año 2026: ${resumenAnual2026.mesesCerradosCount}, Ahorro total acumulado: S/ ${resumenAnual2026.totalAhorro}`
     );
 
+    // Prueba 22: PAGO INDIVIDUAL POR TARJETA (Tarjeta A no afecta a Tarjeta B)
+    const txMultiCard = [
+      prepararTransaccion({ id: 'TX-C-BCP', fecha: '2026-08-15', tipo: TIPOS_TRANSACCION.CONSUMO_TC, tarjetaAfectada: 'TC_BCP', monto: 300 }, tarjetasConfig),
+      prepararTransaccion({ id: 'TX-C-BBVA', fecha: '2026-08-20', tipo: TIPOS_TRANSACCION.CONSUMO_TC, tarjetaAfectada: 'TC_BBVA', monto: 200 }, tarjetasConfig),
+      // Pago de S/ 300 SOLO a la tarjeta BCP en Septiembre
+      prepararTransaccion({ id: 'TX-P-BCP', fecha: '2026-09-08', tipo: TIPOS_TRANSACCION.PAGO_TC_VENCIDA, tarjetaAfectada: 'TC_BCP', monto: 300, mesImpactoTC: '2026-09', mesImpactoEfectivo: '2026-09' }, tarjetasConfig)
+    ];
+    const consolidadoMulti = calcularConsolidadoFinanciero(txMultiCard, tarjetasConfig, '2026-09');
+    const desgloseFact = consolidadoMulti.flujoEfectivo.facturacionTC.desglosePorTarjeta;
+    const bcpFact = desgloseFact.find(t => t.id === 'TC_BCP');
+    const bbvaFact = desgloseFact.find(t => t.id === 'TC_BBVA');
+
+    const okBcpPagado = bcpFact && bcpFact.pagado === 300 && bcpFact.pendiente === 0 && bcpFact.estado === 'PAGADO';
+    const okBbvaPendiente = bbvaFact && bbvaFact.pagado === 0 && bbvaFact.pendiente === 200 && bbvaFact.estado === 'PENDIENTE';
+    const okTotalPendiente = consolidadoMulti.flujoEfectivo.facturacionTC.pendiente === 200 &&
+                             consolidadoMulti.flujoEfectivo.facturacionTC.totalFacturado === 500;
+
+    report('Pago Individual por Tarjeta: Pagar BCP (S/ 300) deja BCP en S/ 0 pendiente y mantiene BBVA en S/ 200 pendiente',
+      okBcpPagado && okBbvaPendiente && okTotalPendiente,
+      `BCP Pendiente: S/ ${bcpFact ? bcpFact.pendiente : 0}, BBVA Pendiente: S/ ${bbvaFact ? bbvaFact.pendiente : 0}, Total Pendiente Mes: S/ ${consolidadoMulti.flujoEfectivo.facturacionTC.pendiente}`
+    );
+
+    // Prueba 23: DEUDA TOTAL PROYECTADA PARA EL PRÓXIMO MES ES LA SUMA DE TODAS LAS TARJETAS
+    const txProyeccionMulti = [
+      prepararTransaccion({ id: 'TX-P-BCP-FUT', fecha: '2026-09-12', tipo: TIPOS_TRANSACCION.CONSUMO_TC, tarjetaAfectada: 'TC_BCP', monto: 450 }, tarjetasConfig),
+      prepararTransaccion({ id: 'TX-P-BBVA-FUT', fecha: '2026-09-14', tipo: TIPOS_TRANSACCION.CONSUMO_TC, tarjetaAfectada: 'TC_BBVA', monto: 350 }, tarjetasConfig),
+      prepararTransaccion({ id: 'TX-PREP-BCP', fecha: '2026-09-16', tipo: TIPOS_TRANSACCION.PREPAGO_TC, tarjetaAfectada: 'TC_BCP', monto: 50 }, tarjetasConfig)
+    ];
+    const consolidadoProy = calcularConsolidadoFinanciero(txProyeccionMulti, tarjetasConfig, '2026-09');
+    const bcpProy = consolidadoProy.tarjetasCredito.desgloseTarjetas.find(t => t.id === 'TC_BCP');
+    const bbvaProy = consolidadoProy.tarjetasCredito.desgloseTarjetas.find(t => t.id === 'TC_BBVA');
+
+    const okBcpNeto = bcpProy && bcpProy.deudaNetaProyectada === 400; // 450 - 50
+    const okBbvaNeto = bbvaProy && bbvaProy.deudaNetaProyectada === 350;
+    const sumaEsperada = (bcpProy ? bcpProy.deudaNetaProyectada : 0) + (bbvaProy ? bbvaProy.deudaNetaProyectada : 0);
+    const okSumaTotal = consolidadoProy.tarjetasCredito.deudaTotalProyectada === 750 &&
+                        consolidadoProy.tarjetasCredito.deudaTotalProyectada === sumaEsperada;
+
+    report('Deuda Total Proyectada Próximo Mes: Suma de todas las tarjetas (BCP S/ 400 + BBVA S/ 350 = S/ 750.00)',
+      okBcpNeto && okBbvaNeto && okSumaTotal,
+      `BCP Próximo: S/ ${bcpProy ? bcpProy.deudaNetaProyectada : 0}, BBVA Próximo: S/ ${bbvaProy ? bbvaProy.deudaNetaProyectada : 0}, Total Proyectado: S/ ${consolidadoProy.tarjetasCredito.deudaTotalProyectada}`
+    );
+
+    // Prueba 24: ENLACE DE FACTURA DEL MES ACTUAL DENTRO DE CADA TARJETA
+    const okFacturaEnlazada = bcpProy && bcpProy.facturaMesActual && bcpProy.facturaMesActual.deudaFacturada !== undefined;
+    report('Enlace de Factura Actual en Tarjetas: cada tarjeta contiene su facturaMesActual para pagos directos',
+      okFacturaEnlazada,
+      `facturaMesActual presente en tarjeta BCP con estado: ${bcpProy && bcpProy.facturaMesActual ? bcpProy.facturaMesActual.estado : 'N/A'}`
+    );
+
     summaryBox.innerHTML = `
       <div class="flex items-center justify-between">
         <span class="font-bold ${failedCount === 0 ? 'text-emerald-400' : 'text-rose-400'} text-base">

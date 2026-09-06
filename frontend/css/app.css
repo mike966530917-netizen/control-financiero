@@ -126,6 +126,12 @@
   color: #facc15;
 }
 
+.type-chip.active-pago {
+  background-color: rgba(168, 85, 247, 0.15);
+  border-color: #a855f7;
+  color: #c084fc;
+}
+
 /* Transiciones para Drawer inferior */
 .drawer-backdrop {
   opacity: 0;
