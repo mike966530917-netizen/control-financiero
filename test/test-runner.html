@@ -376,6 +376,128 @@
       `Septiembre (Confirmado): S/ ${totalServSept} (estado: ${gasSeptEstado ? gasSeptEstado.estadoMes : ''}), Octubre (Proyectado): S/ ${totalServOct} (estado: ${gasOctEstado ? gasOctEstado.estadoMes : ''})`
     );
 
+    // Prueba 18: ELIMINACIÓN DE SEMILLAS FANTASMA Y EMPAREJAMIENTO ESTRICTO DE TC
+    // Un gasto fijo con metodoPago: 'Tarjeta' (genérico) NO debe emparejar con TC_BCP ni inventar CONSUMO_TC
+    const recGenerico = { id: 'REC-GEN', nombre: 'Suscripción Genérica', tipo: 'Gasto_Fijo', monto: 70, metodoPago: 'Tarjeta', activo: true };
+    const combGen = combinarTransaccionesConRecurrentes([], [recGenerico], '2026-09', tarjetasConfig);
+    const txGen = combGen.transaccionesConsolidadas.find(t => t.recurrenteId === 'REC-GEN');
+    const okNoEsTC = txGen && txGen.tipo === TIPOS_TRANSACCION.GASTO_DIRECTO && txGen.tarjetaAfectada === undefined;
+
+    report('Eliminación de Semillas Fantasma: Método genérico "Tarjeta" NO se asigna como consumo de TC_BCP',
+      okNoEsTC,
+      `Tipo resultante: ${txGen ? txGen.tipo : 'N/A'}, Tarjeta Afectada: ${txGen ? txGen.tarjetaAfectada : 'ninguna'}`
+    );
+
+    // Prueba 19: REFLEJO DE CONSUMOS TC EN EL FLUJO DEL MES SIGUIENTE
+    // Consumo de S/ 500 en Septiembre con impacto en Octubre.
+    // Al evaluar Octubre (con ingreso de S/ 3000 y gastos directos de S/ 200):
+    // El flujo libre de Octubre debe descontar los S/ 500 de la factura TC (3000 - 200 - 500 = S/ 2300).
+    const txConsumoSept = {
+      id: 'TX-TC-SEPT',
+      fecha: '2026-09-10',
+      tipo: TIPOS_TRANSACCION.CONSUMO_TC,
+      tarjetaAfectada: 'TC_BCP',
+      monto: 500,
+      categoria: 'Compras',
+      mesImpactoTC: '2026-10'
+    };
+    const txOctubreIngreso = {
+      id: 'TX-ING-OCT',
+      fecha: '2026-10-01',
+      tipo: TIPOS_TRANSACCION.INGRESO,
+      monto: 3000,
+      mesImpactoEfectivo: '2026-10'
+    };
+    const txOctubreGasto = {
+      id: 'TX-GAS-OCT',
+      fecha: '2026-10-02',
+      tipo: TIPOS_TRANSACCION.GASTO_DIRECTO,
+      monto: 200,
+      mesImpactoEfectivo: '2026-10'
+    };
+
+    const consolidadoOctubre = calcularConsolidadoFinanciero(
+      [txConsumoSept, txOctubreIngreso, txOctubreGasto],
+      tarjetasConfig,
+      '2026-10'
+    );
+    const factTCOct = consolidadoOctubre.flujoEfectivo.facturacionTC;
+    const okFacturadoReflejado = factTCOct && factTCOct.totalFacturado === 500 && factTCOct.pendiente === 500;
+    const okSalidasOct = consolidadoOctubre.flujoEfectivo.totalSalidas === 700; // 200 directo + 500 TC
+    const okBalanceOct = consolidadoOctubre.flujoEfectivo.balanceLibreNeto === 2300; // 3000 - 700
+
+    report('Reflejo de Deuda TC en Mes Siguiente: Consumo de Septiembre (S/ 500) se deduce del Flujo Libre de Octubre (S/ 3,000 - S/ 700 = S/ 2,300)',
+      okFacturadoReflejado && okSalidasOct && okBalanceOct,
+      `Facturado TC en Octubre: S/ ${factTCOct ? factTCOct.totalFacturado : 0}, Salidas Totales: S/ ${consolidadoOctubre.flujoEfectivo.totalSalidas}, Balance Libre: S/ ${consolidadoOctubre.flujoEfectivo.balanceLibreNeto}`
+    );
+
+    // Prueba 20: PREPAGO Y PAGO DE FACTURA TC SIN DUPLICIDAD
+    // Si hubo prepago de S/ 200 en Septiembre hacia la factura de Octubre:
+    const txPrepagoSept = {
+      id: 'TX-PREP-SEPT',
+      fecha: '2026-09-15',
+      tipo: TIPOS_TRANSACCION.PREPAGO_TC,
+      tarjetaAfectada: 'TC_BCP',
+      monto: 200,
+      mesImpactoTC: '2026-10',
+      mesImpactoEfectivo: '2026-09'
+    };
+    // En Octubre la deuda neta a pagar es S/ 300 (500 - 200)
+    const consolidadoConPrepago = calcularConsolidadoFinanciero(
+      [txConsumoSept, txPrepagoSept, txOctubreIngreso, txOctubreGasto],
+      tarjetasConfig,
+      '2026-10'
+    );
+    const okDeudaReducida = consolidadoConPrepago.flujoEfectivo.facturacionTC.totalFacturado === 300 &&
+                            consolidadoConPrepago.flujoEfectivo.balanceLibreNeto === 2500; // 3000 - (200 + 300)
+
+    // Y si en Octubre se registra el Pago_TC_Vencida por los S/ 300:
+    const txPagoVencida = {
+      id: 'TX-PAGO-OCT',
+      fecha: '2026-10-09',
+      tipo: TIPOS_TRANSACCION.PAGO_TC_VENCIDA,
+      tarjetaAfectada: 'TC_BCP',
+      monto: 300,
+      mesImpactoTC: '2026-10',
+      mesImpactoEfectivo: '2026-10'
+    };
+    const consolidadoConPago = calcularConsolidadoFinanciero(
+      [txConsumoSept, txPrepagoSept, txPagoVencida, txOctubreIngreso, txOctubreGasto],
+      tarjetasConfig,
+      '2026-10'
+    );
+    const okNoDuplica = consolidadoConPago.flujoEfectivo.totalSalidas === 500 && // 200 directo + 300 TC pagado
+                        consolidadoConPago.flujoEfectivo.facturacionTC.pendiente === 0 &&
+                        consolidadoConPago.flujoEfectivo.balanceLibreNeto === 2500;
+
+    report('Prepago y Pago de Factura TC: Prepago reduce factura a S/ 300 y el pago liquidado no se duplica (Salidas S/ 500, Pendiente S/ 0)',
+      okDeudaReducida && okNoDuplica,
+      `Con Prepago: Facturado S/ ${consolidadoConPrepago.flujoEfectivo.facturacionTC.totalFacturado}, Con Pago Realizado: Pendiente S/ ${consolidadoConPago.flujoEfectivo.facturacionTC.pendiente}, Salidas: S/ ${consolidadoConPago.flujoEfectivo.totalSalidas}`
+    );
+
+    // Prueba 21: CIERRE OFICIAL DE MESES Y RESUMEN ANUAL DE AHORRO
+    const closedMonthsTest = [
+      { mes: '2026-07', ingresosTotales: 4000, totalSalidas: 2500, ahorroNeto: 1500, tasaAhorro: 38, esCerrado: true },
+      { mes: '2026-08', ingresosTotales: 3500, totalSalidas: 2100, ahorroNeto: 1400, tasaAhorro: 40, esCerrado: true }
+    ];
+    const historicoConCierre = window.FinancialEngine.calcularHistoricoAhorro(
+      [txConsumoSept, txOctubreIngreso, txOctubreGasto],
+      '2026-09',
+      closedMonthsTest
+    );
+    const julioCerrado = historicoConCierre.mesesCerrados.find(m => m.mes === '2026-07');
+    const okCierreOficial = julioCerrado && julioCerrado.esCerrado && julioCerrado.ahorroNeto === 1500;
+
+    const resumenAnual2026 = window.FinancialEngine.calcularResumenAnual(historicoConCierre, '2026');
+    const okResumenAnual = resumenAnual2026.anio === '2026' &&
+                           resumenAnual2026.mesesCerradosCount >= 2 &&
+                           resumenAnual2026.totalAhorro > 0;
+
+    report('Cierre Oficial de Meses y Resumen Anual: Congelamiento de datos cerrados y KPIs acumulados del año',
+      okCierreOficial && okResumenAnual,
+      `Julio cerrado: ${julioCerrado ? julioCerrado.ahorroNeto : 0}, Meses cerrados año 2026: ${resumenAnual2026.mesesCerradosCount}, Ahorro total acumulado: S/ ${resumenAnual2026.totalAhorro}`
+    );
+
     summaryBox.innerHTML = `
       <div class="flex items-center justify-between">
         <span class="font-bold ${failedCount === 0 ? 'text-emerald-400' : 'text-rose-400'} text-base">

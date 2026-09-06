@@ -12,20 +12,15 @@
     CARDS: 'finanzas_pwa_cards',
     BUDGETS: 'finanzas_pwa_budgets',
     RECURRENTES: 'finanzas_pwa_recurrentes',
+    CLOSED_MONTHS: 'finanzas_pwa_meses_cerrados',
     OFFLINE_QUEUE: 'finanzas_pwa_offline_queue'
   };
 
   // URL predeterminada para sincronización automática en cualquier dispositivo (GitHub Pages)
   const DEFAULT_API_URL = '';
 
-  // Datos semilla iniciales para ingresos y gastos fijos recurrentes
-  const SEED_RECURRENTES = [
-    { id: 'REC-1', nombre: 'Sueldo Principal', tipo: 'Ingreso_Fijo', monto: 3500, categoria: 'Sueldo', metodoPago: 'Transferencia', diaMes: 28, activo: true, notas: 'Planilla mensual' },
-    { id: 'REC-2', nombre: 'Alquiler de Vivienda', tipo: 'Gasto_Fijo', monto: 1200, categoria: 'Hogar', metodoPago: 'Transferencia', diaMes: 1, activo: true, notas: 'Alquiler mensual' },
-    { id: 'REC-3', nombre: 'Servicios Luz y Agua', tipo: 'Gasto_Fijo', monto: 180, categoria: 'Servicios', metodoPago: 'Débito BCP', diaMes: 15, activo: true, notas: 'Recibos básicos' },
-    { id: 'REC-4', nombre: 'Internet Hogar', tipo: 'Gasto_Fijo', monto: 120, categoria: 'Servicios', metodoPago: 'Débito BCP', diaMes: 18, activo: true, notas: 'Fibra óptica' },
-    { id: 'REC-5', nombre: 'Suscripciones Digitales', tipo: 'Gasto_Fijo', monto: 70, categoria: 'Suscripciones', metodoPago: 'Tarjeta', diaMes: 20, activo: true, notas: 'Streaming' }
-  ];
+  // Datos semilla iniciales (sin gastos de prueba ficticios)
+  const SEED_RECURRENTES = [];
 
   // Presupuestos predeterminados semilla (13 categorías maestras unificadas)
   const SEED_BUDGETS = [
@@ -132,20 +127,29 @@
 
     getLocalRecurrentes() {
       const raw = localStorage.getItem(STORAGE_KEYS.RECURRENTES);
-      if (!raw) {
-        localStorage.setItem(STORAGE_KEYS.RECURRENTES, JSON.stringify(SEED_RECURRENTES));
-        return SEED_RECURRENTES;
-      }
+      if (!raw) return [];
       try {
         const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) && parsed.length > 0 ? parsed : SEED_RECURRENTES;
+        if (!Array.isArray(parsed)) return [];
+        // Filtrar y eliminar cualquier semilla de prueba demo ('REC-1' a 'REC-5')
+        const cleaned = parsed.filter(r => {
+          if (!r || !r.id) return false;
+          const idStr = String(r.id);
+          if (['REC-1', 'REC-2', 'REC-3', 'REC-4', 'REC-5'].includes(idStr)) return false;
+          if (r.nombre && (r.nombre === 'Suscripciones Digitales' || r.nombre === 'Alquiler de Vivienda' || r.nombre === 'Servicios Luz y Agua' || r.nombre === 'Internet Hogar' || r.nombre === 'Sueldo Principal')) return false;
+          return true;
+        });
+        if (cleaned.length !== parsed.length) {
+          localStorage.setItem(STORAGE_KEYS.RECURRENTES, JSON.stringify(cleaned));
+        }
+        return cleaned;
       } catch (e) {
-        return SEED_RECURRENTES;
+        return [];
       }
     }
 
     saveLocalRecurrentes(items) {
-      localStorage.setItem(STORAGE_KEYS.RECURRENTES, JSON.stringify(items));
+      localStorage.setItem(STORAGE_KEYS.RECURRENTES, JSON.stringify(items || []));
     }
 
     async saveRecurrente(item) {
@@ -195,6 +199,74 @@
         return { success: true };
       } catch (err) {
         console.warn('[API] Error al eliminar recurrente en Sheets:', err);
+        return { success: true, localOnly: true };
+      }
+    }
+
+    // ========================================================================
+    // GESTIÓN DE MESES CERRADOS (HISTORIAL DE AHORRO)
+    // ========================================================================
+    getLocalClosedMonths() {
+      const raw = localStorage.getItem(STORAGE_KEYS.CLOSED_MONTHS);
+      if (!raw) return [];
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    saveLocalClosedMonths(list) {
+      localStorage.setItem(STORAGE_KEYS.CLOSED_MONTHS, JSON.stringify(list || []));
+    }
+
+    async saveClosedMonth(monthData) {
+      const list = this.getLocalClosedMonths();
+      const idx = list.findIndex(m => m.mes === monthData.mes);
+      if (idx >= 0) {
+        list[idx] = { ...list[idx], ...monthData };
+      } else {
+        list.push(monthData);
+      }
+      this.saveLocalClosedMonths(list);
+
+      if (!this.apiUrl || !this.isOnline) {
+        return { success: true, offline: true, monthData };
+      }
+
+      try {
+        await fetch(this.apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'saveClosedMonth', monthData: monthData }),
+          redirect: 'follow'
+        });
+        return { success: true, monthData };
+      } catch (err) {
+        console.warn('[API] Error al guardar mes cerrado en Sheets:', err);
+        return { success: true, offline: true, monthData };
+      }
+    }
+
+    async reopenMonth(mesKey) {
+      const list = this.getLocalClosedMonths().filter(m => m.mes !== mesKey);
+      this.saveLocalClosedMonths(list);
+
+      if (!this.apiUrl || !this.isOnline) {
+        return { success: true, localOnly: true };
+      }
+
+      try {
+        await fetch(this.apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'reopenMonth', mes: mesKey }),
+          redirect: 'follow'
+        });
+        return { success: true };
+      } catch (err) {
+        console.warn('[API] Error al reabrir mes en Sheets:', err);
         return { success: true, localOnly: true };
       }
     }
@@ -282,6 +354,7 @@
       const localTxs = this.getLocalTransactions();
       const localBudgets = this.getLocalBudgets();
       const localRecurrentes = this.getLocalRecurrentes();
+      const localClosedMonths = this.getLocalClosedMonths();
 
       if (!this.apiUrl || !this.isOnline) {
         return {
@@ -289,6 +362,7 @@
           transactions: localTxs,
           budgets: localBudgets,
           recurrentes: localRecurrentes,
+          closedMonths: localClosedMonths,
           source: 'local'
         };
       }
@@ -306,27 +380,30 @@
           const cards = data.cards && data.cards.length > 0 ? data.cards : localCards;
           const transactions = data.transactions || [];
           const budgets = data.budgets && data.budgets.length > 0 ? data.budgets : localBudgets;
-          const recurrentes = data.recurrentes && data.recurrentes.length > 0 ? data.recurrentes : localRecurrentes;
+          const recurrentes = data.recurrentes !== undefined ? data.recurrentes : localRecurrentes;
+          const closedMonths = data.closedMonths !== undefined ? data.closedMonths : localClosedMonths;
 
           // Actualizar caché local
           this.saveLocalCards(cards);
           this.saveLocalTransactions(transactions);
           this.setLocalBudgets(budgets);
           this.saveLocalRecurrentes(recurrentes);
+          this.saveLocalClosedMonths(closedMonths);
 
           return {
             cards: cards,
             transactions: transactions,
             budgets: budgets,
             recurrentes: recurrentes,
+            closedMonths: closedMonths,
             source: 'remote'
           };
         } else {
-          return { cards: localCards, transactions: localTxs, budgets: localBudgets, recurrentes: localRecurrentes, source: 'local_fallback' };
+          return { cards: localCards, transactions: localTxs, budgets: localBudgets, recurrentes: localRecurrentes, closedMonths: localClosedMonths, source: 'local_fallback' };
         }
       } catch (err) {
         console.warn('[API] Error al consultar Google Sheets, usando datos locales:', err);
-        return { cards: localCards, transactions: localTxs, budgets: localBudgets, recurrentes: localRecurrentes, source: 'local_fallback' };
+        return { cards: localCards, transactions: localTxs, budgets: localBudgets, recurrentes: localRecurrentes, closedMonths: localClosedMonths, source: 'local_fallback' };
       }
     }
 

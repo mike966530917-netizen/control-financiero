@@ -130,7 +130,7 @@ function setupSheets() {
     sheetBudgets.setFrozenRows(1);
   }
 
-  // 5. Pestaña RECURRENTES (Preserva movimientos fijos creados por el usuario)
+  // 5. Pestaña RECURRENTES (Preserva movimientos fijos del usuario sin datos demo)
   let sheetRec = ss.getSheetByName(SHEETS.RECURRENTES);
   if (!sheetRec) {
     sheetRec = ss.insertSheet(SHEETS.RECURRENTES);
@@ -139,20 +139,22 @@ function setupSheets() {
     formatHeaderRow(sheetRec, '#6366f1', '#ffffff');
     sheetRec.setFrozenRows(1);
     sheetRec.getRange(2, 4, 100, 1).setNumberFormat('#,##0.00');
-
-    const defaultRecurrentes = [
-      ['REC-1', 'Sueldo Principal', 'Ingreso_Fijo', 3500, 'Sueldo', 'Transferencia', 28, 'SI', 'Planilla mensual'],
-      ['REC-2', 'Alquiler de Vivienda', 'Gasto_Fijo', 1200, 'Hogar', 'Transferencia', 1, 'SI', 'Alquiler mensual'],
-      ['REC-3', 'Servicios Luz y Agua', 'Gasto_Fijo', 180, 'Servicios', 'Débito BCP', 15, 'SI', 'Recibos básicos'],
-      ['REC-4', 'Internet Hogar', 'Gasto_Fijo', 120, 'Servicios', 'Débito BCP', 18, 'SI', 'Fibra óptica'],
-      ['REC-5', 'Suscripciones Digitales', 'Gasto_Fijo', 70, 'Suscripciones', 'Tarjeta', 20, 'SI', 'Streaming']
-    ];
-    defaultRecurrentes.forEach(r => sheetRec.appendRow(r));
   } else if (sheetRec.getLastRow() === 0) {
     const recHeaders = ['ID', 'Nombre', 'Tipo', 'Monto', 'Categoria', 'Metodo_Pago', 'Dia_Mes', 'Activo', 'Notas'];
     sheetRec.appendRow(recHeaders);
     formatHeaderRow(sheetRec, '#6366f1', '#ffffff');
     sheetRec.setFrozenRows(1);
+  } else {
+    // Si la hoja contiene semillas de prueba demo antiguas ('REC-1' a 'REC-5'), limpiarlas automáticamente
+    const data = sheetRec.getDataRange().getValues();
+    for (let i = data.length - 1; i >= 1; i--) {
+      const idStr = String(data[i][0] || '').trim();
+      const nomStr = String(data[i][1] || '').trim();
+      if (['REC-1', 'REC-2', 'REC-3', 'REC-4', 'REC-5'].includes(idStr) ||
+          ['Suscripciones Digitales', 'Alquiler de Vivienda', 'Servicios Luz y Agua', 'Internet Hogar', 'Sueldo Principal'].includes(nomStr)) {
+        sheetRec.deleteRow(i + 1);
+      }
+    }
   }
 
   // Autoajuste de columnas
@@ -200,12 +202,14 @@ function doGet(e) {
       const transactions = getTransactions_();
       const budgets = getBudgetsConfig_();
       const recurrentes = getRecurrentesConfig_();
+      const closedMonths = getClosedMonths_();
       responseData = {
         success: true,
         cards: cards,
         transactions: transactions,
         budgets: budgets,
-        recurrentes: recurrentes
+        recurrentes: recurrentes,
+        closedMonths: closedMonths
       };
     } else if (action === 'getBudgets') {
       responseData = {
@@ -216,6 +220,11 @@ function doGet(e) {
       responseData = {
         success: true,
         recurrentes: getRecurrentesConfig_()
+      };
+    } else if (action === 'getClosedMonths') {
+      responseData = {
+        success: true,
+        closedMonths: getClosedMonths_()
       };
     } else {
       responseData = { success: false, error: 'Acción no reconocida' };
@@ -259,6 +268,10 @@ function doPost(e) {
       result = saveAllRecurrentes_(payload.recurrentes);
     } else if (action === 'deleteRecurrente') {
       result = deleteRecurrente_(payload.id);
+    } else if (action === 'saveClosedMonth') {
+      result = saveClosedMonth_(payload.monthData);
+    } else if (action === 'reopenMonth') {
+      result = reopenMonth_(payload.mes);
     } else {
       result = { success: false, error: 'Acción POST no reconocida' };
     }
@@ -388,16 +401,8 @@ function getRecurrentesConfig_() {
     formatHeaderRow(sheet, '#6366f1', '#ffffff');
     sheet.setFrozenRows(1);
     sheet.getRange(2, 4, 100, 1).setNumberFormat('#,##0.00');
-
-    const defaults = [
-      ['REC-1', 'Sueldo Principal', 'Ingreso_Fijo', 3500, 'Sueldo', 'Transferencia', 28, 'SI', 'Planilla mensual'],
-      ['REC-2', 'Alquiler de Vivienda', 'Gasto_Fijo', 1200, 'Hogar', 'Transferencia', 1, 'SI', 'Alquiler mensual'],
-      ['REC-3', 'Servicios Luz y Agua', 'Gasto_Fijo', 180, 'Servicios', 'Débito BCP', 15, 'SI', 'Recibos básicos'],
-      ['REC-4', 'Internet Hogar', 'Gasto_Fijo', 120, 'Servicios', 'Débito BCP', 18, 'SI', 'Fibra óptica'],
-      ['REC-5', 'Suscripciones Digitales', 'Gasto_Fijo', 70, 'Suscripciones', 'Tarjeta', 20, 'SI', 'Streaming']
-    ];
-    defaults.forEach(r => sheet.appendRow(r));
     SpreadsheetApp.flush();
+    return [];
   }
 
   const data = sheet.getDataRange().getValues();
@@ -406,12 +411,19 @@ function getRecurrentesConfig_() {
   const items = [];
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
+    const idStr = String(row[0] || '').trim();
+    const nomStr = String(row[1] || '').trim();
+
+    // Omitir semillas demo de prueba antiguas
+    if (['REC-1', 'REC-2', 'REC-3', 'REC-4', 'REC-5'].includes(idStr)) continue;
+    if (['Suscripciones Digitales', 'Alquiler de Vivienda', 'Servicios Luz y Agua', 'Internet Hogar', 'Sueldo Principal'].includes(nomStr)) continue;
+
     if (row[0] && row[1]) {
       const activoVal = String(row[7] || '').trim().toUpperCase();
       const esActivo = (activoVal === 'SI' || activoVal === 'TRUE' || activoVal === '1' || activoVal === '');
       items.push({
-        id: String(row[0]).trim(),
-        nombre: String(row[1]).trim(),
+        id: idStr,
+        nombre: nomStr,
         tipo: String(row[2] || 'Gasto_Fijo').trim(),
         monto: parseFloat(row[3]) || 0,
         categoria: String(row[4] || 'Varios').trim(),
@@ -423,6 +435,123 @@ function getRecurrentesConfig_() {
     }
   }
   return items;
+}
+
+// ==============================================================================
+// GESTIÓN DE MESES CERRADOS (HISTORIAL DE AHORRO Y CONSOLIDADO)
+// ==============================================================================
+
+function getClosedMonths_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEETS.CONSOLIDADO);
+  if (!sheet) return [];
+
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+
+  const list = [];
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    let mesStr = String(row[0] || '').trim();
+    if (row[0] instanceof Date) {
+      mesStr = Utilities.formatDate(row[0], Session.getScriptTimeZone(), 'yyyy-MM');
+    }
+    if (!mesStr) continue;
+
+    const ingresos = parseFloat(row[1]) || 0;
+    const gastosDirectos = parseFloat(row[2]) || 0;
+    const prepagos = parseFloat(row[3]) || 0;
+    const pagosTC = parseFloat(row[4]) || 0;
+    const salidas = gastosDirectos + prepagos + pagosTC;
+    const ahorroNeto = (row[6] !== undefined && row[6] !== '') ? (parseFloat(row[6]) || (ingresos - salidas)) : (ingresos - salidas);
+    const tasaAhorro = (row[7] !== undefined && row[7] !== '') ? (parseFloat(row[7]) || (ingresos > 0 ? Math.round((ahorroNeto / ingresos) * 100) : 0)) : (ingresos > 0 ? Math.round((ahorroNeto / ingresos) * 100) : 0);
+    const estadoCierre = row[8] ? String(row[8]).trim() : 'Cerrado';
+    const fechaCierre = row[9] ? String(row[9]).trim() : '';
+
+    list.push({
+      mes: mesStr,
+      ingresosTotales: ingresos,
+      gastosDirectos: gastosDirectos,
+      prepagosTC: prepagos,
+      pagosTC: pagosTC,
+      totalSalidas: salidas,
+      ahorroNeto: ahorroNeto,
+      tasaAhorro: tasaAhorro,
+      esCerrado: estadoCierre === 'Cerrado',
+      fechaCierre: fechaCierre,
+      cerradoPorUsuario: true
+    });
+  }
+  return list;
+}
+
+function saveClosedMonth_(monthData) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEETS.CONSOLIDADO);
+  if (!sheet) {
+    setupSheets();
+    sheet = ss.getSheetByName(SHEETS.CONSOLIDADO);
+  }
+
+  const mesKey = String(monthData.mes || '').trim();
+  if (!mesKey) throw new Error('Mes inválido');
+
+  const data = sheet.getDataRange().getValues();
+  let foundRow = -1;
+
+  for (let i = 1; i < data.length; i++) {
+    let rowMes = String(data[i][0] || '').trim();
+    if (data[i][0] instanceof Date) {
+      rowMes = Utilities.formatDate(data[i][0], Session.getScriptTimeZone(), 'yyyy-MM');
+    }
+    if (rowMes === mesKey) {
+      foundRow = i + 1;
+      break;
+    }
+  }
+
+  const nowStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
+  const rowValues = [
+    "'" + mesKey,
+    parseFloat(monthData.ingresosTotales || monthData.ingresos) || 0,
+    parseFloat(monthData.gastosDirectos) || 0,
+    parseFloat(monthData.prepagosTC || monthData.prepagos) || 0,
+    parseFloat(monthData.pagosTC || monthData.facturacionTC) || 0,
+    parseFloat(monthData.flujoLibreNeto || monthData.balanceLibreNeto) || 0,
+    parseFloat(monthData.ahorroNeto) || 0,
+    parseFloat(monthData.tasaAhorro) || 0,
+    'Cerrado',
+    monthData.fechaCierre || nowStr,
+    monthData.notas || ''
+  ];
+
+  if (foundRow > 0) {
+    sheet.getRange(foundRow, 1, 1, rowValues.length).setValues([rowValues]);
+  } else {
+    sheet.appendRow(rowValues);
+  }
+  SpreadsheetApp.flush();
+  return { success: true, mes: mesKey };
+}
+
+function reopenMonth_(mesKey) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEETS.CONSOLIDADO);
+  if (!sheet) return { success: true };
+
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    let rowMes = String(data[i][0] || '').trim();
+    if (data[i][0] instanceof Date) {
+      rowMes = Utilities.formatDate(data[i][0], Session.getScriptTimeZone(), 'yyyy-MM');
+    }
+    if (rowMes === mesKey) {
+      sheet.deleteRow(i + 1);
+      break;
+    }
+  }
+  SpreadsheetApp.flush();
+  return { success: true, mes: mesKey };
 }
 
 function saveRecurrente_(item) {

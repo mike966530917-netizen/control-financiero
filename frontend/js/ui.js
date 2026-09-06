@@ -54,6 +54,33 @@
       const cancelConfirmBtn = document.getElementById('btn-cancel-confirm-rec');
       if (closeConfirmBtn) closeConfirmBtn.addEventListener('click', () => this.closeConfirmRecurrenteModal());
       if (cancelConfirmBtn) cancelConfirmBtn.addEventListener('click', () => this.closeConfirmRecurrenteModal());
+
+      const closeCloseModalBtn = document.getElementById('btn-close-close-modal');
+      const cancelCloseMonthBtn = document.getElementById('btn-cancel-close-month');
+      if (closeCloseModalBtn) closeCloseModalBtn.addEventListener('click', () => this.closeCloseMonthModal());
+      if (cancelCloseMonthBtn) cancelCloseMonthBtn.addEventListener('click', () => this.closeCloseMonthModal());
+
+      // Selector de año en Historial de Ahorro
+      const btnPrevYear = document.getElementById('btn-prev-savings-year');
+      const btnNextYear = document.getElementById('btn-next-savings-year');
+      if (btnPrevYear) {
+        btnPrevYear.addEventListener('click', () => {
+          const curr = parseInt(window.currentSavingsYear || new Date().getFullYear(), 10);
+          window.currentSavingsYear = String(curr - 1);
+          if (window.lastSummary && window.lastSummary.historicoAhorro) {
+            this.renderHistoricalSavings(window.lastSummary.historicoAhorro, window.currentSavingsYear);
+          }
+        });
+      }
+      if (btnNextYear) {
+        btnNextYear.addEventListener('click', () => {
+          const curr = parseInt(window.currentSavingsYear || new Date().getFullYear(), 10);
+          window.currentSavingsYear = String(curr + 1);
+          if (window.lastSummary && window.lastSummary.historicoAhorro) {
+            this.renderHistoricalSavings(window.lastSummary.historicoAhorro, window.currentSavingsYear);
+          }
+        });
+      }
     }
 
     setupTabNavigation() {
@@ -399,7 +426,7 @@
       }
     }
 
-    openDrawer(preselectedType = null, preselectedCardId = null) {
+    openDrawer(preselectedType = null, preselectedCardId = null, preselectedAmount = null) {
       const drawer = document.getElementById('transaction-drawer');
       const backdrop = document.getElementById('drawer-backdrop');
       if (!drawer || !backdrop) return;
@@ -415,6 +442,11 @@
         this.selectedCardId = preselectedCardId;
         const cardSelect = document.getElementById('tx-card-select');
         if (cardSelect) cardSelect.value = preselectedCardId;
+      }
+
+      if (preselectedAmount !== null && preselectedAmount !== undefined) {
+        this.numpadValue = parseFloat(preselectedAmount).toFixed(2);
+        this.updateNumpadDisplay();
       }
 
       this.updateImpactPreview();
@@ -448,6 +480,11 @@
       const cardExpiredTcEl = document.getElementById('metric-expired-tc');
       const cardIncomeSubEl = document.getElementById('metric-income-sub');
       const cardOutflowsSubEl = document.getElementById('metric-outflows-sub');
+      const metricTcBadgeEl = document.getElementById('metric-tc-badge');
+      const metricTcSubEl = document.getElementById('metric-tc-sub');
+      const quickPayTcContainer = document.getElementById('quick-pay-tc-container');
+      const btnQuickPayAmount = document.getElementById('btn-quick-pay-amount');
+      const btnQuickPayTc = document.getElementById('btn-quick-pay-tc');
 
       if (cardBalanceEl) {
         cardBalanceEl.textContent = `S/ ${flujoEfectivo.balanceLibreNeto.toLocaleString('es-PE', { minimumFractionDigits: 2 })}`;
@@ -473,7 +510,62 @@
       }
 
       if (cardPrepaidsCurrentEl) cardPrepaidsCurrentEl.textContent = `-S/ ${flujoEfectivo.prepagosRealizados.toFixed(2)}`;
-      if (cardExpiredTcEl) cardExpiredTcEl.textContent = `-S/ ${flujoEfectivo.pagosTCVencidas.toFixed(2)}`;
+
+      const factTC = flujoEfectivo.facturacionTC || {
+        totalFacturado: 0,
+        pagado: flujoEfectivo.pagosTCVencidas || 0,
+        pendiente: 0,
+        salidaEfectiva: flujoEfectivo.pagosTCVencidas || 0,
+        desglosePorTarjeta: []
+      };
+
+      if (cardExpiredTcEl) cardExpiredTcEl.textContent = `-S/ ${factTC.salidaEfectiva.toFixed(2)}`;
+      if (metricTcSubEl) {
+        metricTcSubEl.textContent = `Pagado: S/ ${factTC.pagado.toFixed(2)} | Pend: S/ ${factTC.pendiente.toFixed(2)}`;
+      }
+      if (metricTcBadgeEl) {
+        if (factTC.pendiente <= 0 && factTC.totalFacturado > 0) {
+          metricTcBadgeEl.textContent = '✅ Pagado';
+          metricTcBadgeEl.className = 'text-[9px] px-1.5 py-0.2 rounded font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/30';
+        } else if (factTC.pendiente > 0) {
+          metricTcBadgeEl.textContent = `⚠️ S/ ${factTC.pendiente.toFixed(2)} pendiente`;
+          metricTcBadgeEl.className = 'text-[9px] px-1.5 py-0.2 rounded font-bold bg-purple-900/80 text-purple-200 border border-purple-400/40';
+        } else {
+          metricTcBadgeEl.textContent = 'Sin deuda';
+          metricTcBadgeEl.className = 'text-[9px] px-1.5 py-0.2 rounded font-bold bg-slate-800 text-slate-400';
+        }
+      }
+
+      if (quickPayTcContainer && btnQuickPayAmount && btnQuickPayTc) {
+        if (factTC.pendiente > 0) {
+          quickPayTcContainer.classList.remove('hidden');
+          btnQuickPayAmount.textContent = `S/ ${factTC.pendiente.toFixed(2)}`;
+          const targetCard = (factTC.desglosePorTarjeta && factTC.desglosePorTarjeta.find(t => t.pendiente > 0)) || null;
+          const targetCardId = targetCard ? targetCard.id : '';
+          btnQuickPayTc.onclick = () => {
+            this.openDrawer('Pago_TC_Vencida', targetCardId, factTC.pendiente);
+          };
+        } else {
+          quickPayTcContainer.classList.add('hidden');
+        }
+      }
+
+      // Estado del botón Cerrar/Reabrir Mes en el Navegador de Mes
+      const closeBtn = document.getElementById('btn-toggle-close-month');
+      const closeLabel = document.getElementById('label-close-month-btn');
+      const isClosed = summary.historicoAhorro && summary.historicoAhorro.mesesCerrados && summary.historicoAhorro.mesesCerrados.some(m => m.mes === mesActual);
+
+      if (closeBtn && closeLabel) {
+        if (isClosed) {
+          closeBtn.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/60 hover:bg-emerald-900/60 transition cursor-pointer flex items-center gap-1';
+          closeLabel.textContent = 'Mes Cerrado 🔓';
+          closeBtn.title = 'Haga clic para reabrir este periodo';
+        } else {
+          closeBtn.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-800 text-slate-300 border border-slate-700 hover:border-slate-500 transition cursor-pointer flex items-center gap-1';
+          closeLabel.textContent = 'Cerrar Mes 🔒';
+          closeBtn.title = 'Haga clic para cerrar oficialmente este periodo';
+        }
+      }
 
       // 2. TARJETA 2: DEUDA PROYECTADA PRÓXIMO MES
       const metricProjectedDebtEl = document.getElementById('metric-projected-debt');
@@ -994,37 +1086,69 @@
     }
 
     // ==========================================================================
-    // RENDERIZADO DE HISTORIAL DE AHORRO MENSUAL (MESES CERRADOS)
+    // RENDERIZADO DE HISTORIAL DE AHORRO MENSUAL Y RESUMEN ANUAL
     // ==========================================================================
-    renderHistoricalSavings(historicoAhorro) {
+    renderHistoricalSavings(historicoAhorro, selectedYear = null) {
       const container = document.getElementById('historical-savings-container');
       const labelTotal = document.getElementById('label-total-savings-history');
       if (!container) return;
 
-      if (!historicoAhorro || !historicoAhorro.todos || historicoAhorro.todos.length === 0) {
+      const currentYear = selectedYear || (window.currentSavingsYear || new Date().getFullYear().toString());
+      window.currentSavingsYear = currentYear;
+
+      const resumenAnual = (typeof FinancialEngine !== 'undefined' && FinancialEngine.calcularResumenAnual)
+        ? FinancialEngine.calcularResumenAnual(historicoAhorro, currentYear)
+        : {
+            anio: currentYear,
+            totalIngresos: 0,
+            totalSalidas: 0,
+            totalAhorro: 0,
+            tasaAhorroPromedio: 0,
+            mesesCerradosCount: 0,
+            meses: (historicoAhorro && historicoAhorro.todos) || []
+          };
+
+      // Actualizar tarjeta anual
+      const yearDisplayEl = document.getElementById('savings-year-display');
+      const annualSavingsEl = document.getElementById('annual-stat-savings');
+      const annualRateEl = document.getElementById('annual-stat-rate');
+      const annualClosedCountEl = document.getElementById('annual-stat-closed-count');
+      const annualIncomeEl = document.getElementById('annual-stat-income');
+      const annualOutflowsEl = document.getElementById('annual-stat-outflows');
+
+      if (yearDisplayEl) yearDisplayEl.textContent = resumenAnual.anio;
+      if (annualSavingsEl) {
+        annualSavingsEl.textContent = `S/ ${resumenAnual.totalAhorro.toLocaleString('es-PE', { minimumFractionDigits: 2 })}`;
+        annualSavingsEl.className = resumenAnual.totalAhorro >= 0 ? 'text-base font-black text-emerald-400' : 'text-base font-black text-rose-400';
+      }
+      if (annualRateEl) annualRateEl.textContent = `Tasa promedio: ${resumenAnual.tasaAhorroPromedio}%`;
+      if (annualClosedCountEl) annualClosedCountEl.textContent = `${resumenAnual.mesesCerradosCount} / 12`;
+      if (annualIncomeEl) annualIncomeEl.textContent = `S/ ${resumenAnual.totalIngresos.toLocaleString('es-PE', { minimumFractionDigits: 2 })}`;
+      if (annualOutflowsEl) annualOutflowsEl.textContent = `S/ ${resumenAnual.totalSalidas.toLocaleString('es-PE', { minimumFractionDigits: 2 })}`;
+      if (labelTotal) labelTotal.textContent = `Total Ahorro: S/ ${resumenAnual.totalAhorro.toFixed(2)}`;
+
+      const mesesParaMostrar = (resumenAnual.meses && resumenAnual.meses.length > 0)
+        ? resumenAnual.meses
+        : ((historicoAhorro && historicoAhorro.todos) || []);
+
+      if (!mesesParaMostrar.length) {
         container.innerHTML = `
-          <div class="text-center py-4 text-slate-500 text-xs">
-            Sin meses registrados aún.
+          <div class="text-center py-6 text-slate-500 text-xs">
+            No hay registros de ahorro para el año ${currentYear}.
           </div>
         `;
-        if (labelTotal) labelTotal.textContent = 'Ahorro Cerrado: S/ 0.00';
         return;
       }
 
-      if (labelTotal) {
-        labelTotal.textContent = `Ahorro Cerrado: S/ ${historicoAhorro.totalAhorroCerrado.toFixed(2)}`;
-      }
-
-      container.innerHTML = historicoAhorro.todos.map(m => {
+      container.innerHTML = mesesParaMostrar.map(m => {
         const isClosed = m.esCerrado;
         const ahorroPositivo = m.ahorroNeto >= 0;
         const badgeClass = isClosed 
-          ? 'bg-indigo-950/60 text-indigo-300 border-indigo-500/30' 
-          : 'bg-emerald-950/60 text-emerald-300 border-emerald-500/30';
+          ? 'bg-emerald-950/70 text-emerald-300 border-emerald-500/40' 
+          : 'bg-sky-950/60 text-sky-300 border-sky-500/30';
         const ahorroColor = ahorroPositivo ? 'text-emerald-400' : 'text-rose-400';
         const signoAhorro = ahorroPositivo ? '+' : '';
 
-        // Formatear nombre de mes legible (ej. 2026-09 -> Septiembre 2026)
         const [anio, mesNum] = m.mes.split('-').map(Number);
         const nombresMeses = [
           'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -1033,7 +1157,7 @@
         const mesNombre = `${nombresMeses[mesNum - 1] || m.mes} ${anio}`;
 
         return `
-          <div class="p-3 rounded-2xl glass-panel border border-slate-800 flex items-center justify-between">
+          <div class="p-3 rounded-2xl glass-panel border border-slate-800 flex items-center justify-between gap-2">
             <div class="space-y-1">
               <div class="flex items-center gap-2">
                 <span class="font-bold text-sm text-slate-100">${mesNombre}</span>
@@ -1045,17 +1169,92 @@
                 Ingresos: S/ ${m.ingresos.toFixed(2)} • Salidas: S/ ${m.salidas.toFixed(2)}
               </p>
             </div>
-            <div class="text-right">
-              <span class="text-sm font-extrabold ${ahorroColor} block">
-                ${signoAhorro}S/ ${m.ahorroNeto.toFixed(2)}
-              </span>
-              <span class="text-[10px] font-semibold text-slate-400">
-                Tasa: ${m.tasaAhorro}%
-              </span>
+            <div class="flex items-center gap-3">
+              <div class="text-right">
+                <span class="text-sm font-extrabold ${ahorroColor} block">
+                  ${signoAhorro}S/ ${m.ahorroNeto.toFixed(2)}
+                </span>
+                <span class="text-[10px] font-semibold text-slate-400">
+                  Tasa: ${m.tasaAhorro}%
+                </span>
+              </div>
+              <div>
+                ${isClosed ? `
+                  <button class="btn-reopen-month-row text-[10px] px-2 py-1 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 transition cursor-pointer" data-month="${m.mes}">
+                    🔓 Reabrir
+                  </button>
+                ` : `
+                  <button class="btn-close-month-row text-[10px] px-2 py-1 rounded-lg bg-sky-600/80 hover:bg-sky-500 text-white font-bold transition cursor-pointer" data-month="${m.mes}">
+                    🔒 Cerrar
+                  </button>
+                `}
+              </div>
             </div>
           </div>
         `;
       }).join('');
+
+      // Asignar listeners a botones de cierre / reapertura en la lista
+      container.querySelectorAll('.btn-close-month-row').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const mes = btn.getAttribute('data-month');
+          if (window.onTriggerCloseMonth) window.onTriggerCloseMonth(mes);
+        });
+      });
+
+      container.querySelectorAll('.btn-reopen-month-row').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const mes = btn.getAttribute('data-month');
+          if (window.onTriggerReopenMonth) window.onTriggerReopenMonth(mes);
+        });
+      });
+    }
+
+    // ==========================================================================
+    // MODAL DE CIERRE DE MES
+    // ==========================================================================
+    openCloseMonthModal(summary) {
+      const modal = document.getElementById('modal-close-month');
+      if (!modal || !summary) return;
+
+      const { flujoEfectivo, mesActual } = summary;
+      const [anio, mesNum] = mesActual.split('-').map(Number);
+      const nombresMeses = [
+        'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+        'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+      ];
+      const mesNombre = `${nombresMeses[mesNum - 1] || mesActual} ${anio}`;
+
+      const targetLabel = document.getElementById('close-month-target-label');
+      const incEl = document.getElementById('close-modal-income');
+      const expEl = document.getElementById('close-modal-expenses');
+      const prepEl = document.getElementById('close-modal-prepayments');
+      const tcEl = document.getElementById('close-modal-tc');
+      const netEl = document.getElementById('close-modal-net-savings');
+      const rateEl = document.getElementById('close-modal-savings-rate');
+
+      if (targetLabel) targetLabel.textContent = `Periodo: ${mesNombre} (${mesActual})`;
+      if (incEl) incEl.textContent = `+S/ ${flujoEfectivo.ingresos.toFixed(2)}`;
+      if (expEl) expEl.textContent = `-S/ ${flujoEfectivo.gastosDirectos.toFixed(2)}`;
+      if (prepEl) prepEl.textContent = `-S/ ${flujoEfectivo.prepagosRealizados.toFixed(2)}`;
+
+      const tcComprometido = flujoEfectivo.facturacionTC ? flujoEfectivo.facturacionTC.salidaEfectiva : flujoEfectivo.pagosTCVencidas;
+      if (tcEl) tcEl.textContent = `-S/ ${tcComprometido.toFixed(2)}`;
+      if (netEl) {
+        netEl.textContent = `S/ ${flujoEfectivo.balanceLibreNeto.toFixed(2)}`;
+        netEl.className = flujoEfectivo.balanceLibreNeto >= 0 ? 'font-black text-emerald-400 text-base' : 'font-black text-rose-400 text-base';
+      }
+      if (rateEl) {
+        const tasa = flujoEfectivo.ingresos > 0 ? Math.round((flujoEfectivo.balanceLibreNeto / flujoEfectivo.ingresos) * 100) : 0;
+        rateEl.textContent = `${tasa}%`;
+      }
+
+      modal.classList.remove('hidden');
+    }
+
+    closeCloseMonthModal() {
+      const modal = document.getElementById('modal-close-month');
+      if (modal) modal.classList.add('hidden');
     }
 
     // ==========================================================================
@@ -1066,10 +1265,13 @@
       const formContainer = document.getElementById('budgets-form-container');
       if (!modal || !formContainer) return;
 
-      const categories = [
-        'Supermercado', 'Alimentación', 'Transporte', 'Servicios',
-        'Suscripciones', 'Restaurantes', 'Compras', 'Salud', 'Entretenimiento', 'Varios'
-      ];
+      const categories = (typeof FinancialEngine !== 'undefined' && FinancialEngine.CATEGORIAS_GASTO)
+        ? FinancialEngine.CATEGORIAS_GASTO
+        : [
+            'Hogar', 'Servicios', 'Supermercado', 'Alimentación', 'Restaurantes',
+            'Transporte', 'Suscripciones', 'Salud', 'Educación', 'Compras',
+            'Tecnología', 'Entretenimiento', 'Otros Gastos'
+          ];
 
       const budgetMap = {};
       currentBudgets.forEach(b => {
