@@ -194,11 +194,14 @@
       AppState.transactions,
       AppState.cards,
       AppState.selectedMonth,
-      AppState.budgets
+      AppState.budgets,
+      AppState.recurrentes
     );
 
+    window.cachedRecurrentesEstadoMes = summary.recurrentesEstadoMes;
     UIManager.renderDashboard(summary);
     UIManager.renderTransactionsList(AppState.transactions, AppState.currentFilter);
+    UIManager.renderRecurrentesList(AppState.recurrentes, AppState.selectedMonth, summary.recurrentesEstadoMes);
   }
 
   /**
@@ -241,6 +244,7 @@
     const btnCancelModal = document.getElementById('btn-cancel-recurrente');
     const btnSaveModal = document.getElementById('btn-save-recurrente');
     const btnApplyMonth = document.getElementById('btn-apply-recurrentes-month');
+    const btnSaveConfirmRec = document.getElementById('btn-save-confirm-rec');
 
     if (btnAdd) {
       btnAdd.addEventListener('click', () => {
@@ -264,7 +268,7 @@
         }
 
         UIManager.closeRecurrenteModal();
-        UIManager.renderRecurrentesList(AppState.recurrentes);
+        recalculateAndRender();
         UIManager.showToast(`Movimiento fijo "${item.nombre}" guardado`, 'success');
         await ApiService.saveRecurrente(item);
       });
@@ -275,7 +279,7 @@
       const item = AppState.recurrentes.find(r => r.id === id);
       if (!item) return;
       item.activo = !item.activo;
-      UIManager.renderRecurrentesList(AppState.recurrentes);
+      recalculateAndRender();
       await ApiService.saveRecurrente(item);
       UIManager.showToast(`"${item.nombre}" ${item.activo ? 'activado' : 'desactivado'}`, 'info');
     };
@@ -283,12 +287,92 @@
     // Eliminar recurrente
     window.onDeleteRecurrente = async (id) => {
       AppState.recurrentes = AppState.recurrentes.filter(r => r.id !== id);
-      UIManager.renderRecurrentesList(AppState.recurrentes);
+      recalculateAndRender();
       await ApiService.deleteRecurrente(id);
       UIManager.showToast('Movimiento fijo eliminado', 'warning');
     };
 
-    // Botón Registrar en este Mes
+    // Clic en Confirmar / Ajustar recibo específico del mes
+    window.onConfirmRecurrenteClick = (id) => {
+      const item = AppState.recurrentes.find(r => r.id === id);
+      if (!item) return;
+      const statusInfo = (window.cachedRecurrentesEstadoMes || []).find(e => String(e.id) === String(id));
+      UIManager.openConfirmRecurrenteModal(item, AppState.selectedMonth, statusInfo);
+    };
+
+    // Guardar confirmación / ajuste mensual
+    if (btnSaveConfirmRec) {
+      btnSaveConfirmRec.addEventListener('click', async () => {
+        const data = UIManager.getConfirmRecurrenteData();
+        if (!data) return;
+
+        const rec = AppState.recurrentes.find(r => r.id === data.recurrenteId);
+        if (!rec) {
+          UIManager.showToast('Movimiento fijo no encontrado', 'error');
+          return;
+        }
+
+        const mes = AppState.selectedMonth;
+        const recId = String(rec.id).trim();
+        const recNom = String(rec.nombre || '').trim();
+
+        // Buscar si ya existe transacción asentada para este recurrente en el mes
+        const existingTx = AppState.transactions.find(t => {
+          const mEf = FinancialEngine.normalizarMes(t.mesImpactoEfectivo || t.fecha);
+          const mTC = FinancialEngine.normalizarMes(t.mesImpactoTC);
+          const mF = FinancialEngine.normalizarMes(t.fecha);
+          if (mEf !== mes && mTC !== mes && mF !== mes) return false;
+
+          if (t.recurrenteId && String(t.recurrenteId).trim() === recId) return true;
+          const notas = String(t.notas || '');
+          return notas.includes(`[Fijo: ${recId}]`) || notas.includes(`[Fijo: ${recNom}]`) || notas === `[Fijo] ${recNom}`;
+        });
+
+        const metodoLower = String(data.metodoPago || '').toLowerCase();
+        const tarjeta = AppState.cards.find(c => {
+          const cId = String(c.id || '').toLowerCase();
+          const cNom = String(c.nombre || '').toLowerCase();
+          return cId === metodoLower || cNom === metodoLower || (metodoLower !== '' && (metodoLower.includes(cId.replace(/^tc[_-]/, '')) || metodoLower.includes('tarjeta') || metodoLower.includes('tc')));
+        });
+
+        const esTC = (rec.tipo === 'Gasto_Fijo' && tarjeta);
+        const tipoTx = rec.tipo === 'Ingreso_Fijo' ? 'Ingreso' : (esTC ? 'Consumo_TC' : 'Gasto_Directo');
+
+        if (existingTx) {
+          existingTx.monto = data.monto;
+          existingTx.fecha = data.fecha;
+          existingTx.metodoPago = data.metodoPago;
+          existingTx.tipo = tipoTx;
+          existingTx.tarjetaAfectada = esTC ? tarjeta.id : '';
+          existingTx.categoria = rec.categoria;
+          existingTx.notas = `[Fijo: ${rec.id}] ${rec.nombre}`;
+          const prepared = FinancialEngine.prepararTransaccion(existingTx, AppState.cards);
+          Object.assign(existingTx, prepared);
+          await ApiService.saveTransaction(existingTx);
+        } else {
+          const rawTx = {
+            id: 'TX-REC-' + Date.now(),
+            recurrenteId: rec.id,
+            fecha: data.fecha,
+            tipo: tipoTx,
+            tarjetaAfectada: esTC ? tarjeta.id : '',
+            categoria: rec.categoria,
+            monto: data.monto,
+            metodoPago: data.metodoPago,
+            notas: `[Fijo: ${rec.id}] ${rec.nombre}`
+          };
+          const prepared = FinancialEngine.prepararTransaccion(rawTx, AppState.cards);
+          AppState.transactions.unshift(prepared);
+          await ApiService.saveTransaction(prepared);
+        }
+
+        UIManager.closeConfirmRecurrenteModal();
+        recalculateAndRender();
+        UIManager.showToast(`✅ Recibo "${rec.nombre}" registrado en S/ ${data.monto.toFixed(2)} para ${mes}`, 'success');
+      });
+    }
+
+    // Botón Registrar todos los fijos activos en este Mes
     if (btnApplyMonth) {
       btnApplyMonth.addEventListener('click', async () => {
         const activos = AppState.recurrentes.filter(r => r.activo);
@@ -305,20 +389,41 @@
         const newTxs = [];
         for (let i = 0; i < activos.length; i++) {
           const rec = activos[i];
-          const diaAjustado = Math.min(rec.diaMes || 1, maxDiasMes);
+          const recId = String(rec.id).trim();
+          const recNom = String(rec.nombre || '').trim();
+          const diaAjustado = Math.min(parseInt(rec.diaMes, 10) || 1, maxDiasMes);
           const fechaTx = `${anio}-${pad(mesNum)}-${pad(diaAjustado)}`;
-          const tagFijo = `[Fijo] ${rec.nombre}`;
+          const tagFijo = `[Fijo: ${recId}] ${recNom}`;
 
-          const yaExiste = AppState.transactions.some(t => 
-            t.fecha && t.fecha.startsWith(mes) && (t.notas === tagFijo || (t.categoria === rec.categoria && Math.abs(t.monto - rec.monto) < 0.01 && t.tipo === (rec.tipo === 'Ingreso_Fijo' ? 'Ingreso' : 'Gasto_Directo')))
-          );
+          const yaExiste = AppState.transactions.some(t => {
+            const mEf = FinancialEngine.normalizarMes(t.mesImpactoEfectivo || t.fecha);
+            const mTC = FinancialEngine.normalizarMes(t.mesImpactoTC);
+            const mF = FinancialEngine.normalizarMes(t.fecha);
+            if (mEf !== mes && mTC !== mes && mF !== mes) return false;
+
+            if (t.recurrenteId && String(t.recurrenteId).trim() === recId) return true;
+            const notas = String(t.notas || '');
+            return notas.includes(`[Fijo: ${recId}]`) || notas.includes(`[Fijo: ${recNom}]`) || notas === `[Fijo] ${recNom}`;
+          });
 
           if (!yaExiste) {
+            const metodoLower = String(rec.metodoPago || '').toLowerCase();
+            const tarjeta = AppState.cards.find(c => {
+              const cId = String(c.id || '').toLowerCase();
+              const cNom = String(c.nombre || '').toLowerCase();
+              return cId === metodoLower || cNom === metodoLower || (metodoLower !== '' && (metodoLower.includes(cId.replace(/^tc[_-]/, '')) || metodoLower.includes('tarjeta') || metodoLower.includes('tc')));
+            });
+
+            const esTC = (rec.tipo === 'Gasto_Fijo' && tarjeta);
+            const tipoTx = rec.tipo === 'Ingreso_Fijo' ? 'Ingreso' : (esTC ? 'Consumo_TC' : 'Gasto_Directo');
+
             const rawTx = {
               id: 'TX-REC-' + Date.now() + '-' + i,
+              recurrenteId: rec.id,
               fecha: fechaTx,
-              tipo: rec.tipo === 'Ingreso_Fijo' ? 'Ingreso' : 'Gasto_Directo',
-              monto: rec.monto,
+              tipo: tipoTx,
+              tarjetaAfectada: esTC ? tarjeta.id : '',
+              monto: parseFloat(rec.monto) || 0,
               categoria: rec.categoria,
               metodoPago: rec.metodoPago || 'Efectivo',
               notas: tagFijo

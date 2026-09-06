@@ -108,16 +108,19 @@ function setupSheets() {
     sheetBudgets.getRange(2, 2, 100, 1).setNumberFormat('#,##0.00');
 
     const defaultBudgets = [
-      ['Supermercado', 800, 'PEN'],
-      ['Alimentación', 500, 'PEN'],
-      ['Transporte', 250, 'PEN'],
+      ['Hogar', 1400, 'PEN'],
       ['Servicios', 350, 'PEN'],
-      ['Suscripciones', 100, 'PEN'],
+      ['Supermercado', 800, 'PEN'],
+      ['Alimentación', 400, 'PEN'],
       ['Restaurantes', 300, 'PEN'],
-      ['Compras', 400, 'PEN'],
+      ['Transporte', 250, 'PEN'],
+      ['Suscripciones', 100, 'PEN'],
       ['Salud', 200, 'PEN'],
+      ['Educación', 200, 'PEN'],
+      ['Compras', 300, 'PEN'],
+      ['Tecnología', 200, 'PEN'],
       ['Entretenimiento', 200, 'PEN'],
-      ['Varios', 200, 'PEN']
+      ['Otros Gastos', 200, 'PEN']
     ];
     defaultBudgets.forEach(b => sheetBudgets.appendRow(b));
   } else if (sheetBudgets.getLastRow() === 0) {
@@ -142,7 +145,7 @@ function setupSheets() {
       ['REC-2', 'Alquiler de Vivienda', 'Gasto_Fijo', 1200, 'Hogar', 'Transferencia', 1, 'SI', 'Alquiler mensual'],
       ['REC-3', 'Servicios Luz y Agua', 'Gasto_Fijo', 180, 'Servicios', 'Débito BCP', 15, 'SI', 'Recibos básicos'],
       ['REC-4', 'Internet Hogar', 'Gasto_Fijo', 120, 'Servicios', 'Débito BCP', 18, 'SI', 'Fibra óptica'],
-      ['REC-5', 'Suscripciones Digitales', 'Gasto_Fijo', 70, 'Ocio', 'Tarjeta', 20, 'SI', 'Streaming']
+      ['REC-5', 'Suscripciones Digitales', 'Gasto_Fijo', 70, 'Suscripciones', 'Tarjeta', 20, 'SI', 'Streaming']
     ];
     defaultRecurrentes.forEach(r => sheetRec.appendRow(r));
   } else if (sheetRec.getLastRow() === 0) {
@@ -309,16 +312,19 @@ function getBudgetsConfig_() {
     sheet.getRange(2, 2, 100, 1).setNumberFormat('#,##0.00');
 
     const defaultBudgets = [
-      ['Supermercado', 800, 'PEN'],
-      ['Alimentación', 500, 'PEN'],
-      ['Transporte', 250, 'PEN'],
+      ['Hogar', 1400, 'PEN'],
       ['Servicios', 350, 'PEN'],
-      ['Suscripciones', 100, 'PEN'],
+      ['Supermercado', 800, 'PEN'],
+      ['Alimentación', 400, 'PEN'],
       ['Restaurantes', 300, 'PEN'],
-      ['Compras', 400, 'PEN'],
+      ['Transporte', 250, 'PEN'],
+      ['Suscripciones', 100, 'PEN'],
       ['Salud', 200, 'PEN'],
+      ['Educación', 200, 'PEN'],
+      ['Compras', 300, 'PEN'],
+      ['Tecnología', 200, 'PEN'],
       ['Entretenimiento', 200, 'PEN'],
-      ['Varios', 200, 'PEN']
+      ['Otros Gastos', 200, 'PEN']
     ];
     defaultBudgets.forEach(b => sheet.appendRow(b));
     SpreadsheetApp.flush();
@@ -388,7 +394,7 @@ function getRecurrentesConfig_() {
       ['REC-2', 'Alquiler de Vivienda', 'Gasto_Fijo', 1200, 'Hogar', 'Transferencia', 1, 'SI', 'Alquiler mensual'],
       ['REC-3', 'Servicios Luz y Agua', 'Gasto_Fijo', 180, 'Servicios', 'Débito BCP', 15, 'SI', 'Recibos básicos'],
       ['REC-4', 'Internet Hogar', 'Gasto_Fijo', 120, 'Servicios', 'Débito BCP', 18, 'SI', 'Fibra óptica'],
-      ['REC-5', 'Suscripciones Digitales', 'Gasto_Fijo', 70, 'Ocio', 'Tarjeta', 20, 'SI', 'Streaming']
+      ['REC-5', 'Suscripciones Digitales', 'Gasto_Fijo', 70, 'Suscripciones', 'Tarjeta', 20, 'SI', 'Streaming']
     ];
     defaults.forEach(r => sheet.appendRow(r));
     SpreadsheetApp.flush();

@@ -46,7 +46,18 @@
       resultsContainer.appendChild(div);
     }
 
-    const { TIPOS_TRANSACCION, calcularCicloTarjeta, prepararTransaccion, calcularConsolidadoFinanciero, dividirEnCuotas, sumarMesesAFecha } = window.FinancialEngine;
+    const { 
+      TIPOS_TRANSACCION, 
+      CATEGORIAS_GASTO, 
+      CATEGORIAS_INGRESO, 
+      normalizarCategoria, 
+      combinarTransaccionesConRecurrentes, 
+      calcularCicloTarjeta, 
+      prepararTransaccion, 
+      calcularConsolidadoFinanciero, 
+      dividirEnCuotas, 
+      sumarMesesAFecha 
+    } = window.FinancialEngine;
 
     const tarjetasConfig = [
       { id: 'TC_BCP', nombre: 'BCP Visa Signature', diaCorte: 20, diaVencimiento: 10, limiteCredito: 10000, colorHex: '#0033a0' },
@@ -238,6 +249,131 @@
     report('Movimientos Fijos: Balance base mensual (Ingresos S/ 3500 - Gastos S/ 1380 = Balance Base S/ 2120)',
       okFijos,
       `Ingresos Fijos: S/ ${ingFijosActivos}, Gastos Fijos: S/ ${gasFijosActivos}, Balance Base: S/ ${balanceFijoBase}`
+    );
+
+    // Prueba 13: CATÁLOGO MAESTRO UNIFICADO DE CATEGORÍAS
+    const okCatsGastoLen = CATEGORIAS_GASTO.length === 13;
+    const okCatsIngresoLen = CATEGORIAS_INGRESO.length === 4;
+    const okNormVivienda = normalizarCategoria('Vivienda') === 'Hogar';
+    const okNormOcio = normalizarCategoria('Ocio') === 'Entretenimiento';
+    const okNormFreelance = normalizarCategoria('Freelance', 'Ingreso') === 'Freelance / Negocio';
+    const okNormDirecta = normalizarCategoria('Servicios') === 'Servicios';
+    const okPrueba13 = okCatsGastoLen && okCatsIngresoLen && okNormVivienda && okNormOcio && okNormFreelance && okNormDirecta;
+
+    report('Catálogo Maestro Unificado: 13 categorías de gasto, 4 de ingreso y normalización legacy retrocompatible',
+      okPrueba13,
+      `Categorías Gasto: ${CATEGORIAS_GASTO.length} (esperado 13), Ingreso: ${CATEGORIAS_INGRESO.length} (esperado 4), Normalización: Vivienda->${normalizarCategoria('Vivienda')}, Ocio->${normalizarCategoria('Ocio')}`
+    );
+
+    // Prueba 14: INTEGRACIÓN DE FIJOS EN FLUJO DISPONIBLE DEL MES
+    // Sin transacciones variables aún, el mes debe reflejar los fijos activos (no S/ 0.00)
+    const recurrentesPrueba14 = [
+      { id: 'REC-SUELDO', nombre: 'Sueldo Principal', tipo: 'Ingreso_Fijo', monto: 4000, categoria: 'Sueldo', diaMes: 28, activo: true },
+      { id: 'REC-ALQUILER', nombre: 'Alquiler Depto', tipo: 'Gasto_Fijo', monto: 1500, categoria: 'Hogar', diaMes: 5, activo: true },
+      { id: 'REC-GYM', nombre: 'Gym Suspendido', tipo: 'Gasto_Fijo', monto: 100, categoria: 'Salud', diaMes: 1, activo: false }
+    ];
+    const consolidadoFijos = calcularConsolidadoFinanciero([], tarjetasConfig, '2026-09', [], recurrentesPrueba14);
+    const okIngresoFlujo = consolidadoFijos.flujoEfectivo.ingresos === 4000 && consolidadoFijos.flujoEfectivo.ingresosFijos === 4000;
+    const okGastoFlujo = consolidadoFijos.flujoEfectivo.gastosDirectos === 1500 && consolidadoFijos.flujoEfectivo.gastosFijos === 1500;
+    const okBalanceLibre = consolidadoFijos.flujoEfectivo.balanceLibreNeto === 2500;
+    const okPrueba14 = okIngresoFlujo && okGastoFlujo && okBalanceLibre;
+
+    report('Flujo Disponible Inicial: Fijos activos alimentan automáticamente el mes (Ingresos S/ 4,000 - Gastos S/ 1,500 = Balance Libre S/ 2,500)',
+      okPrueba14,
+      `Ingresos Flujo: S/ ${consolidadoFijos.flujoEfectivo.ingresos} (Fijos: ${consolidadoFijos.flujoEfectivo.ingresosFijos}), Gastos: S/ ${consolidadoFijos.flujoEfectivo.gastosDirectos}, Balance Libre: S/ ${consolidadoFijos.flujoEfectivo.balanceLibreNeto}`
+    );
+
+    // Prueba 15: SUMA DE FIJOS + VARIABLES EN CATEGORÍAS Y PRESUPUESTOS
+    // Fijo de Servicios S/ 100 + Gasto diario variable de Servicios S/ 50 = S/ 150 en categoría Servicios
+    const txsVariablesPrueba15 = [
+      { id: 'TX-VAR-1', fecha: '2026-09-02', tipo: TIPOS_TRANSACCION.GASTO_DIRECTO, monto: 50, categoria: 'Servicios', mesImpactoEfectivo: '2026-09' }
+    ];
+    const recurrentesPrueba15 = [
+      { id: 'REC-SERV', nombre: 'Luz y Agua', tipo: 'Gasto_Fijo', monto: 100, categoria: 'Servicios', diaMes: 15, activo: true }
+    ];
+    const presupuestosPrueba15 = [
+      { categoria: 'Servicios', limite: 200 }
+    ];
+    const consolidadoSuma = calcularConsolidadoFinanciero(txsVariablesPrueba15, tarjetasConfig, '2026-09', presupuestosPrueba15, recurrentesPrueba15);
+    const gastoServiciosTotal = consolidadoSuma.categorias.gastos['Servicios'] || 0;
+    const presupuestoServicios = consolidadoSuma.presupuestos.find(p => p.categoria === 'Servicios');
+    const okSumaCategorias = gastoServiciosTotal === 150;
+    const okPresupuesto = presupuestoServicios && presupuestoServicios.gastado === 150 && presupuestoServicios.porcentaje === 75;
+    const okPrueba15 = okSumaCategorias && okPresupuesto;
+
+    report('Consolidación Fijos + Variables: Gastos fijos y diarios se unifican en la misma categoría presupuestaria (S/ 100 fijo + S/ 50 diario = S/ 150 en Servicios, 75%)',
+      okPrueba15,
+      `Total en Servicios: S/ ${gastoServiciosTotal}, Gastado Presupuesto: S/ ${presupuestoServicios ? presupuestoServicios.gastado : 0}, Porcentaje: ${presupuestoServicios ? presupuestoServicios.porcentaje : 0}%`
+    );
+
+    // Prueba 16: RECURRENTE EN TARJETA DE CRÉDITO + PREPAGO DESDE SUELDO
+    // Internet S/ 120 recurrente en TC_BCP + Prepago S/ 120 desde sueldo:
+    // La categoría Servicios se mantiene en S/ 120 (NO se duplica a 240) y la deuda neta de TC_BCP queda amortizada a 0.
+    const recurrentesPrueba16 = [
+      { id: 'REC-NET', nombre: 'Internet Fibra', tipo: 'Gasto_Fijo', monto: 120, categoria: 'Servicios', diaMes: 10, metodoPago: 'TC_BCP', activo: true }
+    ];
+    // Transacción de prepago realizada desde efectivo/sueldo hacia TC_BCP
+    const txPrepago16 = prepararTransaccion({
+      id: 'TX-PREP-NET',
+      fecha: '2026-09-12',
+      tipo: TIPOS_TRANSACCION.PREPAGO_TC,
+      tarjetaAfectada: 'TC_BCP',
+      monto: 120,
+      categoria: 'Amortización Capital',
+      metodoPago: 'Efectivo',
+      notas: 'Abono sueldo a TC por Internet'
+    }, tarjetasConfig);
+
+    const consolidadoTCPrepay = calcularConsolidadoFinanciero([txPrepago16], tarjetasConfig, '2026-09', [], recurrentesPrueba16);
+    const servCatMonto = consolidadoTCPrepay.categorias.gastos['Servicios'] || 0;
+    const bcpCardEstado = consolidadoTCPrepay.tarjetasCredito.desgloseTarjetas.find(c => c.id === 'TC_BCP');
+    const okServicioNoDuplicado = servCatMonto === 120;
+    const okDeudaNetaCero = bcpCardEstado && bcpCardEstado.deudaNetaProyectada === 0 && bcpCardEstado.porcentajeAmortizado === 100;
+    const okFlujoPrepagado = consolidadoTCPrepay.flujoEfectivo.prepagosRealizados === 120;
+    const okPrueba16 = okServicioNoDuplicado && okDeudaNetaCero && okFlujoPrepagado;
+
+    report('Recurrente en TC + Prepago desde Sueldo: Servicios se mantiene en S/ 120 exactos sin duplicidad y la deuda de la tarjeta queda amortizada a S/ 0',
+      okPrueba16,
+      `Gasto en Servicios: S/ ${servCatMonto}, Consumo TC: S/ ${bcpCardEstado ? bcpCardEstado.consumosCiclo : 0}, Prepagado: S/ ${bcpCardEstado ? bcpCardEstado.prepagosCiclo : 0}, Deuda Neta TC: S/ ${bcpCardEstado ? bcpCardEstado.deudaNetaProyectada : 0}`
+    );
+
+    // Prueba 17: CONFIRMACIÓN / AJUSTE MENSUAL DE RECIBO VARIABLE
+    // Gas Natural presupuestado en S/ 100 base mensual.
+    // Para Septiembre 2026 llega el recibo real por S/ 80 y se confirma asentando la transacción.
+    // En Septiembre: toma S/ 80 real.
+    // En Octubre (o meses sin confirmar): sigue proyectando S/ 100 base intactos.
+    const recurrenteGas = { id: 'REC-GAS', nombre: 'Gas Natural', tipo: 'Gasto_Fijo', monto: 100, categoria: 'Servicios', diaMes: 18, activo: true };
+    const txGasSeptiembre = {
+      id: 'TX-CONF-GAS-09',
+      recurrenteId: 'REC-GAS',
+      fecha: '2026-09-18',
+      tipo: TIPOS_TRANSACCION.GASTO_DIRECTO,
+      monto: 80,
+      categoria: 'Servicios',
+      metodoPago: 'Efectivo',
+      mesImpactoEfectivo: '2026-09',
+      notas: '[Fijo: REC-GAS] Gas Natural'
+    };
+
+    // Mes Septiembre con confirmación de recibo menor (S/ 80)
+    const combSept = combinarTransaccionesConRecurrentes([txGasSeptiembre], [recurrenteGas], '2026-09', tarjetasConfig);
+    const gasSeptEstado = combSept.recurrentesEstadoMes.find(r => r.id === 'REC-GAS');
+    const consolidadoSept = calcularConsolidadoFinanciero([txGasSeptiembre], tarjetasConfig, '2026-09', [], [recurrenteGas]);
+    const totalServSept = consolidadoSept.categorias.gastos['Servicios'] || 0;
+
+    // Mes Octubre (sin transacción confirmada todavía)
+    const combOct = combinarTransaccionesConRecurrentes([txGasSeptiembre], [recurrenteGas], '2026-10', tarjetasConfig);
+    const gasOctEstado = combOct.recurrentesEstadoMes.find(r => r.id === 'REC-GAS');
+    const consolidadoOct = calcularConsolidadoFinanciero([txGasSeptiembre], tarjetasConfig, '2026-10', [], [recurrenteGas]);
+    const totalServOct = consolidadoOct.categorias.gastos['Servicios'] || 0;
+
+    const okSeptReal = gasSeptEstado && gasSeptEstado.estadoMes === 'confirmado' && gasSeptEstado.montoMes === 80 && totalServSept === 80;
+    const okOctProyectado = gasOctEstado && gasOctEstado.estadoMes === 'proyectado' && gasOctEstado.montoMes === 100 && totalServOct === 100;
+    const okPrueba17 = okSeptReal && okOctProyectado;
+
+    report('Confirmación Mensual de Recibos: Septiembre toma S/ 80 real sin duplicidad, mientras Octubre preserva intactos sus S/ 100 presupuestados',
+      okPrueba17,
+      `Septiembre (Confirmado): S/ ${totalServSept} (estado: ${gasSeptEstado ? gasSeptEstado.estadoMes : ''}), Octubre (Proyectado): S/ ${totalServOct} (estado: ${gasOctEstado ? gasOctEstado.estadoMes : ''})`
     );
 
     summaryBox.innerHTML = `

@@ -16,6 +16,57 @@
   };
 
   /**
+   * Catálogo Maestro Unificado de Categorías
+   * Usado idénticamente en Gastos Directos, Tarjetas de Crédito, Fijos y Presupuestos
+   */
+  const CATEGORIAS_GASTO = [
+    'Hogar',
+    'Servicios',
+    'Supermercado',
+    'Alimentación',
+    'Restaurantes',
+    'Transporte',
+    'Suscripciones',
+    'Salud',
+    'Educación',
+    'Compras',
+    'Tecnología',
+    'Entretenimiento',
+    'Otros Gastos'
+  ];
+
+  const CATEGORIAS_INGRESO = [
+    'Sueldo',
+    'Freelance / Negocio',
+    'Inversiones / Rentas',
+    'Otros Ingresos'
+  ];
+
+  function normalizarCategoria(cat, tipo) {
+    if (!cat || typeof cat !== 'string') {
+      return tipo === TIPOS_TRANSACCION.INGRESO ? 'Otros Ingresos' : 'Otros Gastos';
+    }
+    const c = cat.trim();
+    const aliasMap = {
+      'Vivienda': 'Hogar',
+      'Casa': 'Hogar',
+      'Ocio': 'Entretenimiento',
+      'Diversión': 'Entretenimiento',
+      'Varios': 'Otros Gastos',
+      'General': 'Otros Gastos',
+      'Compras Tarjeta': 'Compras',
+      'Gastos Varios': 'Otros Gastos',
+      'Freelance': 'Freelance / Negocio',
+      'Inversión': 'Inversiones / Rentas',
+      'Inversiones': 'Inversiones / Rentas',
+      'Rentas': 'Inversiones / Rentas',
+      'Ingreso_Extra': 'Freelance / Negocio',
+      'Otros_Ingresos': 'Otros Ingresos'
+    };
+    return aliasMap[c] || c;
+  }
+
+  /**
    * Determina el ciclo de facturación y fecha de vencimiento de pago
    * para una tarjeta según su fecha de consumo, día de corte y día de vencimiento.
    * 
@@ -301,8 +352,9 @@
   function calcularEstadoPresupuestos(gastosPorCategoria = {}, presupuestosConfig = []) {
     const configMap = {};
     presupuestosConfig.forEach(p => {
+      const val = p.monto != null ? p.monto : (p.limite != null ? p.limite : p.presupuesto);
       configMap[p.categoria] = {
-        monto: parseFloat(p.monto) || 0,
+        monto: parseFloat(val) || 0,
         moneda: p.moneda || 'PEN'
       };
     });
@@ -419,14 +471,156 @@
   }
 
   /**
+   * Combina transacciones efectivas asentadas con los movimientos recurrentes fijos.
+   * Si un recurrente ya tiene una transacción registrada/confirmada en ese mes,
+   * se respeta la transacción asentada (con su monto confirmado real).
+   * Si no ha sido registrado aún, se proyecta con su monto base habitual.
+   */
+  function combinarTransaccionesConRecurrentes(transacciones = [], recurrentesConfig = [], mesActualStr = null, tarjetasConfig = []) {
+    if (!mesActualStr) {
+      mesActualStr = obtenerMesImpacto(new Date());
+    } else {
+      mesActualStr = normalizarMes(mesActualStr);
+    }
+
+    const [anio, mesNum] = mesActualStr.split('-').map(Number);
+    const maxDiasMes = new Date(anio, mesNum, 0).getDate();
+    const pad = (n) => String(n).padStart(2, '0');
+
+    const txsCombinadas = [...transacciones];
+    const recurrentesEstadoMes = [];
+
+    // Mapear transacciones del mes
+    const txsMes = transacciones.filter(t => {
+      const mEf = normalizarMes(t.mesImpactoEfectivo);
+      const mFecha = normalizarMes(t.fecha);
+      const mTC = normalizarMes(t.mesImpactoTC);
+      return mEf === mesActualStr || mFecha === mesActualStr || mTC === mesActualStr;
+    });
+
+    (recurrentesConfig || []).forEach(rec => {
+      if (!rec || !rec.id) return;
+      const esActivo = (rec.activo !== false && String(rec.activo) !== 'false' && String(rec.activo) !== 'NO');
+      if (!esActivo) {
+        recurrentesEstadoMes.push({
+          ...rec,
+          estadoMes: 'inactivo',
+          montoMes: rec.monto || 0
+        });
+        return;
+      }
+
+      const recId = String(rec.id).trim();
+      const recNom = String(rec.nombre || '').trim();
+
+      // Buscar si ya existe una transacción confirmada/asentada para este fijo en el mes
+      const txExistente = txsMes.find(t => {
+        if (t.recurrenteId && String(t.recurrenteId).trim() === recId) return true;
+        const notas = String(t.notas || '');
+        if (notas.includes(`[Fijo: ${recId}]`) || notas.includes(`[Fijo: ${recNom}]`)) return true;
+        if (notas === `[Fijo] ${recNom}` || notas.startsWith(`[Fijo] ${recNom}`)) return true;
+        return false;
+      });
+
+      if (txExistente) {
+        recurrentesEstadoMes.push({
+          ...rec,
+          estadoMes: 'confirmado',
+          montoMes: parseFloat(txExistente.monto) || 0,
+          txId: txExistente.id,
+          fechaConfirmada: txExistente.fecha
+        });
+      } else {
+        const diaAjustado = Math.min(parseInt(rec.diaMes, 10) || 1, maxDiasMes);
+        const fechaProyectada = `${mesActualStr}-${pad(diaAjustado)}`;
+        const montoBase = parseFloat(rec.monto) || 0;
+
+        const metodoLower = String(rec.metodoPago || '').toLowerCase();
+        const tarjetaCoincidente = tarjetasConfig.find(t => {
+          const tId = String(t.id || '').toLowerCase();
+          const tNom = String(t.nombre || '').toLowerCase();
+          return tId === metodoLower || tNom === metodoLower || (metodoLower !== '' && (metodoLower.includes(tId.replace(/^tc[_-]/, '')) || metodoLower.includes('tarjeta') || metodoLower.includes('tc')));
+        });
+
+        const esTC = (rec.tipo === 'Gasto_Fijo' && tarjetaCoincidente);
+
+        let virtualTx;
+        if (rec.tipo === 'Ingreso_Fijo') {
+          virtualTx = {
+            id: `VIRT-REC-${recId}-${mesActualStr}`,
+            recurrenteId: recId,
+            fecha: fechaProyectada,
+            tipo: TIPOS_TRANSACCION.INGRESO,
+            categoria: normalizarCategoria(rec.categoria, TIPOS_TRANSACCION.INGRESO),
+            monto: montoBase,
+            moneda: 'PEN',
+            metodoPago: rec.metodoPago || 'Transferencia',
+            mesImpactoEfectivo: mesActualStr,
+            mesImpactoTC: '',
+            notas: `[Fijo Proyectado: ${recId}] ${recNom}`,
+            esFijoProyectado: true
+          };
+        } else if (esTC) {
+          const ciclo = calcularCicloTarjeta(fechaProyectada, tarjetaCoincidente.diaCorte, tarjetaCoincidente.diaVencimiento);
+          virtualTx = {
+            id: `VIRT-REC-${recId}-${mesActualStr}`,
+            recurrenteId: recId,
+            fecha: fechaProyectada,
+            tipo: TIPOS_TRANSACCION.CONSUMO_TC,
+            tarjetaAfectada: tarjetaCoincidente.id,
+            categoria: normalizarCategoria(rec.categoria, TIPOS_TRANSACCION.CONSUMO_TC),
+            monto: montoBase,
+            moneda: 'PEN',
+            mesImpactoEfectivo: '',
+            mesImpactoTC: ciclo.mesImpactoTC,
+            fechaVencimientoTC: ciclo.fechaVencimiento,
+            notas: `[Fijo Proyectado TC: ${recId}] ${recNom}`,
+            esFijoProyectado: true
+          };
+        } else {
+          virtualTx = {
+            id: `VIRT-REC-${recId}-${mesActualStr}`,
+            recurrenteId: recId,
+            fecha: fechaProyectada,
+            tipo: TIPOS_TRANSACCION.GASTO_DIRECTO,
+            categoria: normalizarCategoria(rec.categoria, TIPOS_TRANSACCION.GASTO_DIRECTO),
+            monto: montoBase,
+            moneda: 'PEN',
+            metodoPago: rec.metodoPago || 'Efectivo',
+            mesImpactoEfectivo: mesActualStr,
+            mesImpactoTC: '',
+            notas: `[Fijo Proyectado: ${recId}] ${recNom}`,
+            esFijoProyectado: true
+          };
+        }
+
+        txsCombinadas.push(virtualTx);
+        recurrentesEstadoMes.push({
+          ...rec,
+          estadoMes: 'proyectado',
+          montoMes: montoBase
+        });
+      }
+    });
+
+    return {
+      transaccionesConsolidadas: txsCombinadas,
+      recurrentesEstadoMes: recurrentesEstadoMes
+    };
+  }
+
+  /**
    * Consolida métricas financieras para un mes específico y proyecta el mes siguiente
+   * Integrando transacciones efectivas asentadas y movimientos fijos recurrentes
    * 
    * @param {Array} transacciones - Lista de todas las transacciones
    * @param {Array} tarjetasConfig - Configuración de tarjetas de crédito
    * @param {string} mesActualStr - Mes a evaluar 'YYYY-MM' (por defecto mes actual)
+   * @param {Array} presupuestosConfig - Configuración de presupuestos por categoría
+   * @param {Array} recurrentesConfig - Configuración de ingresos y gastos fijos
    * @returns {Object} Resumen financiero completo
    */
-  function calcularConsolidadoFinanciero(transacciones, tarjetasConfig = [], mesActualStr = null, presupuestosConfig = []) {
+  function calcularConsolidadoFinanciero(transacciones = [], tarjetasConfig = [], mesActualStr = null, presupuestosConfig = [], recurrentesConfig = []) {
     if (!mesActualStr) {
       const hoy = new Date();
       mesActualStr = obtenerMesImpacto(hoy);
@@ -435,29 +629,47 @@
     }
     const mesSiguienteStr = sumarMeses(mesActualStr, 1);
 
+    // Combinar transacciones con movimientos fijos recurrentes (evita duplicados)
+    const { transaccionesConsolidadas, recurrentesEstadoMes } = combinarTransaccionesConRecurrentes(
+      transacciones, recurrentesConfig, mesActualStr, tarjetasConfig
+    );
+
     // 1. Métricas de Flujo de Efectivo del Mes en Curso (Impacto Efectivo === mesActualStr)
     let totalIngresos = 0;
+    let totalIngresosFijos = 0;
+    let totalIngresosVariables = 0;
+
     let totalGastosDirectos = 0;
+    let totalGastosFijos = 0;
+    let totalGastosVariables = 0;
+
     let totalPrepagosRealizados = 0;
     let totalPagosTCVencidas = 0;
 
-    // Desglose por categorías para visualización (gastos directos + consumos de TC de este mes)
+    // Desglose por categorías para visualización
     const gastosPorCategoria = {};
     const ingresosPorCategoria = {};
 
-    transacciones.forEach(tx => {
+    transaccionesConsolidadas.forEach(tx => {
       const monto = parseFloat(tx.monto) || 0;
       const txMesEfectivo = normalizarMes(tx.mesImpactoEfectivo);
       const txMesFecha = normalizarMes(tx.fecha);
+      const esFijo = tx.esFijoProyectado || tx.recurrenteId || (tx.notas && String(tx.notas).includes('[Fijo'));
 
       if (txMesEfectivo === mesActualStr) {
         if (tx.tipo === TIPOS_TRANSACCION.INGRESO) {
           totalIngresos += monto;
-          const cat = tx.categoria || 'Otros Ingresos';
+          if (esFijo) totalIngresosFijos += monto;
+          else totalIngresosVariables += monto;
+
+          const cat = normalizarCategoria(tx.categoria, TIPOS_TRANSACCION.INGRESO);
           ingresosPorCategoria[cat] = (ingresosPorCategoria[cat] || 0) + monto;
         } else if (tx.tipo === TIPOS_TRANSACCION.GASTO_DIRECTO) {
           totalGastosDirectos += monto;
-          const cat = tx.categoria || 'Gastos Varios';
+          if (esFijo) totalGastosFijos += monto;
+          else totalGastosVariables += monto;
+
+          const cat = normalizarCategoria(tx.categoria, TIPOS_TRANSACCION.GASTO_DIRECTO);
           gastosPorCategoria[cat] = (gastosPorCategoria[cat] || 0) + monto;
         } else if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC) {
           totalPrepagosRealizados += monto;
@@ -470,7 +682,7 @@
 
       // En la gráfica de gastos por categoría, incluir también los consumos con tarjeta realizados en este mes
       if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC && txMesFecha === mesActualStr) {
-        const cat = tx.categoria || 'Compras Tarjeta';
+        const cat = normalizarCategoria(tx.categoria, TIPOS_TRANSACCION.CONSUMO_TC);
         gastosPorCategoria[cat] = (gastosPorCategoria[cat] || 0) + monto;
       }
     });
@@ -479,7 +691,6 @@
     const balanceLibreNeto = totalIngresos - totalSalidasEfectivo;
 
     // 2. Proyección de Deuda de Tarjetas para el Mes Siguiente (mesSiguienteStr)
-    // También computamos el estado por cada tarjeta
     const estadoTarjetas = tarjetasConfig.map(tarjeta => {
       let consumosCiclo = 0;
       let prepagosCiclo = 0;
@@ -488,10 +699,9 @@
       const cardId = String(tarjeta.id || '').trim().toLowerCase();
       const cardName = String(tarjeta.nombre || '').trim().toLowerCase();
 
-      transacciones.forEach(tx => {
+      transaccionesConsolidadas.forEach(tx => {
         const txCard = String(tx.tarjetaAfectada || '').trim().toLowerCase();
 
-        // Coincidencia flexible de tarjeta (TC_IO vs IO BCP, etc.)
         const coincideTarjeta = txCard !== '' && (
           txCard === cardId ||
           txCard === cardName ||
@@ -505,15 +715,12 @@
           const monto = parseFloat(tx.monto) || 0;
           const txMesTC = normalizarMes(tx.mesImpactoTC);
 
-          // Consumos cuyo vencimiento cae en el mes siguiente
           if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC && txMesTC === mesSiguienteStr) {
             consumosCiclo += monto;
           }
-          // Prepagos aplicados a la deuda que vence en el mes siguiente
           if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC && txMesTC === mesSiguienteStr) {
             prepagosCiclo += monto;
           }
-          // Si hubo algún pago formal
           if (tx.tipo === TIPOS_TRANSACCION.PAGO_TC_VENCIDA && txMesTC === mesSiguienteStr) {
             pagosVencidosRegistrados += monto;
           }
@@ -521,10 +728,8 @@
       });
 
       const deudaBruta = consumosCiclo;
-      // La deuda neta proyectada descuenta prepagos y pagos
       const deudaNeta = Math.max(0, deudaBruta - prepagosCiclo - pagosVencidosRegistrados);
 
-      // Calcular fecha exacta de vencimiento para el próximo mes
       const [anioSig, mesSig] = mesSiguienteStr.split('-').map(Number);
       const maxDiasMes = new Date(anioSig, mesSig, 0).getDate();
       const diaVencAjustado = Math.min(tarjeta.diaVencimiento, maxDiasMes);
@@ -555,7 +760,11 @@
       mesSiguiente: mesSiguienteStr,
       flujoEfectivo: {
         ingresos: Number(totalIngresos.toFixed(2)),
+        ingresosFijos: Number(totalIngresosFijos.toFixed(2)),
+        ingresosVariables: Number(totalIngresosVariables.toFixed(2)),
         gastosDirectos: Number(totalGastosDirectos.toFixed(2)),
+        gastosFijos: Number(totalGastosFijos.toFixed(2)),
+        gastosVariables: Number(totalGastosVariables.toFixed(2)),
         prepagosRealizados: Number(totalPrepagosRealizados.toFixed(2)),
         pagosTCVencidas: Number(totalPagosTCVencidas.toFixed(2)),
         totalSalidas: Number(totalSalidasEfectivo.toFixed(2)),
@@ -572,7 +781,8 @@
         ingresos: ingresosPorCategoria
       },
       presupuestos: calcularEstadoPresupuestos(gastosPorCategoria, presupuestosConfig),
-      historicoAhorro: calcularHistoricoAhorro(transacciones, mesActualStr)
+      recurrentesEstadoMes: recurrentesEstadoMes,
+      historicoAhorro: calcularHistoricoAhorro(transaccionesConsolidadas, mesActualStr)
     };
   }
 
@@ -736,6 +946,10 @@
   // Exportar para Node.js y Navegador
   const FinancialEngine = {
     TIPOS_TRANSACCION,
+    CATEGORIAS_GASTO,
+    CATEGORIAS_INGRESO,
+    normalizarCategoria,
+    combinarTransaccionesConRecurrentes,
     calcularCicloTarjeta,
     normalizarMes,
     obtenerMesImpacto,
