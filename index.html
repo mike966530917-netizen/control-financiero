@@ -178,15 +178,17 @@
         </div>
       </div>
 
-      <!-- Botón de Pago Rápido de Factura TC del Mes -->
-      <div id="quick-pay-tc-container" class="hidden mt-3 pt-3 border-t border-slate-800/80">
-        <button id="btn-quick-pay-tc" class="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center justify-between shadow-lg shadow-purple-600/25 active:scale-[0.98] transition cursor-pointer">
+      <!-- Botones de Pago de Factura por Tarjeta Individual -->
+      <div id="quick-pay-tc-container" class="hidden mt-3 pt-3 border-t border-slate-800/80 space-y-2">
+        <div class="flex items-center justify-between text-xs text-purple-300 font-semibold px-0.5">
           <span class="flex items-center gap-1.5">
-            <span>💳</span>
-            <span>Pagar Factura TC del Mes</span>
+            <span>💳</span> Facturas por Pagar este Mes:
           </span>
-          <span id="btn-quick-pay-amount" class="bg-black/30 px-2 py-0.5 rounded-lg text-purple-100 text-[11px] font-extrabold">S/ 0.00</span>
-        </button>
+          <span id="btn-quick-pay-amount" class="bg-purple-950/80 border border-purple-500/40 text-purple-200 text-[11px] px-2 py-0.5 rounded-lg font-extrabold">S/ 0.00</span>
+        </div>
+        <div id="quick-pay-cards-list" class="space-y-1.5">
+          <!-- Renderizado dinámico de botón individual por tarjeta -->
+        </div>
       </div>
     </section>
 
@@ -551,18 +553,21 @@
       </div>
 
       <!-- 2. Selectores Rápidos de Tipo en 1 Toque -->
-      <div class="grid grid-cols-4 gap-1.5">
-        <div class="type-chip" data-type="Ingreso">
-          <span>📈</span><span>Ingreso</span>
+      <div class="grid grid-cols-5 gap-1 text-[11px]">
+        <div class="type-chip px-1 py-2" data-type="Ingreso">
+          <span>📈</span><span class="truncate">Ingreso</span>
         </div>
-        <div class="type-chip active-gasto" data-type="Gasto_Directo">
-          <span>📉</span><span>Gasto</span>
+        <div class="type-chip active-gasto px-1 py-2" data-type="Gasto_Directo">
+          <span>📉</span><span class="truncate">Gasto</span>
         </div>
-        <div class="type-chip" data-type="Consumo_TC">
-          <span>💳</span><span>Tarjeta</span>
+        <div class="type-chip px-1 py-2" data-type="Consumo_TC">
+          <span>💳</span><span class="truncate">Tarjeta</span>
         </div>
-        <div class="type-chip" data-type="Prepago_TC">
-          <span>⚡</span><span>Prepago</span>
+        <div class="type-chip px-1 py-2" data-type="Prepago_TC">
+          <span>⚡</span><span class="truncate">Prepago</span>
+        </div>
+        <div class="type-chip px-1 py-2" data-type="Pago_TC_Vencida">
+          <span>🏦</span><span class="truncate">Pagar TC</span>
         </div>
       </div>
 

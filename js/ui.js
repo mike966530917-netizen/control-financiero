@@ -225,6 +225,7 @@
           else if (type === 'Gasto_Directo') chip.classList.add('active-gasto');
           else if (type === 'Consumo_TC') chip.classList.add('active-consumo');
           else if (type === 'Prepago_TC') chip.classList.add('active-prepago');
+          else if (type === 'Pago_TC_Vencida') chip.classList.add('active-pago');
 
           this.renderDynamicFormFields();
           this.updateImpactPreview();
@@ -297,6 +298,13 @@
         if (cuotasContainer) cuotasContainer.classList.add('hidden');
         if (cuotasSelect) cuotasSelect.value = '1';
         if (cuotaBadge) cuotaBadge.textContent = '1 cuota (Directo)';
+      } else if (this.currentType === 'Pago_TC_Vencida') {
+        // En pago de tarjeta vencida se requieren AMBOS: la tarjeta que se liquida y la cuenta de donde sale el dinero
+        if (cardContainer) cardContainer.classList.remove('hidden');
+        if (methodContainer) methodContainer.classList.remove('hidden');
+        if (cuotasContainer) cuotasContainer.classList.add('hidden');
+        if (cuotasSelect) cuotasSelect.value = '1';
+        if (cuotaBadge) cuotaBadge.textContent = '1 cuota (Directo)';
       }
     }
 
@@ -355,6 +363,15 @@
             <p class="font-bold text-amber-400 flex items-center gap-1">⚡ DOBLE IMPACTO DEL PREPAGO:</p>
             <p>1️⃣ <strong>Hoy:</strong> Salida de S/ ${monto.toFixed(2)} de tu efectivo (${this.selectedMethod}).</p>
             <p>2️⃣ <strong>Mes Siguiente:</strong> Reduce en S/ ${monto.toFixed(2)} la deuda que tendrías que pagar en ${nombreTarjeta}.</p>
+          </div>
+        `;
+      } else if (this.currentType === 'Pago_TC_Vencida') {
+        const nombreTarjeta = tarjeta ? tarjeta.nombre : 'Tarjeta Seleccionada';
+        previewBox.innerHTML = `
+          <div class="text-xs text-purple-300 bg-purple-950/40 p-2.5 rounded-xl border border-purple-500/20">
+            <p class="font-bold text-purple-400 flex items-center gap-1">🏦 PAGO DE FACTURA DE TARJETA:</p>
+            <p>1️⃣ <strong>Hoy:</strong> Salida de S/ ${monto.toFixed(2)} de tu efectivo (${this.selectedMethod}).</p>
+            <p>2️⃣ <strong>Tarjeta:</strong> Liquida la factura vencida de ${nombreTarjeta}.</p>
           </div>
         `;
       }
@@ -536,15 +553,35 @@
         }
       }
 
-      if (quickPayTcContainer && btnQuickPayAmount && btnQuickPayTc) {
-        if (factTC.pendiente > 0) {
+      if (quickPayTcContainer) {
+        const tarjetasPendientes = (factTC.desglosePorTarjeta || []).filter(t => t.pendiente > 0);
+        if (tarjetasPendientes.length > 0) {
           quickPayTcContainer.classList.remove('hidden');
-          btnQuickPayAmount.textContent = `S/ ${factTC.pendiente.toFixed(2)}`;
-          const targetCard = (factTC.desglosePorTarjeta && factTC.desglosePorTarjeta.find(t => t.pendiente > 0)) || null;
-          const targetCardId = targetCard ? targetCard.id : '';
-          btnQuickPayTc.onclick = () => {
-            this.openDrawer('Pago_TC_Vencida', targetCardId, factTC.pendiente);
-          };
+          if (btnQuickPayAmount) {
+            btnQuickPayAmount.textContent = `Pendiente: S/ ${factTC.pendiente.toFixed(2)}`;
+          }
+          const listEl = document.getElementById('quick-pay-cards-list');
+          if (listEl) {
+            listEl.innerHTML = tarjetasPendientes.map(card => `
+              <button class="btn-pay-single-card w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-purple-900/70 to-indigo-900/70 hover:from-purple-800/80 hover:to-indigo-800/80 border border-purple-500/40 text-white font-bold text-xs flex items-center justify-between shadow-md shadow-purple-950/40 active:scale-[0.98] transition cursor-pointer" data-card-id="${card.id}" data-amount="${card.pendiente}">
+                <div class="flex items-center gap-2">
+                  <div class="w-2.5 h-2.5 rounded-full" style="background-color: ${card.colorHex}"></div>
+                  <span>💳 Pagar ${card.nombre}</span>
+                </div>
+                <span class="bg-black/40 px-2 py-0.5 rounded-lg text-purple-200 text-[11px] font-extrabold">
+                  S/ ${card.pendiente.toFixed(2)}
+                </span>
+              </button>
+            `).join('');
+
+            listEl.querySelectorAll('.btn-pay-single-card').forEach(btn => {
+              btn.addEventListener('click', () => {
+                const cardId = btn.getAttribute('data-card-id');
+                const amount = parseFloat(btn.getAttribute('data-amount')) || 0;
+                this.openDrawer('Pago_TC_Vencida', cardId, amount);
+              });
+            });
+          }
         } else {
           quickPayTcContainer.classList.add('hidden');
         }
@@ -567,7 +604,7 @@
         }
       }
 
-      // 2. TARJETA 2: DEUDA PROYECTADA PRÓXIMO MES
+      // 2. TARJETA 2: DEUDA PROYECTADA PRÓXIMO MES (Suma total de todas las tarjetas)
       const metricProjectedDebtEl = document.getElementById('metric-projected-debt');
       const metricGrossTcEl = document.getElementById('metric-gross-tc');
       const metricAppliedPrepaidsEl = document.getElementById('metric-applied-prepaids');
@@ -580,21 +617,39 @@
       if (metricAppliedPrepaidsEl) metricAppliedPrepaidsEl.textContent = `-S/ ${tarjetasCredito.totalPrepagosAplicados.toFixed(2)}`;
       if (labelNextMonthEl) labelNextMonthEl.textContent = `Impacto en: ${mesSiguiente}`;
 
-      // 3. TARJETA 3: CALENDARIO & ESTADO DE TARJETAS
+      // 3. TARJETA 3: CALENDARIO & ESTADO POR TARJETA (Pago individual y proyección)
       const cardsContainer = document.getElementById('cards-schedule-container');
       if (cardsContainer) {
         if (!tarjetasCredito.desgloseTarjetas || tarjetasCredito.desgloseTarjetas.length === 0) {
           cardsContainer.innerHTML = `<div class="text-sm text-slate-400 p-4 text-center">No hay tarjetas configuradas.</div>`;
         } else {
           cardsContainer.innerHTML = tarjetasCredito.desgloseTarjetas.map(card => {
+            const factura = card.facturaMesActual || {
+              deudaFacturada: 0,
+              pagado: 0,
+              pendiente: 0,
+              fechaVencimiento: '',
+              estado: 'SIN_DEUDA'
+            };
+
+            let facturaBadge = '';
+            if (factura.estado === 'PAGADO') {
+              facturaBadge = '<span class="text-[9px] px-1.5 py-0.5 rounded font-bold bg-emerald-950 text-emerald-300 border border-emerald-500/30">✅ Pagado este mes</span>';
+            } else if (factura.pendiente > 0) {
+              facturaBadge = `<span class="text-[9px] px-1.5 py-0.5 rounded font-bold bg-purple-900/80 text-purple-200 border border-purple-400/40">Vence: ${factura.fechaVencimiento || 'Este mes'}</span>`;
+            } else {
+              facturaBadge = '<span class="text-[9px] px-1.5 py-0.5 rounded font-bold bg-slate-800 text-slate-400">Sin Factura</span>';
+            }
+
             return `
-              <div class="p-3.5 rounded-2xl glass-panel border border-slate-700/50 flex flex-col gap-2.5">
+              <div class="p-3.5 rounded-2xl glass-panel border border-slate-700/50 flex flex-col gap-3">
+                <!-- Cabecera de la tarjeta -->
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-2.5">
                     <div class="w-3.5 h-3.5 rounded-full" style="background-color: ${card.colorHex}"></div>
                     <div>
                       <h4 class="font-bold text-sm text-slate-100">${card.nombre}</h4>
-                      <p class="text-[11px] text-slate-400">Corte: día ${card.diaCorte} • Vence: ${card.fechaVencimientoProxima}</p>
+                      <p class="text-[11px] text-slate-400">Corte: día ${card.diaCorte} • Vence: día ${card.diaVencimiento}</p>
                     </div>
                   </div>
                   <button class="btn-quick-prepay bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-semibold py-1.5 px-3 rounded-xl border border-amber-500/30 flex items-center gap-1 active:scale-95 transition" data-card-id="${card.id}">
@@ -602,28 +657,64 @@
                   </button>
                 </div>
 
-                <div class="grid grid-cols-3 gap-2 bg-slate-900/50 p-2.5 rounded-xl text-center">
-                  <div>
-                    <span class="text-[10px] text-slate-400 uppercase tracking-wider block">Consumos</span>
-                    <span class="text-xs font-bold text-slate-200">S/ ${card.consumosCiclo.toFixed(2)}</span>
+                <!-- 1. FACTURA ESTE MES (Pago por Tarjeta) -->
+                <div class="bg-purple-950/25 border border-purple-500/25 rounded-xl p-2.5 space-y-2">
+                  <div class="flex items-center justify-between">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-purple-300 flex items-center gap-1">
+                      <span>💳</span> Factura Este Mes (${mesActual})
+                    </span>
+                    ${facturaBadge}
                   </div>
-                  <div>
-                    <span class="text-[10px] text-amber-400 uppercase tracking-wider block">Prepagado</span>
-                    <span class="text-xs font-bold text-amber-300">-S/ ${card.prepagosCiclo.toFixed(2)}</span>
+                  <div class="grid grid-cols-3 gap-2 bg-slate-900/40 p-2 rounded-lg text-center">
+                    <div>
+                      <span class="text-[9px] text-slate-400 block uppercase">Facturado</span>
+                      <span class="text-xs font-bold text-slate-200">S/ ${factura.deudaFacturada.toFixed(2)}</span>
+                    </div>
+                    <div>
+                      <span class="text-[9px] text-emerald-400 block uppercase">Pagado</span>
+                      <span class="text-xs font-bold text-emerald-300">S/ ${factura.pagado.toFixed(2)}</span>
+                    </div>
+                    <div>
+                      <span class="text-[9px] text-purple-400 block uppercase">Por Pagar</span>
+                      <span class="text-xs font-extrabold text-purple-200">S/ ${factura.pendiente.toFixed(2)}</span>
+                    </div>
                   </div>
-                  <div>
-                    <span class="text-[10px] text-rose-400 uppercase tracking-wider block">Por Pagar</span>
-                    <span class="text-xs font-extrabold text-rose-300">S/ ${card.deudaNetaProyectada.toFixed(2)}</span>
-                  </div>
+                  ${factura.pendiente > 0 ? `
+                    <button class="btn-card-pay-action w-full py-2 px-3 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-purple-900/40 active:scale-95 transition cursor-pointer" data-card-id="${card.id}" data-amount="${factura.pendiente}">
+                      <span>💳</span> Pagar ${card.nombre} (S/ ${factura.pendiente.toFixed(2)})
+                    </button>
+                  ` : ''}
                 </div>
 
-                <!-- Barra de amortización -->
-                <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                  <div class="bg-amber-400 h-full rounded-full transition-all duration-500" style="width: ${card.porcentajeAmortizado}%"></div>
-                </div>
-                <div class="flex justify-between text-[10px] text-slate-400">
-                  <span>${card.porcentajeAmortizado}% amortizado por prepagos</span>
-                  <span>Límite: S/ ${card.limiteCredito.toLocaleString()}</span>
+                <!-- 2. PROYECCIÓN PRÓXIMO MES (Suma Total) -->
+                <div class="space-y-1.5 pt-0.5">
+                  <div class="flex items-center justify-between text-[10px] text-sky-400 font-semibold uppercase tracking-wider">
+                    <span>🔮 Próximo Mes (${mesSiguiente})</span>
+                    <span class="text-slate-400 font-normal">Vence: ${card.fechaVencimientoProxima}</span>
+                  </div>
+                  <div class="grid grid-cols-3 gap-2 bg-slate-900/50 p-2 rounded-xl text-center">
+                    <div>
+                      <span class="text-[10px] text-slate-400 uppercase tracking-wider block">Consumos</span>
+                      <span class="text-xs font-bold text-slate-200">S/ ${card.consumosCiclo.toFixed(2)}</span>
+                    </div>
+                    <div>
+                      <span class="text-[10px] text-amber-400 uppercase tracking-wider block">Prepagado</span>
+                      <span class="text-xs font-bold text-amber-300">-S/ ${card.prepagosCiclo.toFixed(2)}</span>
+                    </div>
+                    <div>
+                      <span class="text-[10px] text-rose-400 uppercase tracking-wider block">Por Pagar</span>
+                      <span class="text-xs font-extrabold text-rose-300">S/ ${card.deudaNetaProyectada.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <!-- Barra de amortización -->
+                  <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden mt-1.5">
+                    <div class="bg-amber-400 h-full rounded-full transition-all duration-500" style="width: ${card.porcentajeAmortizado}%"></div>
+                  </div>
+                  <div class="flex justify-between text-[10px] text-slate-400">
+                    <span>${card.porcentajeAmortizado}% amortizado por prepagos</span>
+                    <span>Límite: S/ ${card.limiteCredito.toLocaleString()}</span>
+                  </div>
                 </div>
               </div>
             `;
@@ -634,6 +725,15 @@
             btn.addEventListener('click', () => {
               const cardId = btn.getAttribute('data-card-id');
               this.openDrawer('Prepago_TC', cardId);
+            });
+          });
+
+          // Asignar eventos a los botones de pagar factura por tarjeta
+          document.querySelectorAll('.btn-card-pay-action').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const cardId = btn.getAttribute('data-card-id');
+              const amount = parseFloat(btn.getAttribute('data-amount')) || 0;
+              this.openDrawer('Pago_TC_Vencida', cardId, amount);
             });
           });
         }

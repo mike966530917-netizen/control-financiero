@@ -717,32 +717,7 @@
     );
 
     // 1. Métricas de Facturación de Tarjetas que VENCEN en este mes (Impacto TC === mesActualStr)
-    let globalConsumosTCFacturadosMes = 0;
-    let globalPrepagosTCFacturadosMes = 0;
-    let globalPagosTCVencidasMes = 0;
-
-    transaccionesConsolidadas.forEach(tx => {
-      const monto = parseFloat(tx.monto) || 0;
-      const txMesTC = normalizarMes(tx.mesImpactoTC);
-      const txMesEf = normalizarMes(tx.mesImpactoEfectivo);
-
-      if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC && txMesTC === mesActualStr) {
-        globalConsumosTCFacturadosMes += monto;
-      }
-      if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC && txMesTC === mesActualStr) {
-        globalPrepagosTCFacturadosMes += monto;
-      }
-      if (tx.tipo === TIPOS_TRANSACCION.PAGO_TC_VENCIDA && (txMesTC === mesActualStr || txMesEf === mesActualStr)) {
-        globalPagosTCVencidasMes += monto;
-      }
-    });
-
-    const deudaFacturadaNetaMes = Math.max(0, globalConsumosTCFacturadosMes - globalPrepagosTCFacturadosMes);
-    // Salida efectiva de efectivo por tarjeta en este mes: si ya se pagó se asienta el pago, si aún no, se compromete la deuda facturada
-    const salidaEfectivaTCDelMes = Math.max(deudaFacturadaNetaMes, globalPagosTCVencidasMes);
-    const pendientePagoTCDelMes = Math.max(0, deudaFacturadaNetaMes - globalPagosTCVencidasMes);
-
-    // Desglose de facturación del mes actual por tarjeta individual
+    // Se calcula tarjeta por tarjeta de forma individual y los totales consolidados son la suma de todas
     const [anioAct, mesAct] = mesActualStr.split('-').map(Number);
     const maxDiasMesAct = new Date(anioAct, mesAct, 0).getDate();
     const pad = (n) => String(n).padStart(2, '0');
@@ -785,6 +760,7 @@
       const deudaBruta = consumos;
       const deudaNeta = Math.max(0, deudaBruta - prepagos);
       const pendiente = Math.max(0, deudaNeta - pagos);
+      const salidaEfectivaTarjeta = Math.max(deudaNeta, pagos);
       const diaVencAct = Math.min(tarjeta.diaVencimiento || 1, maxDiasMesAct);
       const fechaVenc = `${anioAct}-${pad(mesAct)}-${pad(diaVencAct)}`;
 
@@ -792,13 +768,42 @@
         id: tarjeta.id,
         nombre: tarjeta.nombre,
         colorHex: tarjeta.colorHex || '#3b82f6',
+        diaCorte: tarjeta.diaCorte,
+        diaVencimiento: tarjeta.diaVencimiento,
         deudaFacturada: Number(deudaNeta.toFixed(2)),
         pagado: Number(pagos.toFixed(2)),
         pendiente: Number(pendiente.toFixed(2)),
+        salidaEfectiva: Number(salidaEfectivaTarjeta.toFixed(2)),
         fechaVencimiento: fechaVenc,
         estado: pendiente <= 0 && deudaNeta > 0 ? 'PAGADO' : (pagos > 0 ? 'PARCIAL' : (deudaNeta > 0 ? 'PENDIENTE' : 'SIN_DEUDA'))
       };
     });
+
+    // Detectar pagos registrados sin tarjeta asociada (ej. registros genéricos o legados)
+    let pagosSinTarjeta = 0;
+    transaccionesConsolidadas.forEach(tx => {
+      if (tx.tipo === TIPOS_TRANSACCION.PAGO_TC_VENCIDA) {
+        const txCard = String(tx.tarjetaAfectada || '').trim().toLowerCase();
+        const txMesTC = normalizarMes(tx.mesImpactoTC);
+        const txMesEf = normalizarMes(tx.mesImpactoEfectivo);
+        if (txMesTC === mesActualStr || txMesEf === mesActualStr) {
+          const matched = tarjetasConfig.some(t => {
+            const cId = String(t.id || '').trim().toLowerCase();
+            const cNom = String(t.nombre || '').trim().toLowerCase();
+            return txCard !== '' && (txCard === cId || txCard === cNom || txCard.replace(/^tc[_-]/, '') === cId.replace(/^tc[_-]/, ''));
+          });
+          if (!matched) {
+            pagosSinTarjeta += (parseFloat(tx.monto) || 0);
+          }
+        }
+      }
+    });
+
+    // Totales consolidados del mes: suma exacta de todas las tarjetas individuales
+    const deudaFacturadaNetaMes = facturacionTarjetasMesActual.reduce((acc, t) => acc + t.deudaFacturada, 0);
+    const globalPagosTCVencidasMes = facturacionTarjetasMesActual.reduce((acc, t) => acc + t.pagado, 0) + pagosSinTarjeta;
+    const salidaEfectivaTCDelMes = facturacionTarjetasMesActual.reduce((acc, t) => acc + t.salidaEfectiva, 0) + pagosSinTarjeta;
+    const pendientePagoTCDelMes = facturacionTarjetasMesActual.reduce((acc, t) => acc + t.pendiente, 0);
 
     // 2. Métricas de Flujo de Efectivo del Mes en Curso (Impacto Efectivo === mesActualStr)
     let totalIngresos = 0;
@@ -905,6 +910,18 @@
       const diaVencAjustado = Math.min(tarjeta.diaVencimiento || 1, maxDiasMes);
       const fechaVencimientoProxima = `${anioSig}-${pad(mesSig)}-${pad(diaVencAjustado)}`;
 
+      const facturaMesActual = facturacionTarjetasMesActual.find(f => f.id === tarjeta.id) || {
+        id: tarjeta.id,
+        nombre: tarjeta.nombre,
+        colorHex: tarjeta.colorHex || '#3b82f6',
+        deudaFacturada: 0,
+        pagado: 0,
+        pendiente: 0,
+        salidaEfectiva: 0,
+        fechaVencimiento: '',
+        estado: 'SIN_DEUDA'
+      };
+
       return {
         id: tarjeta.id,
         nombre: tarjeta.nombre,
@@ -916,7 +933,8 @@
         consumosCiclo: Number(consumosCiclo.toFixed(2)),
         prepagosCiclo: Number(prepagosCiclo.toFixed(2)),
         deudaNetaProyectada: Number(deudaNeta.toFixed(2)),
-        porcentajeAmortizado: deudaBruta > 0 ? Math.min(100, Math.round((prepagosCiclo / deudaBruta) * 100)) : 0
+        porcentajeAmortizado: deudaBruta > 0 ? Math.min(100, Math.round((prepagosCiclo / deudaBruta) * 100)) : 0,
+        facturaMesActual: facturaMesActual
       };
     });
 
