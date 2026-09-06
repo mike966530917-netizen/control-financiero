@@ -34,6 +34,7 @@
     setupSettingsModal();
     setupBudgetsModal();
     setupRecurrentesActions();
+    setupLiquidarCuotasActions();
     setupSaveTransactionAction();
     setupFilterPills();
 
@@ -202,6 +203,9 @@
       AppState.closedMonths
     );
 
+    window.cachedTransactions = AppState.transactions;
+    window.cachedCards = AppState.cards;
+    window.AppState = AppState;
     window.cachedRecurrentesEstadoMes = summary.recurrentesEstadoMes;
     window.lastSummary = summary;
     UIManager.renderDashboard(summary);
@@ -755,6 +759,93 @@
         UIManager.showToast(`Tarjeta ${nombre} agregada`, 'success');
       });
     }
+  }
+
+  /**
+   * Manejo de la acción de liquidar / adelantar cuotas de tarjeta de crédito
+   */
+  function setupLiquidarCuotasActions() {
+    const confirmBtn = document.getElementById('btn-confirm-liquidar');
+    if (!confirmBtn) return;
+
+    confirmBtn.addEventListener('click', async () => {
+      const data = UIManager.getLiquidarSelectedData();
+      if (!data || !data.cuotasSeleccionadas || data.cuotasSeleccionadas.length === 0) {
+        UIManager.showToast('Selecciona al menos una cuota para liquidar', 'warning');
+        return;
+      }
+
+      if (data.totalMonto <= 0) {
+        UIManager.showToast('El monto total a liquidar debe ser mayor a 0', 'error');
+        return;
+      }
+
+      const card = AppState.cards.find(c => String(c.id).toLowerCase() === String(data.tarjetaId).toLowerCase());
+      const cardNom = card ? card.nombre : 'Tarjeta';
+
+      confirmBtn.disabled = true;
+      confirmBtn.innerHTML = '<span>⚡</span> Liquidando...';
+
+      try {
+        const cuotaIds = data.cuotasSeleccionadas.map(c => c.id);
+
+        // 1. Marcar cuotas seleccionadas como LIQUIDADAS en AppState.transactions
+        AppState.transactions.forEach(t => {
+          if (cuotaIds.includes(t.id)) {
+            t.estado = 'LIQUIDADA';
+            t.esLiquidado = true;
+            t.fechaLiquidacion = data.fecha;
+            t.notas = (t.notas ? t.notas + ' ' : '') + `[LIQUIDADA ANTICIPADAMENTE en ${AppState.selectedMonth}]`;
+          }
+        });
+
+        // 2. Registrar transacción Prepago_TC con impacto efectivo en el mes actual
+        const rawPrepago = {
+          id: 'TX-LIQ-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+          fecha: data.fecha || new Date().toISOString().slice(0, 10),
+          tipo: 'Prepago_TC',
+          monto: data.totalMonto,
+          categoria: 'Prepago Voluntario',
+          tarjetaAfectada: data.tarjetaId,
+          metodoPago: data.cuentaOrigen || 'Efectivo',
+          notas: `[Liquidación Anticipada] ${data.cuotasSeleccionadas.length} cuota(s) de ${cardNom} extinguidas.`,
+          mesImpactoEfectivo: AppState.selectedMonth,
+          mesImpactoTC: AppState.selectedMonth
+        };
+
+        const preparedPrepago = FinancialEngine.prepararTransaccion(rawPrepago, AppState.cards);
+        // Garantizar que el impacto efectivo quede asignado al mes actual
+        preparedPrepago.mesImpactoEfectivo = AppState.selectedMonth;
+
+        // 3. Guardar prepago y persistir cambios locales
+        await ApiService.saveTransaction(preparedPrepago);
+        AppState.transactions.unshift(preparedPrepago);
+        ApiService.saveLocalTransactions(AppState.transactions);
+
+        // 4. Si hay conexión y backend Sheets activo, eliminar las cuotas remotas para que no reaparezcan
+        if (ApiService.apiUrl && ApiService.isOnline) {
+          for (const cId of cuotaIds) {
+            try {
+              await ApiService.deleteTransaction(cId);
+            } catch (delErr) {
+              console.warn(`[Liquidación] Aviso al eliminar cuota remota ${cId}:`, delErr);
+            }
+          }
+        }
+
+        // 5. Cerrar modal y redibujar
+        UIManager.closeLiquidarCuotasModal();
+        recalculateAndRender();
+
+        UIManager.showToast(`✅ Se liquidaron ${data.cuotasSeleccionadas.length} cuota(s) por S/ ${data.totalMonto.toFixed(2)}. ¡Línea de crédito liberada!`, 'success');
+      } catch (err) {
+        console.error('Error al liquidar cuotas:', err);
+        UIManager.showToast('Error al liquidar cuotas: ' + err.message, 'error');
+      } finally {
+        confirmBtn.disabled = false;
+        confirmBtn.innerHTML = '<span>⚡</span> Confirmar y Liquidar Cuotas';
+      }
+    });
   }
 
 })();
