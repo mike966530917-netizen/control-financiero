@@ -1998,19 +1998,26 @@
                   </div>
                 </div>
                 <div class="space-y-1.5">
-                  ${compra.cuotas.map(c => `
+                  ${compra.cuotas.map(c => {
+                    const montoStr = (Math.abs(c.monto * 100 - Math.round(c.monto * 100)) > 0.0001)
+                      ? Number(c.monto.toFixed(6)).toString()
+                      : c.monto.toFixed(2);
+                    const nCuota = c.cuotaActual || c.numeroCuota || 1;
+                    const totCuota = c.totalCuotas || 1;
+
+                    return `
                     <label class="flex items-center justify-between p-2 rounded-lg bg-slate-900/80 hover:bg-slate-800/80 cursor-pointer border border-slate-800/60 transition">
                       <div class="flex items-center gap-2">
                         <input type="checkbox" class="cuota-item-checkbox rounded accent-amber-500 text-amber-500 focus:ring-0 w-4 h-4 cursor-pointer" 
                           data-tx-id="${c.id}" 
                           data-monto="${c.monto}" 
                           data-compra-id="${compra.compraId}">
-                        <span class="text-xs font-semibold text-slate-200">Cuota ${c.numeroCuota}/${c.totalCuotas}</span>
+                        <span class="text-xs font-semibold text-slate-200">Cuota ${nCuota}/${totCuota}</span>
                         <span class="text-[10px] text-sky-400 font-mono bg-sky-950/60 px-1.5 py-0.5 rounded border border-sky-800/40">${c.mesImpactoTC}</span>
                       </div>
-                      <span class="text-xs font-bold text-amber-300">S/ ${c.monto.toFixed(2)}</span>
+                      <span class="text-xs font-bold text-amber-300">S/ ${montoStr}</span>
                     </label>
-                  `).join('')}
+                  `;}).join('')}
                 </div>
               </div>
             `;
@@ -2055,8 +2062,12 @@
         sum += parseFloat(cb.getAttribute('data-monto')) || 0;
       });
 
+      const sumDisplay = (Math.abs(sum * 100 - Math.round(sum * 100)) > 0.0001)
+        ? Number(sum.toFixed(6)).toString()
+        : sum.toFixed(2);
+
       if (previewEl) {
-        previewEl.textContent = `S/ ${sum.toFixed(2)}`;
+        previewEl.textContent = `S/ ${sumDisplay}`;
       }
 
       if (confirmBtn) {
@@ -2076,7 +2087,7 @@
         compraId: cb.getAttribute('data-compra-id')
       }));
 
-      const totalMonto = Number(cuotasSeleccionadas.reduce((acc, c) => acc + c.monto, 0).toFixed(2));
+      const totalMonto = Number(cuotasSeleccionadas.reduce((acc, c) => acc + c.monto, 0).toFixed(4));
 
       return {
         tarjetaId,
