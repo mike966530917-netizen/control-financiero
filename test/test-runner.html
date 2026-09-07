@@ -750,6 +750,87 @@
       `Match 'TC': ${tarjetaCoincide('TC', tBCP)}, Match 'BCP' en BCP: ${tarjetaCoincide('BCP', tBCP)}, Match 'BCP' en BBVA: ${tarjetaCoincide('BCP', tBBVA)}`
     );
 
+    // Prueba 37: AMORTIZACIÓN DE PREPAGOS EN FACTURA SIGUIENTE (Prepago de S/ 200 en Agosto reduce Setiembre de 700 a 500)
+    // Consumo realizado en el ciclo que vence en setiembre (S/ 700)
+    // Prepago de S/ 200 realizado el 25 de agosto (después del corte)
+    const txConsumoSetiembre = prepararTransaccion({
+      id: 'TX-CONS-700',
+      fecha: '2026-08-15',
+      tipo: TIPOS_TRANSACCION.CONSUMO_TC,
+      tarjetaAfectada: 'TC_BCP',
+      categoria: 'Compras',
+      monto: 700
+    }, tarjetasConfig);
+
+    const txPrepagoAgosto = prepararTransaccion({
+      id: 'TX-PREP-200',
+      fecha: '2026-08-25',
+      tipo: TIPOS_TRANSACCION.PREPAGO_TC,
+      tarjetaAfectada: 'TC_BCP',
+      metodoPago: 'Efectivo',
+      monto: 200
+    }, tarjetasConfig);
+
+    // Evaluar en setiembre (mes de vencimiento de la factura)
+    const consolidadoSetiembre = calcularConsolidadoFinanciero(
+      [txConsumoSetiembre, txPrepagoAgosto],
+      tarjetasConfig,
+      '2026-09'
+    );
+    const bcpSet = consolidadoSetiembre.tarjetasCredito.facturacionMesActual.desgloseTarjetas.find(t => t.id === 'TC_BCP');
+
+    const okPrepagosSet200 = bcpSet && bcpSet.deudaFacturada === 500; // 700 - 200 = 500
+    const okPendienteSet500 = bcpSet && bcpSet.pendiente === 500;
+    const okTotalFacturado500 = consolidadoSetiembre.tarjetasCredito.facturacionMesActual.totalFacturado === 500;
+    const okTotalPendiente500 = consolidadoSetiembre.tarjetasCredito.facturacionMesActual.totalPendiente === 500;
+
+    report('Amortización de Prepagos TC: Prepago de S/ 200 en Agosto reduce la factura de Setiembre de S/ 700 a S/ 500',
+      okPrepagosSet200 && okPendienteSet500 && okTotalFacturado500 && okTotalPendiente500,
+      `Deuda Facturada BCP: S/ ${bcpSet ? bcpSet.deudaFacturada : 0} (Esperado: 500), Pendiente: S/ ${bcpSet ? bcpSet.pendiente : 0} (Esperado: 500), Total Facturado Mes: S/ ${consolidadoSetiembre.tarjetasCredito.facturacionMesActual.totalFacturado}`
+    );
+
+    // Prueba 38: LIBERACIÓN INMEDIATA DE LÍNEA DE CRÉDITO POR PREPAGOS Y PAGOS
+    // Límite BCP: S/ 5,000.00
+    // 1) En Agosto: Tras el consumo de S/ 700 y el prepago de S/ 200, la deuda proyectada para setiembre baja a S/ 500, liberando S/ 200 de línea (Disponible: S/ 4,500)
+    const consolidadoAgosto = calcularConsolidadoFinanciero(
+      [txConsumoSetiembre, txPrepagoAgosto],
+      tarjetasConfig,
+      '2026-08'
+    );
+    const bcpAgo = consolidadoAgosto.tarjetasCredito.desgloseTarjetas.find(t => t.id === 'TC_BCP');
+    const okAgoDeuda500 = bcpAgo && bcpAgo.deudaNetaProyectada === 500;
+    const okAgoLineaOcupada500 = bcpAgo && bcpAgo.lineaUtilizada === 500;
+    const okAgoLineaDisp4500 = bcpAgo && bcpAgo.lineaDisponible === (bcpAgo.limiteCredito - 500);
+
+    // 2) En Setiembre: Se registra el pago de factura restante de S/ 500 (Pago_TC_Vencida)
+    const txPagoSetiembre = prepararTransaccion({
+      id: 'TX-PAGO-SET-500',
+      fecha: '2026-09-08',
+      tipo: TIPOS_TRANSACCION.PAGO_TC_VENCIDA,
+      tarjetaAfectada: 'TC_BCP',
+      monto: 500,
+      mesImpactoTC: '2026-09',
+      mesImpactoEfectivo: '2026-09'
+    }, tarjetasConfig);
+
+    const consolidadoSetiembrePagado = calcularConsolidadoFinanciero(
+      [txConsumoSetiembre, txPrepagoAgosto, txPagoSetiembre],
+      tarjetasConfig,
+      '2026-09'
+    );
+    const bcpSetPagado = consolidadoSetiembrePagado.tarjetasCredito.desgloseTarjetas.find(t => t.id === 'TC_BCP');
+    const bcpFacturaPagada = consolidadoSetiembrePagado.tarjetasCredito.facturacionMesActual.desgloseTarjetas.find(t => t.id === 'TC_BCP');
+
+    const okSetPendienteCero = bcpFacturaPagada && bcpFacturaPagada.pendiente === 0;
+    const okSetEstadoPagado = bcpFacturaPagada && bcpFacturaPagada.estado === 'PAGADO';
+    const okSetLineaOcupadaCero = bcpSetPagado && bcpSetPagado.lineaUtilizada === 0;
+    const okSetLineaDispTotal = bcpSetPagado && bcpSetPagado.lineaDisponible === bcpSetPagado.limiteCredito;
+
+    report('Liberación de Línea de Crédito: Prepagos y pagos liberan inmediatamente la línea ocupada y restauran el disponible',
+      okAgoDeuda500 && okAgoLineaOcupada500 && okAgoLineaDisp4500 && okSetPendienteCero && okSetEstadoPagado && okSetLineaOcupadaCero && okSetLineaDispTotal,
+      `En Agosto: Ocupada S/ ${bcpAgo ? bcpAgo.lineaUtilizada : 0} (Disp S/ ${bcpAgo ? bcpAgo.lineaDisponible : 0}) | En Setiembre tras pagar: Pendiente S/ ${bcpFacturaPagada ? bcpFacturaPagada.pendiente : 0}, Ocupada S/ ${bcpSetPagado ? bcpSetPagado.lineaUtilizada : 0} (Disp S/ ${bcpSetPagado ? bcpSetPagado.lineaDisponible : 0} / ${bcpSetPagado ? bcpSetPagado.limiteCredito : 0})`
+    );
+
     summaryBox.innerHTML = `
       <div class="flex items-center justify-between">
         <span class="font-bold ${failedCount === 0 ? 'text-emerald-400' : 'text-rose-400'} text-base">

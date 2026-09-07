@@ -629,11 +629,15 @@ function getTransactions_() {
   const txs = [];
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
-    if (row[0]) {
+    const hasData = row[0] || (row[1] && row[7] !== '' && row[7] !== null);
+    if (hasData) {
+      const id = row[0] ? String(row[0]).trim() : ('TX-ROW-' + (i + 1));
       // Normalizar fechas a ISO string 'YYYY-MM-DD'
       let fechaStr = row[1];
       if (row[1] instanceof Date) {
         fechaStr = Utilities.formatDate(row[1], Session.getScriptTimeZone(), 'yyyy-MM-dd');
+      } else {
+        fechaStr = String(row[1] || '').trim().slice(0, 10);
       }
 
       // Normalizar mesImpactoEfectivo y mesImpactoTC para evitar que objetos Date o textos largos lleguen al cliente
@@ -663,19 +667,24 @@ function getTransactions_() {
         }
       }
 
+      const rawMonto = row[7];
+      const parsedMonto = typeof rawMonto === 'number' 
+        ? rawMonto 
+        : parseFloat(String(rawMonto || '').replace(/[^0-9.-]/g, '')) || 0;
+
       txs.push({
-        id: String(row[0]),
+        id: id,
         fecha: fechaStr,
         hora: String(row[2] || ''),
-        tipo: String(row[3]),
-        metodoPago: String(row[4] || ''),
-        tarjetaAfectada: String(row[5] || ''),
-        categoria: String(row[6] || ''),
-        monto: parseFloat(row[7]) || 0,
-        moneda: String(row[8] || 'PEN'),
-        mesImpactoEfectivo: String(mesEfStr || ''),
-        mesImpactoTC: String(mesTcStr || ''),
-        notas: String(row[11] || '')
+        tipo: String(row[3] || 'Gasto_Directo').trim(),
+        metodoPago: String(row[4] || '').trim(),
+        tarjetaAfectada: String(row[5] || '').trim(),
+        categoria: String(row[6] || '').trim(),
+        monto: parsedMonto,
+        moneda: String(row[8] || 'PEN').trim(),
+        mesImpactoEfectivo: String(mesEfStr || '').trim(),
+        mesImpactoTC: String(mesTcStr || '').trim(),
+        notas: String(row[11] || '').trim()
       });
     }
   }
@@ -732,6 +741,19 @@ function sumarMesesAFechaTC_(fechaStr, n) {
   const d = Math.min(partes[2], maxDias);
   const pad = (num) => ('0' + num).slice(-2);
   return y + '-' + pad(m) + '-' + pad(d);
+}
+
+/**
+ * Suma meses a un string 'YYYY-MM'
+ */
+function sumarMeses_(mesYYYYMM, n) {
+  const norm = String(mesYYYYMM).slice(0, 7);
+  const partes = norm.split('-').map(Number);
+  const target = new Date(partes[0], partes[1] - 1 + n, 1);
+  const y = target.getFullYear();
+  const m = target.getMonth() + 1;
+  const pad = (num) => ('0' + num).slice(-2);
+  return y + '-' + pad(m);
 }
 
 /**
@@ -801,9 +823,8 @@ function addTransaction_(tx) {
     // Doble impacto:
     // 1) Sale efectivo este mes
     mesImpactoEfectivo = mesTransaccion;
-    // 2) Amortiza la deuda de la tarjeta para el ciclo futuro
-    const ciclo = calcularCicloTC_(fecha, card.diaCorte, card.diaVencimiento);
-    mesImpactoTC = tx.mesImpactoTC || ciclo.mesImpactoTC;
+    // 2) Amortiza la deuda de la tarjeta para el próximo ciclo de facturación
+    mesImpactoTC = tx.mesImpactoTC || sumarMeses_(mesTransaccion, 1);
   } else if (tipo === 'Pago_TC_Vencida') {
     mesImpactoEfectivo = mesTransaccion;
     mesImpactoTC = tx.mesImpactoTC || mesTransaccion;
