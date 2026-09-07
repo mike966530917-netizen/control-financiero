@@ -758,13 +758,10 @@ function addTransaction_(tx) {
   const numCuotas = parseInt(tx.cuotas, 10) || 1;
   if (tipo === 'Consumo_TC' && numCuotas > 1 && !tx.cuotaActual) {
     const card = cards.find(c => c.id === tarjetaAfectada);
-    if (!card) throw new Error('Tarjeta no encontrada: ' + tarjetaAfectada);
-    const montoTotal = Math.round((parseFloat(tx.monto) || 0) * 100) / 100;
-    const montoCuotaBase = Math.floor((montoTotal / numCuotas) * 100) / 100;
-    const residuo = Math.round((montoTotal - (montoCuotaBase * numCuotas)) * 100) / 100;
+    const montoTotal = parseFloat(tx.monto) || 0;
+    const cuotaMonto = numCuotas > 0 ? (montoTotal / numCuotas) : montoTotal;
 
     for (let c = 1; c <= numCuotas; c++) {
-      const cuotaMonto = (c === 1) ? (montoCuotaBase + residuo) : montoCuotaBase;
       const cuotaFecha = sumarMesesAFechaTC_(fecha, c - 1);
       const cicloCuota = calcularCicloTC_(cuotaFecha, card.diaCorte, card.diaVencimiento);
       const cuotaId = `${id}_C${c}`;

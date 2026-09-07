@@ -198,8 +198,61 @@
   }
 
   /**
+   * Determina de forma estricta y segura si una transacción pertenece a una tarjeta de crédito específica.
+   * Evita falsos positivos con cadenas vacías, genéricas ("tc", "tarjeta", "visa") o ambiguas.
+   *
+   * @param {string} txCardRaw - Identificador o nombre de la tarjeta en la transacción
+   * @param {Object} tarjeta - Configuración de la tarjeta { id, nombre }
+   * @returns {boolean} true si coincide de forma inequívoca
+   */
+  function tarjetaCoincide(txCardRaw, tarjeta) {
+    if (!txCardRaw || !tarjeta) return false;
+    const txCard = String(txCardRaw).trim().toLowerCase();
+    if (!txCard) return false;
+
+    const cardId = String(tarjeta.id || '').trim().toLowerCase();
+    const cardName = String(tarjeta.nombre || '').trim().toLowerCase();
+
+    // 1. Coincidencia exacta con ID o Nombre completo
+    if (txCard === cardId || txCard === cardName) return true;
+
+    // 2. Limpieza de prefijos comunes 'tc_', 'tc-', 'tc '
+    const txClean = txCard.replace(/^tc[_\-\s]+/, '').trim();
+    const idClean = cardId.replace(/^tc[_\-\s]+/, '').trim();
+
+    // Si txClean queda vacío (ej. era solo "TC", "TC_" o "TC "), NO coincide con ninguna tarjeta específica
+    if (!txClean) return false;
+
+    // Coincidencia exacta de IDs limpios (ej: 'bcp' con 'bcp')
+    if (idClean && txClean === idClean) return true;
+
+    // 3. Palabras genéricas que NUNCA deben asociar una tarjeta específica
+    const terminosGenericos = [
+      'tc', 'tarjeta', 'tarjetas', 'credito', 'debito', 
+      'visa', 'mastercard', 'signature', 'black', 'classic', 'gold', 'platinum', 'amex'
+    ];
+    if (terminosGenericos.includes(txClean)) {
+      return false;
+    }
+
+    // 4. Si el término limpio coincide con alguna palabra clave del nombre del banco/tarjeta
+    // (ej: txClean es "bcp" o "bbva" o "interbank")
+    const nombrePalabras = cardName.split(/[\s_\-]+/).filter(w => w.length >= 2);
+    if (nombrePalabras.includes(txClean)) {
+      return true;
+    }
+
+    // 5. Coincidencia por inicio inequívoco de nombre (ej: "bcp visa" empieza con "bcp")
+    if (cardName.startsWith(txClean + ' ') || cardName.startsWith(txClean + '_')) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
    * Divide un consumo con tarjeta de crédito en cuotas sin intereses.
-   * Ajusta los céntimos residuales en la primera cuota y asigna cada cuota a su respectivo ciclo.
+   * La división es totalmente exacta sin redondeos truncados ni asignación artificial de residuos.
    */
   function dividirEnCuotas(tx, tarjetasConfig = []) {
     const numCuotas = parseInt(tx.cuotas, 10) || 1;
@@ -207,23 +260,18 @@
       return [prepararTransaccion(tx, tarjetasConfig)];
     }
 
-    const montoTotal = Math.round((parseFloat(tx.monto) || 0) * 100) / 100;
-    const montoCuotaBase = Math.floor((montoTotal / numCuotas) * 100) / 100;
-    const residuo = Math.round((montoTotal - (montoCuotaBase * numCuotas)) * 100) / 100;
+    const montoTotal = parseFloat(tx.monto) || 0;
+    // División totalmente exacta sin truncar decimales
+    const montoCuotaExacto = numCuotas > 0 ? (montoTotal / numCuotas) : montoTotal;
 
-    const tarjeta = tarjetasConfig.find(t => {
-      const tId = String(t.id || '').toLowerCase();
-      const tNom = String(t.nombre || '').toLowerCase();
-      const af = String(tx.tarjetaAfectada || '').toLowerCase();
-      return tId === af || tNom === af || tId.replace(/^tc[_-]/, '') === af.replace(/^tc[_-]/, '');
-    });
+    const tarjeta = tarjetasConfig.find(t => tarjetaCoincide(tx.tarjetaAfectada, t));
 
     const fechaOriginal = tx.fecha || new Date().toISOString().slice(0, 10);
     const notasBase = (tx.notas || '').trim();
     const cuotasList = [];
 
     for (let i = 1; i <= numCuotas; i++) {
-      const montoCuota = (i === 1) ? Number((montoCuotaBase + residuo).toFixed(2)) : Number(montoCuotaBase.toFixed(2));
+      const montoCuota = montoCuotaExacto;
       const fechaCuota = sumarMesesAFecha(fechaOriginal, i - 1);
       
       let mesImpactoTC = '';
@@ -280,14 +328,10 @@
     const cuotasFuturas = transacciones.filter(tx => {
       if (tx.tipo !== TIPOS_TRANSACCION.CONSUMO_TC) return false;
       if (tx.estado === 'LIQUIDADO' || tx.estado === 'LIQUIDADA' || tx.esLiquidado === true) return false;
+      if (tx.esFijoProyectado) return false; // Nunca sumar fijos proyectados
 
-      const txCard = String(tx.tarjetaAfectada || '').trim().toLowerCase();
-      if (cardIdNorm && !(
-        txCard === cardIdNorm ||
-        txCard.replace(/^tc[_-]/, '') === cardIdNorm.replace(/^tc[_-]/, '') ||
-        txCard.includes(cardIdNorm) ||
-        cardIdNorm.includes(txCard)
-      )) {
+      const txCard = String(tx.tarjetaAfectada || '').trim();
+      if (cardIdNorm && !tarjetaCoincide(txCard, { id: cardIdNorm, nombre: cardIdNorm })) {
         return false;
       }
 
@@ -359,12 +403,7 @@
         break;
 
       case TIPOS_TRANSACCION.CONSUMO_TC: {
-        const tarjeta = tarjetasConfig.find(t => {
-          const tId = String(t.id || '').toLowerCase();
-          const tNom = String(t.nombre || '').toLowerCase();
-          const af = String(copia.tarjetaAfectada || '').toLowerCase();
-          return tId === af || tNom === af || tId.replace(/^tc[_-]/, '') === af.replace(/^tc[_-]/, '');
-        });
+        const tarjeta = tarjetasConfig.find(t => tarjetaCoincide(copia.tarjetaAfectada, t));
 
         if (tarjeta) {
           const ciclo = calcularCicloTarjeta(copia.fecha, tarjeta.diaCorte, tarjeta.diaVencimiento);
@@ -693,8 +732,6 @@
           return false;
         });
 
-        const esTC = (rec.tipo === 'Gasto_Fijo' && tarjetaCoincidente);
-
         let virtualTx;
         if (rec.tipo === 'Ingreso_Fijo') {
           virtualTx = {
@@ -709,23 +746,6 @@
             mesImpactoEfectivo: mesActualStr,
             mesImpactoTC: '',
             notas: `[Fijo Proyectado: ${recId}] ${recNom}`,
-            esFijoProyectado: true
-          };
-        } else if (esTC) {
-          const ciclo = calcularCicloTarjeta(fechaProyectada, tarjetaCoincidente.diaCorte, tarjetaCoincidente.diaVencimiento);
-          virtualTx = {
-            id: `VIRT-REC-${recId}-${mesActualStr}`,
-            recurrenteId: recId,
-            fecha: fechaProyectada,
-            tipo: TIPOS_TRANSACCION.CONSUMO_TC,
-            tarjetaAfectada: tarjetaCoincidente.id,
-            categoria: normalizarCategoria(rec.categoria, TIPOS_TRANSACCION.CONSUMO_TC),
-            monto: montoBase,
-            moneda: 'PEN',
-            mesImpactoEfectivo: '',
-            mesImpactoTC: ciclo.mesImpactoTC,
-            fechaVencimientoTC: ciclo.fechaVencimiento,
-            notas: `[Fijo Proyectado TC: ${recId}] ${recNom}`,
             esFijoProyectado: true
           };
         } else {
@@ -799,23 +819,20 @@
       let pagos = 0;
 
       transaccionesConsolidadas.forEach(tx => {
-        const txCard = String(tx.tarjetaAfectada || '').trim().toLowerCase();
-        const coincideTarjeta = txCard !== '' && (
-          txCard === cardId ||
-          txCard === cardName ||
-          txCard.replace(/^tc[_-]/, '') === cardId.replace(/^tc[_-]/, '') ||
-          cardName.includes(txCard.replace(/^tc[_-]/, '')) ||
-          txCard.includes(cardName.replace(/\s+/g, '')) ||
-          cardName.replace(/\s+/g, '').includes(txCard)
-        );
+        // Las tarjetas de crédito SOLO suman transacciones reales del Drive (nunca fijos proyectados)
+        if (tx.esFijoProyectado) return;
 
-        if (coincideTarjeta) {
-          if (tx.estado === 'LIQUIDADO' || tx.estado === 'LIQUIDADA' || tx.esLiquidado === true) {
-            return;
-          }
+        if (tx.estado === 'LIQUIDADO' || tx.estado === 'LIQUIDADA' || tx.esLiquidado === true) {
+          return;
+        }
 
+        if (tarjetaCoincide(tx.tarjetaAfectada, tarjeta)) {
           const monto = parseFloat(tx.monto) || 0;
-          const txMesTC = normalizarMes(tx.mesImpactoTC);
+          let txMesTC = normalizarMes(tx.mesImpactoTC);
+          if (!txMesTC && tx.fecha) {
+            const ciclo = calcularCicloTarjeta(tx.fecha, tarjeta.diaCorte, tarjeta.diaVencimiento);
+            txMesTC = ciclo.mesImpactoTC;
+          }
           const txMesEf = normalizarMes(tx.mesImpactoEfectivo);
 
           if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC && txMesTC === mesActualStr) {
@@ -947,24 +964,20 @@
       const cardName = String(tarjeta.nombre || '').trim().toLowerCase();
 
       transaccionesConsolidadas.forEach(tx => {
+        // Las tarjetas de crédito SOLO suman transacciones reales del Drive (nunca fijos proyectados)
+        if (tx.esFijoProyectado) return;
+
         if (tx.estado === 'LIQUIDADO' || tx.estado === 'LIQUIDADA' || tx.esLiquidado === true) {
           return;
         }
 
-        const txCard = String(tx.tarjetaAfectada || '').trim().toLowerCase();
-
-        const coincideTarjeta = txCard !== '' && (
-          txCard === cardId ||
-          txCard === cardName ||
-          txCard.replace(/^tc[_-]/, '') === cardId.replace(/^tc[_-]/, '') ||
-          cardName.includes(txCard.replace(/^tc[_-]/, '')) ||
-          txCard.includes(cardName.replace(/\s+/g, '')) ||
-          cardName.replace(/\s+/g, '').includes(txCard)
-        );
-
-        if (coincideTarjeta) {
+        if (tarjetaCoincide(tx.tarjetaAfectada, tarjeta)) {
           const monto = parseFloat(tx.monto) || 0;
-          const txMesTC = normalizarMes(tx.mesImpactoTC);
+          let txMesTC = normalizarMes(tx.mesImpactoTC);
+          if (!txMesTC && tx.fecha) {
+            const ciclo = calcularCicloTarjeta(tx.fecha, tarjeta.diaCorte, tarjeta.diaVencimiento);
+            txMesTC = ciclo.mesImpactoTC;
+          }
 
           // 1. Vencimientos del próximo mes
           if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC && txMesTC === mesSiguienteStr) {
@@ -1354,6 +1367,7 @@
     obtenerMesImpacto,
     sumarMeses,
     sumarMesesAFecha,
+    tarjetaCoincide,
     dividirEnCuotas,
     obtenerComprasEnCuotasPendientes,
     obtenerDetalleGastosPorCategoria,

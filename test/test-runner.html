@@ -59,6 +59,7 @@
       calcularCicloTarjeta, 
       prepararTransaccion, 
       calcularConsolidadoFinanciero, 
+      tarjetaCoincide,
       dividirEnCuotas, 
       sumarMesesAFecha 
     } = window.FinancialEngine;
@@ -215,27 +216,28 @@
     const listaCuotas = dividirEnCuotas(txCompraCuotas, tarjetasConfig);
     const okCantidadCuotas = listaCuotas.length === 3;
     const sumaCuotas = listaCuotas.reduce((acc, c) => acc + c.monto, 0);
-    const okSumaCuotas = Math.abs(sumaCuotas - 1000) < 0.001;
+    const okSumaCuotas = Math.abs(sumaCuotas - 1000) < 0.000001;
     const cuota1 = listaCuotas[0];
     const cuota2 = listaCuotas[1];
     const cuota3 = listaCuotas[2];
-    const okMontosCuotas = (cuota1.monto === 333.34) && (cuota2.monto === 333.33) && (cuota3.monto === 333.33);
+    const montoEsperado = 1000 / 3;
+    const okMontosCuotas = (cuota1.monto === montoEsperado) && (cuota2.monto === montoEsperado) && (cuota3.monto === montoEsperado);
     const okCiclosCuotas = (cuota1.mesImpactoTC === '2026-10') && (cuota2.mesImpactoTC === '2026-11') && (cuota3.mesImpactoTC === '2026-12');
 
-    report('Cuotas Sin Intereses: División exacta y ajuste de céntimos (333.34 + 333.33 + 333.33 = S/ 1,000.00)', 
+    report('Cuotas Sin Intereses: División matemáticamente exacta (1000/3 = 333.3333... en cada cuota, suma exacta S/ 1,000.00)', 
       okCantidadCuotas && okSumaCuotas && okMontosCuotas && okCiclosCuotas,
       `Cuota 1: S/ ${cuota1.monto} (${cuota1.mesImpactoTC}), Cuota 2: S/ ${cuota2.monto} (${cuota2.mesImpactoTC}), Cuota 3: S/ ${cuota3.monto} (${cuota3.mesImpactoTC})`
     );
 
     // Prueba 11: CUOTAS SIN INTERESES - Impacto en Deuda Proyectada del mes siguiente
-    // En septiembre 2026, la deuda proyectada para octubre (mes siguiente) debe ser ÚNICAMENTE la Cuota 1 (S/ 333.34)
+    // En septiembre 2026, la deuda proyectada para octubre (mes siguiente) debe ser ÚNICAMENTE la Cuota 1 (S/ 333.33...)
     const resCuotas = calcularConsolidadoFinanciero(listaCuotas, tarjetasConfig, '2026-09', []);
     const bcpDeudaProyectada = resCuotas.tarjetasCredito.desgloseTarjetas.find(c => c.id === 'TC_BCP');
-    const okDeudaCuota1 = bcpDeudaProyectada && Math.abs(bcpDeudaProyectada.consumosCiclo - 333.34) < 0.01;
+    const okDeudaCuota1 = bcpDeudaProyectada && Math.abs(bcpDeudaProyectada.consumosCiclo - montoEsperado) < 0.01;
 
-    report('Cuotas Sin Intereses: Proyección de deuda mensual exacta (Octubre recibe S/ 333.34 en vez de S/ 1,000)',
+    report('Cuotas Sin Intereses: Proyección de deuda mensual exacta (Octubre recibe S/ 333.33... en vez de S/ 1,000)',
       okDeudaCuota1,
-      `Deuda TC BCP proyectada: S/ ${bcpDeudaProyectada ? bcpDeudaProyectada.consumosCiclo : 0} (Esperado: S/ 333.34)`
+      `Deuda TC BCP proyectada: S/ ${bcpDeudaProyectada ? bcpDeudaProyectada.consumosCiclo : 0} (Esperado: S/ ${montoEsperado})`
     );
 
     // Prueba 12: MOVIMIENTOS FIJOS RECURRENTES - Cálculo de balance base proyectado
@@ -311,11 +313,21 @@
     );
 
     // Prueba 16: RECURRENTE EN TARJETA DE CRÉDITO + PREPAGO DESDE SUELDO
-    // Internet S/ 120 recurrente en TC_BCP + Prepago S/ 120 desde sueldo:
+    // Internet S/ 120 recurrente pagado con TC_BCP + Prepago S/ 120 desde sueldo:
     // La categoría Servicios se mantiene en S/ 120 (NO se duplica a 240) y la deuda neta de TC_BCP queda amortizada a 0.
     const recurrentesPrueba16 = [
       { id: 'REC-NET', nombre: 'Internet Fibra', tipo: 'Gasto_Fijo', monto: 120, categoria: 'Servicios', diaMes: 10, metodoPago: 'TC_BCP', activo: true }
     ];
+    // Transacción real asentada en Drive del consumo de internet en la tarjeta
+    const txConsumo16 = prepararTransaccion({
+      id: 'TX-NET-TC',
+      fecha: '2026-09-10',
+      tipo: TIPOS_TRANSACCION.CONSUMO_TC,
+      tarjetaAfectada: 'TC_BCP',
+      monto: 120,
+      categoria: 'Servicios',
+      notas: '[Fijo: REC-NET] Internet Fibra'
+    }, tarjetasConfig);
     // Transacción de prepago realizada desde efectivo/sueldo hacia TC_BCP
     const txPrepago16 = prepararTransaccion({
       id: 'TX-PREP-NET',
@@ -328,7 +340,7 @@
       notas: 'Abono sueldo a TC por Internet'
     }, tarjetasConfig);
 
-    const consolidadoTCPrepay = calcularConsolidadoFinanciero([txPrepago16], tarjetasConfig, '2026-09', [], recurrentesPrueba16);
+    const consolidadoTCPrepay = calcularConsolidadoFinanciero([txConsumo16, txPrepago16], tarjetasConfig, '2026-09', [], recurrentesPrueba16);
     const servCatMonto = consolidadoTCPrepay.categorias.gastos['Servicios'] || 0;
     const bcpCardEstado = consolidadoTCPrepay.tarjetasCredito.desgloseTarjetas.find(c => c.id === 'TC_BCP');
     const okServicioNoDuplicado = servCatMonto === 120;
@@ -697,6 +709,45 @@
     report('Categorización Estricta de Consumos TC: Consumos caen en Salud (S/ 150) y Entretenimiento (S/ 75), eliminando pseudo-categorías "Factura TC (Por Pagar)"',
       okSalud && okEntretenimiento && sinFacturaPorPagar && sinPagoFacturaTC,
       `Salud: S/ ${gastosCat['Salud']}, Entretenimiento: S/ ${gastosCat['Entretenimiento']}, Tiene 'Factura TC (Por Pagar)': ${'Factura TC (Por Pagar)' in gastosCat}, Tiene 'Pago Factura TC': ${'Pago Factura TC' in gastosCat}`
+    );
+
+    // Prueba 35: TARJETAS DE CRÉDITO SOLO SUMAN TRANSACCIONES REALES DE DRIVE
+    // Si solo hay gastos fijos presupuestados/recurrentes con método TC pero NO hay transacciones reales en el Drive,
+    // la tarjeta NO debe inventar consumos ni deuda ficticia.
+    const fijosConMetodoTC = [
+      { id: 'REC-NET-FANTASMA', nombre: 'Internet Fibra', tipo: 'Gasto_Fijo', monto: 150, categoria: 'Servicios', diaMes: 10, metodoPago: 'TC_BCP', activo: true },
+      { id: 'REC-NETFLIX', nombre: 'Netflix 4K', tipo: 'Gasto_Fijo', monto: 50, categoria: 'Suscripciones', diaMes: 15, metodoPago: 'BCP Visa Signature', activo: true }
+    ];
+    // Consolidado sin transacciones reales de consumo en Drive para BCP
+    const consolidadoSinFantasma = calcularConsolidadoFinanciero([], tarjetasConfig, '2026-09', [], fijosConMetodoTC);
+    const bcpSinFantasma = consolidadoSinFantasma.tarjetasCredito.desgloseTarjetas.find(c => c.id === 'TC_BCP');
+
+    const okBcpCeroConsumos = bcpSinFantasma && bcpSinFantasma.consumosCiclo === 0;
+    const okBcpCeroDeuda = bcpSinFantasma && bcpSinFantasma.deudaNetaProyectada === 0;
+    const okBcpCeroFactura = bcpSinFantasma && bcpSinFantasma.facturaMesActual.deudaFacturada === 0;
+    const okBcpLineaLibre = bcpSinFantasma && bcpSinFantasma.lineaDisponible === bcpSinFantasma.limiteCredito;
+
+    report('Tarjetas de Crédito No Suman Ficticios: Gastos fijos proyectados NO agregan consumo ni deuda a la tarjeta si no existen en Drive',
+      okBcpCeroConsumos && okBcpCeroDeuda && okBcpCeroFactura && okBcpLineaLibre,
+      `Consumo TC BCP: S/ ${bcpSinFantasma ? bcpSinFantasma.consumosCiclo : 0} (Esperado: 0), Deuda Proyectada: S/ ${bcpSinFantasma ? bcpSinFantasma.deudaNetaProyectada : 0}, Línea Disp: S/ ${bcpSinFantasma ? bcpSinFantasma.lineaDisponible : 0} / ${bcpSinFantasma ? bcpSinFantasma.limiteCredito : 0}`
+    );
+
+    // Prueba 36: ROBUSTEZ Y AISLAMIENTO DE TARJETAS (tarjetaCoincide)
+    // Cadenas genéricas ("TC", "Tarjeta", "Visa", etc.) NO deben asociarse a ninguna tarjeta específica
+    const tBCP = tarjetasConfig.find(t => t.id === 'TC_BCP');
+    const tBBVA = tarjetasConfig.find(t => t.id === 'TC_BBVA');
+
+    const noCoincideGenericoTC = !tarjetaCoincide('TC', tBCP) && !tarjetaCoincide('tc', tBBVA);
+    const noCoincideGenericoTarjeta = !tarjetaCoincide('Tarjeta', tBCP) && !tarjetaCoincide('tarjeta de credito', tBCP);
+    const noCoincideGenericoVisa = !tarjetaCoincide('Visa', tBCP) && !tarjetaCoincide('visa signature', tBCP);
+    const noCoincideVacio = !tarjetaCoincide('', tBCP) && !tarjetaCoincide(null, tBCP);
+    const aislaCorrectamente = tarjetaCoincide('TC_BCP', tBCP) && !tarjetaCoincide('TC_BCP', tBBVA) &&
+                               tarjetaCoincide('BCP', tBCP) && !tarjetaCoincide('BCP', tBBVA) &&
+                               tarjetaCoincide('BBVA', tBBVA) && !tarjetaCoincide('BBVA', tBCP);
+
+    report('Aislamiento de Tarjetas: Rechazo de cadenas genéricas ("TC", "Tarjeta", "Visa") y match inequívoco por banco/código',
+      noCoincideGenericoTC && noCoincideGenericoTarjeta && noCoincideGenericoVisa && noCoincideVacio && aislaCorrectamente,
+      `Match 'TC': ${tarjetaCoincide('TC', tBCP)}, Match 'BCP' en BCP: ${tarjetaCoincide('BCP', tBCP)}, Match 'BCP' en BBVA: ${tarjetaCoincide('BCP', tBBVA)}`
     );
 
     summaryBox.innerHTML = `
