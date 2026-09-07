@@ -419,21 +419,10 @@
       }
 
       case TIPOS_TRANSACCION.PREPAGO_TC: {
-        const tarjeta = tarjetasConfig.find(t => {
-          const tId = String(t.id || '').toLowerCase();
-          const tNom = String(t.nombre || '').toLowerCase();
-          const af = String(copia.tarjetaAfectada || '').toLowerCase();
-          return tId === af || tNom === af || tId.replace(/^tc[_-]/, '') === af.replace(/^tc[_-]/, '');
-        });
-
         copia.mesImpactoEfectivo = mesEfectivo;
         if (!copia.mesImpactoTC) {
-          if (tarjeta) {
-            const ciclo = calcularCicloTarjeta(copia.fecha, tarjeta.diaCorte, tarjeta.diaVencimiento);
-            copia.mesImpactoTC = ciclo.mesImpactoTC;
-          } else {
-            copia.mesImpactoTC = sumarMeses(mesEfectivo, 1);
-          }
+          // El prepago realizado en el mes M amortiza por defecto la factura del ciclo que vence en M+1
+          copia.mesImpactoTC = sumarMeses(mesEfectivo, 1);
         }
         break;
       }
@@ -799,6 +788,7 @@
       mesActualStr = normalizarMes(mesActualStr);
     }
     const mesSiguienteStr = sumarMeses(mesActualStr, 1);
+    const mesAnteriorStr = sumarMeses(mesActualStr, -1);
 
     // Combinar transacciones con movimientos fijos recurrentes (evita duplicados)
     const { transaccionesConsolidadas, recurrentesEstadoMes } = combinarTransaccionesConRecurrentes(
@@ -830,15 +820,19 @@
           const monto = parseFloat(tx.monto) || 0;
           let txMesTC = normalizarMes(tx.mesImpactoTC);
           if (!txMesTC && tx.fecha) {
-            const ciclo = calcularCicloTarjeta(tx.fecha, tarjeta.diaCorte, tarjeta.diaVencimiento);
-            txMesTC = ciclo.mesImpactoTC;
+            if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC) {
+              txMesTC = sumarMeses(obtenerMesImpacto(tx.fecha), 1);
+            } else {
+              const ciclo = calcularCicloTarjeta(tx.fecha, tarjeta.diaCorte, tarjeta.diaVencimiento);
+              txMesTC = ciclo.mesImpactoTC;
+            }
           }
           const txMesEf = normalizarMes(tx.mesImpactoEfectivo);
 
           if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC && txMesTC === mesActualStr) {
             consumos += monto;
           }
-          if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC && txMesTC === mesActualStr) {
+          if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC && (txMesTC === mesActualStr || (txMesEf === mesAnteriorStr && !tx.mesImpactoTC))) {
             prepagos += monto;
           }
           if (tx.tipo === TIPOS_TRANSACCION.PAGO_TC_VENCIDA && (txMesTC === mesActualStr || txMesEf === mesActualStr)) {
@@ -975,15 +969,20 @@
           const monto = parseFloat(tx.monto) || 0;
           let txMesTC = normalizarMes(tx.mesImpactoTC);
           if (!txMesTC && tx.fecha) {
-            const ciclo = calcularCicloTarjeta(tx.fecha, tarjeta.diaCorte, tarjeta.diaVencimiento);
-            txMesTC = ciclo.mesImpactoTC;
+            if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC) {
+              txMesTC = sumarMeses(obtenerMesImpacto(tx.fecha), 1);
+            } else {
+              const ciclo = calcularCicloTarjeta(tx.fecha, tarjeta.diaCorte, tarjeta.diaVencimiento);
+              txMesTC = ciclo.mesImpactoTC;
+            }
           }
+          const txMesEf = normalizarMes(tx.mesImpactoEfectivo);
 
           // 1. Vencimientos del próximo mes
           if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC && txMesTC === mesSiguienteStr) {
             consumosCiclo += monto;
           }
-          if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC && txMesTC === mesSiguienteStr) {
+          if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC && (txMesTC === mesSiguienteStr || (txMesEf === mesActualStr && !tx.mesImpactoTC))) {
             prepagosCiclo += monto;
           }
           if (tx.tipo === TIPOS_TRANSACCION.PAGO_TC_VENCIDA && txMesTC === mesSiguienteStr) {
@@ -994,7 +993,7 @@
           if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC && txMesTC > mesSiguienteStr) {
             cuotasFuturasComprometidas += monto;
           }
-          if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC && txMesTC > mesSiguienteStr) {
+          if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC && txMesTC > mesSiguienteStr && txMesEf !== mesActualStr) {
             prepagosFuturos += monto;
           }
         }
