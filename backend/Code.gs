@@ -18,6 +18,21 @@ const SHEETS = {
 };
 
 /**
+ * Menú personalizado automático en Google Sheets
+ */
+function onOpen() {
+  try {
+    const ui = SpreadsheetApp.getUi();
+    ui.createMenu('💰 Control Financiero')
+      .addItem('📊 Consolidar Meses Pasados en este Sheet', 'consolidarMesesPasados')
+      .addItem('⚙️ Inicializar / Reparar Pestañas', 'setupSheets')
+      .addToUi();
+  } catch (e) {
+    // Si se ejecuta sin interfaz interactiva
+  }
+}
+
+/**
  * Función de Inicialización Automática.
  * Ejecuta esta función una sola vez en el Editor de Apps Script para crear
  * y formatear todas las hojas y columnas necesarias.
@@ -92,6 +107,11 @@ function setupSheets() {
     formatHeaderRow(sheetCons, '#4338ca', '#ffffff');
     sheetCons.setFrozenRows(1);
     sheetCons.getRange(2, 2, 100, 6).setNumberFormat('#,##0.00');
+  }
+
+  // Auto-consolidar meses pasados si la hoja está vacía
+  if (sheetCons.getLastRow() <= 1) {
+    consolidarMesesPasados(false);
   }
 
   // 4. Pestaña PRESUPUESTOS (Preserva presupuestos creados por el usuario)
@@ -269,6 +289,8 @@ function doPost(e) {
       result = saveClosedMonth_(payload.monthData);
     } else if (action === 'reopenMonth') {
       result = reopenMonth_(payload.mes);
+    } else if (action === 'consolidatePastMonths') {
+      result = consolidarMesesPasados(false);
     } else {
       result = { success: false, error: 'Acción POST no reconocida' };
     }
@@ -440,10 +462,14 @@ function getRecurrentesConfig_() {
 
 function getClosedMonths_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEETS.CONSOLIDADO);
+  let sheet = ss.getSheetByName(SHEETS.CONSOLIDADO);
   if (!sheet) return [];
 
-  const data = sheet.getDataRange().getValues();
+  let data = sheet.getDataRange().getValues();
+  if (data.length <= 1) {
+    consolidarMesesPasados(false);
+    data = sheet.getDataRange().getValues();
+  }
   if (data.length <= 1) return [];
 
   const list = [];
@@ -554,6 +580,146 @@ function reopenMonth_(mesKey) {
   }
   SpreadsheetApp.flush();
   return { success: true, mes: mesKey };
+}
+
+/**
+ * Consolida automáticamente todos los meses pasados en la pestaña CONSOLIDADO_MENSUAL.
+ * Si ya hay un cierre oficial guardado por el usuario, lo respeta.
+ * Si el mes no está cerrado en el Sheet, calcula los totales desde TRANSACCIONES y RECURRENTES.
+ */
+function consolidarMesesPasados(mostrarAlerta = true) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheetCons = ss.getSheetByName(SHEETS.CONSOLIDADO);
+  if (!sheetCons) {
+    setupSheets();
+    sheetCons = ss.getSheetByName(SHEETS.CONSOLIDADO);
+  }
+
+  // 1. Obtener cierres ya existentes en la hoja
+  const existingData = sheetCons.getDataRange().getValues();
+  const closedSet = new Set();
+  for (let i = 1; i < existingData.length; i++) {
+    let m = String(existingData[i][0] || '').trim();
+    if (existingData[i][0] instanceof Date) {
+      m = Utilities.formatDate(existingData[i][0], Session.getScriptTimeZone(), 'yyyy-MM');
+    }
+    if (m) closedSet.add(m);
+  }
+
+  // 2. Mes actual de referencia
+  const hoy = new Date();
+  const mesActualStr = Utilities.formatDate(hoy, Session.getScriptTimeZone(), 'yyyy-MM');
+  const anioActual = hoy.getFullYear().toString();
+
+  // 3. Obtener transacciones y fijos
+  const transacciones = getTransactions_();
+  const recurrentes = getRecurrentesConfig_();
+
+  const parseNum_ = (val) => {
+    if (typeof val === 'number') return val;
+    return parseFloat(String(val || '').replace(/[^0-9.-]/g, '')) || 0;
+  };
+
+  const sumaIngresosFijos = recurrentes
+    .filter(r => r.tipo === 'Ingreso_Fijo' && r.activo !== false)
+    .reduce((acc, r) => acc + parseNum_(r.monto), 0);
+
+  const sumaGastosFijos = recurrentes
+    .filter(r => r.tipo !== 'Ingreso_Fijo' && r.activo !== false)
+    .reduce((acc, r) => acc + parseNum_(r.monto), 0);
+
+  // 4. Identificar todos los meses transcurridos en lo que va del año (ej. 2026-01 hasta el mes anterior al actual)
+  const mesesPasadosSet = new Set();
+  const mesActualNum = hoy.getMonth() + 1;
+  for (let m = 1; m < mesActualNum; m++) {
+    const mesPad = String(m).padStart(2, '0');
+    mesesPasadosSet.add(`${anioActual}-${mesPad}`);
+  }
+
+  // Incluir además cualquier mes pasado que tenga transacciones registradas
+  transacciones.forEach(tx => {
+    const mEf = tx.mesImpactoEfectivo ? String(tx.mesImpactoEfectivo).slice(0, 7) : '';
+    const mTC = tx.mesImpactoTC ? String(tx.mesImpactoTC).slice(0, 7) : '';
+    const mFe = tx.fecha ? String(tx.fecha).slice(0, 7) : '';
+    if (mEf && mEf < mesActualStr) mesesPasadosSet.add(mEf);
+    if (mTC && mTC < mesActualStr) mesesPasadosSet.add(mTC);
+    if (mFe && mFe < mesActualStr) mesesPasadosSet.add(mFe);
+  });
+
+  const mesesPasados = Array.from(mesesPasadosSet).sort();
+  let consolidadosCount = 0;
+
+  mesesPasados.forEach(mesKey => {
+    // Si ya existe un registro en CONSOLIDADO_MENSUAL, se respeta sin sobreescribir
+    if (closedSet.has(mesKey)) return;
+
+    let ingresos = 0;
+    let gastosDirectos = 0;
+    let prepagos = 0;
+    let pagosTC = 0;
+    let consumosTC = 0;
+    let prepagosTC = 0;
+
+    let hasIngresoTx = false;
+    let hasGastoTx = false;
+
+    transacciones.forEach(tx => {
+      const m = parseNum_(tx.monto);
+      const txMesEf = tx.mesImpactoEfectivo ? String(tx.mesImpactoEfectivo).slice(0, 7) : '';
+      const txMesTC = tx.mesImpactoTC ? String(tx.mesImpactoTC).slice(0, 7) : '';
+
+      if (txMesEf === mesKey) {
+        if (tx.tipo === 'Ingreso') { ingresos += m; hasIngresoTx = true; }
+        else if (tx.tipo === 'Gasto_Directo') { gastosDirectos += m; hasGastoTx = true; }
+        else if (tx.tipo === 'Prepago_TC') prepagos += m;
+        else if (tx.tipo === 'Pago_TC_Vencida') pagosTC += m;
+      }
+
+      if (txMesTC === mesKey) {
+        if (tx.tipo === 'Consumo_TC') consumosTC += m;
+        else if (tx.tipo === 'Prepago_TC') prepagosTC += m;
+      }
+    });
+
+    // Si no hubo transacciones explícitas cargadas para ingresos o gastos, aplicar los fijos recurrentes
+    if (!hasIngresoTx && sumaIngresosFijos > 0) ingresos += sumaIngresosFijos;
+    if (!hasGastoTx && sumaGastosFijos > 0) gastosDirectos += sumaGastosFijos;
+
+    const deudaFacturadaMes = Math.max(0, consumosTC - prepagosTC);
+    const salidaTCMes = Math.max(deudaFacturadaMes, pagosTC);
+    const totalSalidas = gastosDirectos + prepagos + salidaTCMes;
+    const ahorroNeto = Number((ingresos - totalSalidas).toFixed(2));
+    const tasaAhorro = ingresos > 0 ? Math.round((ahorroNeto / ingresos) * 100) : 0;
+
+    const [anio, mesNum] = mesKey.split('-').map(Number);
+    const ultimoDia = new Date(anio, mesNum, 0).getDate();
+    const fechaCierre = `${mesKey}-${String(ultimoDia).padStart(2, '0')}T23:59:59`;
+
+    saveClosedMonth_({
+      mes: mesKey,
+      ingresosTotales: Number(ingresos.toFixed(2)),
+      gastosDirectos: Number(gastosDirectos.toFixed(2)),
+      prepagosTC: Number(prepagos.toFixed(2)),
+      pagosTC: Number(salidaTCMes.toFixed(2)),
+      flujoLibreNeto: ahorroNeto,
+      ahorroNeto: ahorroNeto,
+      tasaAhorro: tasaAhorro,
+      fechaCierre: fechaCierre,
+      notas: 'Cierre consolidado automático'
+    });
+    consolidadosCount++;
+  });
+
+  SpreadsheetApp.flush();
+
+  if (mostrarAlerta) {
+    try {
+      const ui = SpreadsheetApp.getUi();
+      ui.alert('Consolidación Exitosa', `Se han consolidado ${consolidadosCount} meses anteriores en la pestaña CONSOLIDADO_MENSUAL.`, ui.ButtonSet.OK);
+    } catch (e) {}
+  }
+
+  return { success: true, count: consolidadosCount };
 }
 
 function saveRecurrente_(item) {

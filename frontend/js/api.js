@@ -271,6 +271,25 @@
       }
     }
 
+    async consolidatePastMonths() {
+      if (!this.apiUrl || !this.isOnline) {
+        return { success: true, count: 0, offline: true };
+      }
+
+      try {
+        const response = await fetch(this.apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'consolidatePastMonths' }),
+          redirect: 'follow'
+        });
+        return await response.json();
+      } catch (err) {
+        console.warn('[API] Error al consolidar meses pasados en Sheets:', err);
+        return { success: false, error: err.message };
+      }
+    }
+
     getLocalCards() {
       const raw = localStorage.getItem(STORAGE_KEYS.CARDS);
       if (!raw) {
