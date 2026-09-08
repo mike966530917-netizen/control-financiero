@@ -1166,11 +1166,22 @@
         itemsToShow = sorted;
       }
 
+      const currentCalendarMonth = (window.FinancialEngine && window.FinancialEngine.obtenerMesImpacto)
+        ? window.FinancialEngine.obtenerMesImpacto(new Date())
+        : new Date().toISOString().slice(0, 7);
+      const closedMonthsList = (window.AppState && window.AppState.closedMonths) || [];
+      const closedMonthsSet = new Set(closedMonthsList.map(cm => (window.FinancialEngine && window.FinancialEngine.normalizarMes) ? window.FinancialEngine.normalizarMes(cm.mes) : cm.mes));
+
       container.innerHTML = itemsToShow.map(tx => {
         let badgeColor = 'bg-slate-700 text-slate-300';
         let sign = '';
         let amountColor = 'text-slate-100';
         let typeIcon = '💸';
+
+        const txMes = (window.FinancialEngine && window.FinancialEngine.normalizarMes)
+          ? window.FinancialEngine.normalizarMes(tx.fecha)
+          : (tx.fecha ? tx.fecha.slice(0, 7) : '');
+        const isPastOrClosed = (txMes && txMes < currentCalendarMonth) || closedMonthsSet.has(txMes);
 
         if (tx.tipo === 'Ingreso') {
           badgeColor = 'bg-emerald-950/60 border border-emerald-500/30 text-emerald-400';
@@ -1222,9 +1233,13 @@
               <span class="text-sm ${amountColor}">
                 ${sign}S/ ${(parseFloat(tx.monto) || 0).toFixed(2)}
               </span>
-              <button class="btn-delete-tx text-slate-500 hover:text-rose-400 p-1 rounded active:scale-90 transition cursor-pointer" data-tx-id="${tx.id}" title="Eliminar">
-                ✕
-              </button>
+              ${isPastOrClosed ? `
+                <span class="text-slate-600 text-xs p-1 select-none" title="Mes pasado o cerrado: solo editable en Google Sheet">🔒</span>
+              ` : `
+                <button class="btn-delete-tx text-slate-500 hover:text-rose-400 p-1 rounded active:scale-90 transition cursor-pointer" data-tx-id="${tx.id}" title="Eliminar">
+                  ✕
+                </button>
+              `}
             </div>
           </div>
         `;
@@ -1351,7 +1366,12 @@
         annualSavingsEl.textContent = `S/ ${resumenAnual.totalAhorro.toLocaleString('es-PE', { minimumFractionDigits: 2 })}`;
         annualSavingsEl.className = resumenAnual.totalAhorro >= 0 ? 'text-base font-black text-emerald-400' : 'text-base font-black text-rose-400';
       }
-      if (annualRateEl) annualRateEl.textContent = `Tasa promedio: ${resumenAnual.tasaAhorroPromedio}%`;
+      if (annualRateEl) {
+        const projText = (resumenAnual.totalAhorroProyectado !== undefined && resumenAnual.totalAhorroProyectado !== 0)
+          ? ` • Proy: S/ ${resumenAnual.totalAhorroProyectado.toFixed(2)}`
+          : '';
+        annualRateEl.textContent = `Tasa: ${resumenAnual.tasaAhorroPromedio}%${projText}`;
+      }
       if (annualClosedCountEl) annualClosedCountEl.textContent = `${resumenAnual.mesesCerradosCount} / 12`;
       if (annualIncomeEl) annualIncomeEl.textContent = `S/ ${resumenAnual.totalIngresos.toLocaleString('es-PE', { minimumFractionDigits: 2 })}`;
       if (annualOutflowsEl) annualOutflowsEl.textContent = `S/ ${resumenAnual.totalSalidas.toLocaleString('es-PE', { minimumFractionDigits: 2 })}`;
@@ -1372,10 +1392,14 @@
 
       container.innerHTML = mesesParaMostrar.map(m => {
         const isClosed = m.esCerrado;
+        const isProjected = m.esProyectado;
         const ahorroPositivo = m.ahorroNeto >= 0;
-        const badgeClass = isClosed 
-          ? 'bg-emerald-950/70 text-emerald-300 border-emerald-500/40' 
-          : 'bg-sky-950/60 text-sky-300 border-sky-500/30';
+        let badgeClass = 'bg-sky-950/60 text-sky-300 border-sky-500/30';
+        if (m.esCierreOficial || isClosed) {
+          badgeClass = 'bg-emerald-950/70 text-emerald-300 border-emerald-500/40';
+        } else if (isProjected) {
+          badgeClass = 'bg-purple-950/70 text-purple-300 border-purple-500/40';
+        }
         const ahorroColor = ahorroPositivo ? 'text-emerald-400' : 'text-rose-400';
         const signoAhorro = ahorroPositivo ? '+' : '';
 
@@ -1409,7 +1433,11 @@
                 </span>
               </div>
               <div>
-                ${isClosed ? `
+                ${isProjected ? `
+                  <span class="text-[10px] px-2 py-1 rounded-lg bg-purple-950/40 text-purple-300 border border-purple-800/40 font-semibold inline-block" title="Proyectado por sueldos futuros y cuotas TC">
+                    🔮 Futuro
+                  </span>
+                ` : (isClosed ? `
                   <button class="btn-reopen-month-row text-[10px] px-2 py-1 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 transition cursor-pointer" data-month="${m.mes}">
                     🔓 Reabrir
                   </button>
@@ -1417,7 +1445,7 @@
                   <button class="btn-close-month-row text-[10px] px-2 py-1 rounded-lg bg-sky-600/80 hover:bg-sky-500 text-white font-bold transition cursor-pointer" data-month="${m.mes}">
                     🔒 Cerrar
                   </button>
-                `}
+                `)}
               </div>
             </div>
           </div>
@@ -2140,23 +2168,30 @@
       // Resumen del presupuesto
       if (summaryEl) {
         if (presupuesto) {
+          const limiteVal = (presupuesto.limite != null ? presupuesto.limite : (presupuesto.presupuesto != null ? presupuesto.presupuesto : 0)) || 0;
+          const porcentajeVal = presupuesto.porcentaje != null ? presupuesto.porcentaje : 0;
+          const restanteVal = presupuesto.restante != null ? presupuesto.restante : (limiteVal - detalle.totalGastado);
+
+          const isDanger = (presupuesto.estado === 'PELIGRO' || presupuesto.estado === 'exceeded' || presupuesto.estado === 'danger' || restanteVal < 0 || porcentajeVal >= 90);
+          const isWarning = (presupuesto.estado === 'ALERTA' || presupuesto.estado === 'warning' || porcentajeVal >= 70);
+
           let badgeBg = 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
-          let badgeText = `${presupuesto.porcentaje}% consumido`;
+          let badgeText = `${porcentajeVal}% consumido`;
           let barBg = 'bg-emerald-400';
-          if (presupuesto.estado === 'PELIGRO') {
+          if (isDanger) {
             badgeBg = 'bg-rose-500/20 text-rose-400 border-rose-500/30';
             barBg = 'bg-rose-500';
-            badgeText = `Excedido (+S/ ${Math.abs(presupuesto.restante).toFixed(2)})`;
-          } else if (presupuesto.estado === 'ALERTA') {
+            badgeText = restanteVal < 0 ? `Excedido (+S/ ${Math.abs(restanteVal).toFixed(2)})` : `${porcentajeVal}% consumido`;
+          } else if (isWarning) {
             badgeBg = 'bg-amber-500/20 text-amber-400 border-amber-500/30';
             barBg = 'bg-amber-400';
           }
-          const widthPercent = Math.min(100, Math.max(2, presupuesto.porcentaje));
+          const widthPercent = Math.min(100, Math.max(2, porcentajeVal));
 
           summaryEl.innerHTML = `
             <div class="flex items-center justify-between text-xs mb-1">
               <span class="text-slate-400 font-semibold">Presupuesto asignado:</span>
-              <span class="text-slate-200 font-bold">S/ ${presupuesto.limite.toFixed(2)}</span>
+              <span class="text-slate-200 font-bold">S/ ${limiteVal.toFixed(2)}</span>
             </div>
             <div class="flex items-center justify-between text-xs mb-2">
               <span class="text-slate-300 font-extrabold">Total gastado:</span>
@@ -2166,7 +2201,7 @@
               <div class="${barBg} h-full rounded-full transition-all duration-500" style="width: ${widthPercent}%"></div>
             </div>
             <div class="flex items-center justify-between text-[11px]">
-              <span class="text-slate-400">Disponible: <b class="${presupuesto.restante < 0 ? 'text-rose-400' : 'text-emerald-400'}">S/ ${presupuesto.restante.toFixed(2)}</b></span>
+              <span class="text-slate-400">Disponible: <b class="${restanteVal < 0 ? 'text-rose-400' : 'text-emerald-400'}">S/ ${restanteVal.toFixed(2)}</b></span>
               <span class="px-2 py-0.5 rounded border text-[10px] font-bold ${badgeBg}">${badgeText}</span>
             </div>
           `;

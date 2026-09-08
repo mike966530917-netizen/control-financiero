@@ -118,6 +118,14 @@
     };
 
     window.onDeleteTransaction = async (id) => {
+      const tx = AppState.transactions.find(t => t.id === id);
+      const currentMonth = FinancialEngine.obtenerMesImpacto(new Date());
+      const txMes = tx ? FinancialEngine.normalizarMes(tx.fecha) : null;
+      const isClosed = AppState.closedMonths.some(m => FinancialEngine.normalizarMes(m.mes) === txMes);
+      if (tx && (txMes < currentMonth || isClosed)) {
+        UIManager.showToast('No se pueden eliminar transacciones de meses pasados o cerrados en la app. Realiza la edición en Google Sheets.', 'warning');
+        return;
+      }
       await ApiService.deleteTransaction(id);
       AppState.transactions = AppState.transactions.filter(t => t.id !== id);
       recalculateAndRender();
@@ -208,6 +216,19 @@
     window.AppState = AppState;
     window.cachedRecurrentesEstadoMes = summary.recurrentesEstadoMes;
     window.lastSummary = summary;
+
+    // Mostrar banner de solo lectura si el mes seleccionado es pasado o está cerrado
+    const currentMonth = FinancialEngine.obtenerMesImpacto(new Date());
+    const isPastOrClosed = (AppState.selectedMonth < currentMonth) || AppState.closedMonths.some(m => FinancialEngine.normalizarMes(m.mes) === AppState.selectedMonth);
+    const closedBanner = document.getElementById('closed-month-banner');
+    if (closedBanner) {
+      if (isPastOrClosed) {
+        closedBanner.classList.remove('hidden');
+      } else {
+        closedBanner.classList.add('hidden');
+      }
+    }
+
     UIManager.renderDashboard(summary);
     UIManager.renderTransactionsList(AppState.transactions, AppState.currentFilter);
     UIManager.renderRecurrentesList(AppState.recurrentes, AppState.selectedMonth, summary.recurrentesEstadoMes);
@@ -596,6 +617,14 @@
       const tarjetaAfectada = document.getElementById('tx-card-select').value;
       const metodoPago = document.getElementById('tx-method-select').value;
       const notas = (document.getElementById('tx-notes-input').value || '').trim();
+
+      const currentMonth = FinancialEngine.obtenerMesImpacto(new Date());
+      const txMes = FinancialEngine.normalizarMes(fecha);
+      const isClosed = AppState.closedMonths.some(m => FinancialEngine.normalizarMes(m.mes) === txMes);
+      if (txMes < currentMonth || isClosed) {
+        UIManager.showToast('No se pueden registrar transacciones en meses pasados o cerrados en la app. Modifícalo directamente en Google Sheet.', 'warning');
+        return;
+      }
 
       const cuotasSelect = document.getElementById('tx-cuotas-select');
       const numCuotas = (tipo === 'Consumo_TC' && cuotasSelect) ? (parseInt(cuotasSelect.value, 10) || 1) : 1;
