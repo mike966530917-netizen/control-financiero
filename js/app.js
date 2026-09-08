@@ -196,6 +196,20 @@
     }
 
     recalculateAndRender();
+
+    // Si está conectado a Sheets y la hoja CONSOLIDADO_MENSUAL está vacía, auto-consolidar meses pasados
+    if (source === 'remote' && (!closedMonths || closedMonths.length === 0)) {
+      ApiService.consolidatePastMonths().then(res => {
+        if (res && res.count > 0) {
+          ApiService.fetchClosedMonths().then(cm => {
+            if (cm && cm.length > 0) {
+              AppState.closedMonths = cm;
+              recalculateAndRender();
+            }
+          });
+        }
+      }).catch(e => console.warn('[AutoConsolidate] Error silencioso:', e));
+    }
   }
 
   /**
@@ -312,6 +326,53 @@
         } finally {
           btnConfirmClose.disabled = false;
           btnConfirmClose.innerHTML = '<span>🔒</span> Confirmar Cierre';
+        }
+      });
+    }
+
+    const btnConsolidatePast = document.getElementById('btn-consolidate-past-months');
+    if (btnConsolidatePast) {
+      btnConsolidatePast.addEventListener('click', async () => {
+        try {
+          btnConsolidatePast.disabled = true;
+          btnConsolidatePast.innerHTML = '<span>⏳</span> Consolidando...';
+          
+          await ApiService.consolidatePastMonths();
+
+          // También asegurar que los datos calculados en memoria se envíen si estamos offline o para actualización inmediata
+          if (window.lastSummary && window.lastSummary.historicoAhorro) {
+            const currentM = FinancialEngine.obtenerMesImpacto(new Date());
+            const pastUnsaved = window.lastSummary.historicoAhorro.todos.filter(m => 
+              m.mes < currentM && !m.esCierreOficial && !m.esProyectado
+            );
+            for (const m of pastUnsaved) {
+              const monthData = {
+                mes: m.mes,
+                ingresosTotales: m.ingresos,
+                gastosDirectos: m.salidas,
+                prepagosTC: 0,
+                pagosTC: 0,
+                flujoLibreNeto: m.ahorroNeto,
+                ahorroNeto: m.ahorroNeto,
+                tasaAhorro: m.tasaAhorro,
+                notas: 'Cierre consolidado de mes pasado',
+                fechaCierre: new Date().toISOString()
+              };
+              await ApiService.saveClosedMonth(monthData);
+              const idx = AppState.closedMonths.findIndex(cm => cm.mes === m.mes);
+              if (idx >= 0) AppState.closedMonths[idx] = monthData;
+              else AppState.closedMonths.push(monthData);
+            }
+          }
+
+          await loadAppData();
+          UIManager.showToast('🎉 Meses pasados consolidados en CONSOLIDADO_MENSUAL', 'success');
+        } catch (e) {
+          console.error('Error al consolidar meses pasados:', e);
+          UIManager.showToast('Error al consolidar meses pasados', 'error');
+        } finally {
+          btnConsolidatePast.disabled = false;
+          btnConsolidatePast.innerHTML = '<span>📊</span> <span class="hidden sm:inline">Consolidar en Sheet</span><span class="sm:hidden">Sheet</span>';
         }
       });
     }

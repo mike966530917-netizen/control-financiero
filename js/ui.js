@@ -1437,13 +1437,13 @@
                   <span class="text-[10px] px-2 py-1 rounded-lg bg-purple-950/40 text-purple-300 border border-purple-800/40 font-semibold inline-block" title="Proyectado por sueldos futuros y cuotas TC">
                     🔮 Futuro
                   </span>
-                ` : (isClosed ? `
-                  <button class="btn-reopen-month-row text-[10px] px-2 py-1 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 transition cursor-pointer" data-month="${m.mes}">
+                ` : (m.esCierreOficial ? `
+                  <button class="btn-reopen-month-row text-[10px] px-2 py-1 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700 transition cursor-pointer" data-month="${m.mes}" title="Mes cerrado y guardado en Google Sheet. Clic para reabrir.">
                     🔓 Reabrir
                   </button>
                 ` : `
-                  <button class="btn-close-month-row text-[10px] px-2 py-1 rounded-lg bg-sky-600/80 hover:bg-sky-500 text-white font-bold transition cursor-pointer" data-month="${m.mes}">
-                    🔒 Cerrar
+                  <button class="btn-close-month-row text-[10px] px-2 py-1 rounded-lg bg-sky-600/80 hover:bg-sky-500 text-white font-bold transition cursor-pointer" data-month="${m.mes}" title="Cerrar periodo y registrar en Google Sheet">
+                    🔒 Cerrar y Guardar
                   </button>
                 `)}
               </div>
