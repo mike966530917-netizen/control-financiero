@@ -73,28 +73,25 @@ function setupSheets() {
     sheetCards.setFrozenRows(1);
   }
 
-  // 3. Pestaña CONSOLIDADO_MENSUAL
+  // 3. Pestaña CONSOLIDADO_MENSUAL (Historial oficial de cierres y ahorro mensual)
   let sheetCons = ss.getSheetByName(SHEETS.CONSOLIDADO);
+  const consHeaders = [
+    'Mes (YYYY-MM)', 'Ingresos_Totales', 'Gastos_Directos', 
+    'Prepagos_TC', 'Pagos_TC', 'Flujo_Libre_Neto', 
+    'Ahorro_Neto', 'Tasa_Ahorro_%', 'Estado_Cierre', 
+    'Fecha_Cierre', 'Notas'
+  ];
   if (!sheetCons) {
     sheetCons = ss.insertSheet(SHEETS.CONSOLIDADO);
-    const consHeaders = [
-      'Mes (YYYY-MM)', 'Ingresos_Totales', 'Gastos_Directos', 
-      'Prepagos_TC', 'TC_Vencidas_Pagadas', 'Flujo_Libre_Neto', 
-      'Nuevos_Consumos_TC', 'Deuda_Proyectada_Mes_Siguiente'
-    ];
     sheetCons.appendRow(consHeaders);
     formatHeaderRow(sheetCons, '#4338ca', '#ffffff');
     sheetCons.setFrozenRows(1);
-    sheetCons.getRange(2, 2, 100, 7).setNumberFormat('#,##0.00');
+    sheetCons.getRange(2, 2, 100, 6).setNumberFormat('#,##0.00');
   } else if (sheetCons.getLastRow() === 0) {
-    const consHeaders = [
-      'Mes (YYYY-MM)', 'Ingresos_Totales', 'Gastos_Directos', 
-      'Prepagos_TC', 'TC_Vencidas_Pagadas', 'Flujo_Libre_Neto', 
-      'Nuevos_Consumos_TC', 'Deuda_Proyectada_Mes_Siguiente'
-    ];
     sheetCons.appendRow(consHeaders);
     formatHeaderRow(sheetCons, '#4338ca', '#ffffff');
     sheetCons.setFrozenRows(1);
+    sheetCons.getRange(2, 2, 100, 6).setNumberFormat('#,##0.00');
   }
 
   // 4. Pestaña PRESUPUESTOS (Preserva presupuestos creados por el usuario)

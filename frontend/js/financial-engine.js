@@ -449,7 +449,7 @@
   function calcularEstadoPresupuestos(gastosPorCategoria = {}, presupuestosConfig = []) {
     const configMap = {};
     presupuestosConfig.forEach(p => {
-      const val = p.monto != null ? p.monto : (p.limite != null ? p.limite : p.presupuesto);
+      const val = p.monto != null ? p.monto : (p.limite != null ? p.limite : (p.presupuesto != null ? p.presupuesto : (p.limiteMensual != null ? p.limiteMensual : (p.presupuestoMensual != null ? p.presupuestoMensual : 0))));
       configMap[p.categoria] = {
         monto: parseFloat(val) || 0,
         moneda: p.moneda || 'PEN'
@@ -481,6 +481,7 @@
       lista.push({
         categoria: cat,
         presupuesto: presupuesto,
+        limite: presupuesto, // Alias para compatibilidad con UI y modales
         gastado: gastado,
         porcentaje: porcentaje,
         restante: restante,
@@ -494,20 +495,24 @@
   }
 
   /**
-   * Calcula el historial de ahorro mensual para todos los meses registrados
-   * Permite considerar cierres oficiales de mes (closedMonthsList) y facturación de tarjetas
+   * Calcula el historial de ahorro mensual para todos los meses registrados y proyecta meses futuros
+   * Permite considerar cierres oficiales de mes (closedMonthsList), facturación de tarjetas
+   * y proyecciones de sueldos futuros, gastos fijos y cuotas de TC programadas.
    * 
    * @param {Array} transacciones - Lista de transacciones consolidadas
    * @param {string} mesActualStr - Mes actual de referencia 'YYYY-MM'
    * @param {Array} closedMonthsList - Lista de meses cerrados oficialmente
-   * @returns {Object} Historial completo y métricas de meses cerrados
+   * @param {Array} recurrentesConfig - Configuración de sueldos e ingresos/gastos fijos
+   * @returns {Object} Historial completo y métricas de meses cerrados y proyectados
    */
-  function calcularHistoricoAhorro(transacciones = [], mesActualStr = null, closedMonthsList = []) {
+  function calcularHistoricoAhorro(transacciones = [], mesActualStr = null, closedMonthsList = [], recurrentesConfig = []) {
     if (!mesActualStr) {
       mesActualStr = normalizarMes(new Date());
     } else {
       mesActualStr = normalizarMes(mesActualStr);
     }
+
+    const currentYear = mesActualStr.split('-')[0];
 
     // Mapa de cierres oficiales registrados (desde Google Sheets o almacenamiento local)
     const cierresMap = {};
@@ -518,6 +523,12 @@
     });
 
     const mesesSet = new Set();
+    // Asegurar los 12 meses del año actual
+    for (let m = 1; m <= 12; m++) {
+      const mesPad = String(m).padStart(2, '0');
+      mesesSet.add(`${currentYear}-${mesPad}`);
+    }
+
     if (mesActualStr) mesesSet.add(mesActualStr);
     Object.keys(cierresMap).forEach(m => mesesSet.add(m));
 
@@ -531,47 +542,109 @@
       if (mFe) mesesSet.add(mFe);
     });
 
+    // Fijos recurrentes activos
+    const ingresosFijosActivos = (recurrentesConfig || []).filter(r => 
+      r && (r.activo !== false && String(r.activo) !== 'false' && String(r.activo) !== 'NO') &&
+      r.tipo === 'Ingreso_Fijo'
+    );
+    const sumaIngresosFijos = ingresosFijosActivos.reduce((acc, r) => acc + (parseFloat(r.monto) || 0), 0);
+
+    const gastosFijosActivos = (recurrentesConfig || []).filter(r => 
+      r && (r.activo !== false && String(r.activo) !== 'false' && String(r.activo) !== 'NO') &&
+      r.tipo !== 'Ingreso_Fijo'
+    );
+    const sumaGastosFijos = gastosFijosActivos.reduce((acc, r) => acc + (parseFloat(r.monto) || 0), 0);
+
     const listaMeses = Array.from(mesesSet).sort().reverse().map(mesKey => {
       const cierreOficial = cierresMap[mesKey];
-      const esCerrado = !!cierreOficial || mesKey < mesActualStr;
+      const esFuturo = mesKey > mesActualStr;
+      const esMesEnCurso = mesKey === mesActualStr;
+      const esCerrado = !!cierreOficial || (mesKey < mesActualStr && !esFuturo);
 
-      let ingresos = 0;
-      let gastosDirectos = 0;
-      let prepagos = 0;
-      let pagosTC = 0;
-      let consumosTCFacturados = 0;
-      let prepagosTCFacturados = 0;
+      let finalIngresos = 0;
+      let finalSalidas = 0;
+      let esProyectado = false;
+      let estadoTexto = 'Mes Pasado';
 
-      transacciones.forEach(tx => {
-        const monto = parseFloat(tx.monto) || 0;
-        const txMesEf = normalizarMes(tx.mesImpactoEfectivo);
-        const txMesTC = normalizarMes(tx.mesImpactoTC);
+      if (cierreOficial) {
+        // 1. Cierre oficial congelado con datos históricos
+        finalIngresos = (cierreOficial.ingresosTotales !== undefined) 
+          ? Number(cierreOficial.ingresosTotales) 
+          : (cierreOficial.ingresos !== undefined ? Number(cierreOficial.ingresos) : 0);
+        
+        finalSalidas = (cierreOficial.totalSalidas !== undefined) 
+          ? Number(cierreOficial.totalSalidas) 
+          : (cierreOficial.salidas !== undefined ? Number(cierreOficial.salidas) : 0);
 
-        if (txMesEf === mesKey) {
-          if (tx.tipo === TIPOS_TRANSACCION.INGRESO) ingresos += monto;
-          else if (tx.tipo === TIPOS_TRANSACCION.GASTO_DIRECTO) gastosDirectos += monto;
-          else if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC) prepagos += monto;
-          else if (tx.tipo === TIPOS_TRANSACCION.PAGO_TC_VENCIDA) pagosTC += monto;
-        }
+        estadoTexto = '🔒 Mes Cerrado';
+      } else if (esFuturo) {
+        // 2. Mes futuro proyectado con sueldos recurrentes, gastos fijos y cuotas de TC programadas
+        esProyectado = true;
+        estadoTexto = '🔮 Proyectado';
 
-        if (txMesTC === mesKey) {
-          if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC) consumosTCFacturados += monto;
-          else if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC) prepagosTCFacturados += monto;
-        }
-      });
+        let ingresosFuturos = sumaIngresosFijos;
+        let gastosDirectosFuturos = sumaGastosFijos;
+        let cuotasTCFuturas = 0;
+        let prepagosTCFuturos = 0;
 
-      const deudaFacturadaMes = Math.max(0, consumosTCFacturados - prepagosTCFacturados);
-      const salidaTCMes = Math.max(deudaFacturadaMes, pagosTC);
-      const totalSalidasCalculadas = gastosDirectos + prepagos + salidaTCMes;
+        transacciones.forEach(tx => {
+          if (tx.esFijoProyectado) return; // Evitar duplicar fijos virtuales ya sumados arriba
+          const monto = parseFloat(tx.monto) || 0;
+          const txMesEf = normalizarMes(tx.mesImpactoEfectivo);
+          const txMesTC = normalizarMes(tx.mesImpactoTC);
 
-      // Si existe cierre oficial con datos congelados, se respetan sus valores
-      const finalIngresos = (cierreOficial && (cierreOficial.ingresosTotales !== undefined || cierreOficial.ingresos !== undefined))
-        ? Number(cierreOficial.ingresosTotales !== undefined ? cierreOficial.ingresosTotales : cierreOficial.ingresos)
-        : Number(ingresos.toFixed(2));
+          // Si hay una transacción real programada en ese mes futuro
+          if (txMesEf === mesKey) {
+            if (tx.tipo === TIPOS_TRANSACCION.INGRESO) ingresosFuturos += monto;
+            else if (tx.tipo === TIPOS_TRANSACCION.GASTO_DIRECTO) gastosDirectosFuturos += monto;
+          }
 
-      const finalSalidas = (cierreOficial && (cierreOficial.totalSalidas !== undefined || cierreOficial.salidas !== undefined))
-        ? Number(cierreOficial.totalSalidas !== undefined ? cierreOficial.totalSalidas : cierreOficial.salidas)
-        : Number(totalSalidasCalculadas.toFixed(2));
+          if (txMesTC === mesKey) {
+            if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC && !tx.esLiquidado && tx.estado !== 'LIQUIDADO' && tx.estado !== 'LIQUIDADA') {
+              cuotasTCFuturas += monto;
+            } else if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC) {
+              prepagosTCFuturos += monto;
+            }
+          }
+        });
+
+        const deudaTCFutura = Math.max(0, cuotasTCFuturas - prepagosTCFuturos);
+        finalIngresos = Number(ingresosFuturos.toFixed(2));
+        finalSalidas = Number((gastosDirectosFuturos + deudaTCFutura).toFixed(2));
+      } else {
+        // 3. Mes en curso o mes pasado sin cierre oficial
+        let ingresos = 0;
+        let gastosDirectos = 0;
+        let prepagos = 0;
+        let pagosTC = 0;
+        let consumosTCFacturados = 0;
+        let prepagosTCFacturados = 0;
+
+        transacciones.forEach(tx => {
+          const monto = parseFloat(tx.monto) || 0;
+          const txMesEf = normalizarMes(tx.mesImpactoEfectivo);
+          const txMesTC = normalizarMes(tx.mesImpactoTC);
+
+          if (txMesEf === mesKey) {
+            if (tx.tipo === TIPOS_TRANSACCION.INGRESO) ingresos += monto;
+            else if (tx.tipo === TIPOS_TRANSACCION.GASTO_DIRECTO) gastosDirectos += monto;
+            else if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC) prepagos += monto;
+            else if (tx.tipo === TIPOS_TRANSACCION.PAGO_TC_VENCIDA) pagosTC += monto;
+          }
+
+          if (txMesTC === mesKey) {
+            if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC) consumosTCFacturados += monto;
+            else if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC) prepagosTCFacturados += monto;
+          }
+        });
+
+        const deudaFacturadaMes = Math.max(0, consumosTCFacturados - prepagosTCFacturados);
+        const salidaTCMes = Math.max(deudaFacturadaMes, pagosTC);
+        finalSalidas = Number((gastosDirectos + prepagos + salidaTCMes).toFixed(2));
+        finalIngresos = Number(ingresos.toFixed(2));
+
+        estadoTexto = esMesEnCurso ? '🟢 Mes en Curso' : 'Mes Pasado';
+      }
 
       const ahorroNeto = Number((finalIngresos - finalSalidas).toFixed(2));
       const tasaAhorro = finalIngresos > 0 ? Math.round((ahorroNeto / finalIngresos) * 100) : 0;
@@ -582,10 +655,11 @@
         salidas: finalSalidas,
         ahorroNeto: ahorroNeto,
         tasaAhorro: tasaAhorro,
-        esCerrado: esCerrado,
+        esCerrado: esCerrado && !esFuturo,
         esCierreOficial: !!cierreOficial,
+        esProyectado: esProyectado,
         cierreOficial: cierreOficial || null,
-        estadoTexto: cierreOficial ? '🔒 Mes Cerrado' : (mesKey === mesActualStr ? '🟢 Mes en Curso' : 'Mes Pasado')
+        estadoTexto: estadoTexto
       };
     });
 
@@ -621,13 +695,24 @@
     let totalIngresos = 0;
     let totalSalidas = 0;
     let totalAhorro = 0;
+    let totalAhorroReal = 0;
+    let totalAhorroProyectado = 0;
     let mesesCerradosCount = 0;
+    let mesesProyectadosCount = 0;
 
     mesesAnio.forEach(m => {
       totalIngresos += m.ingresos;
       totalSalidas += m.salidas;
       totalAhorro += m.ahorroNeto;
-      if (m.esCerrado) mesesCerradosCount++;
+      if (m.esCerrado) {
+        mesesCerradosCount++;
+        totalAhorroReal += m.ahorroNeto;
+      } else if (m.esProyectado) {
+        mesesProyectadosCount++;
+        totalAhorroProyectado += m.ahorroNeto;
+      } else {
+        totalAhorroReal += m.ahorroNeto;
+      }
     });
 
     const tasaAhorroPromedio = totalIngresos > 0 ? Math.round((totalAhorro / totalIngresos) * 100) : 0;
@@ -637,8 +722,11 @@
       totalIngresos: Number(totalIngresos.toFixed(2)),
       totalSalidas: Number(totalSalidas.toFixed(2)),
       totalAhorro: Number(totalAhorro.toFixed(2)),
+      totalAhorroReal: Number(totalAhorroReal.toFixed(2)),
+      totalAhorroProyectado: Number(totalAhorroProyectado.toFixed(2)),
       tasaAhorroPromedio: tasaAhorroPromedio,
       mesesCerradosCount: mesesCerradosCount,
+      mesesProyectadosCount: mesesProyectadosCount,
       mesesRegistradosCount: mesesAnio.length,
       meses: mesesAnio
     };
@@ -1106,7 +1194,7 @@
       },
       presupuestos: calcularEstadoPresupuestos(gastosPorCategoria, presupuestosConfig),
       recurrentesEstadoMes: recurrentesEstadoMes,
-      historicoAhorro: calcularHistoricoAhorro(transaccionesConsolidadas, mesActualStr, closedMonths),
+      historicoAhorro: calcularHistoricoAhorro(transaccionesConsolidadas, mesActualStr, closedMonths, recurrentesConfig),
       transaccionesConsolidadas: transaccionesConsolidadas
     };
   }

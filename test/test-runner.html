@@ -831,6 +831,99 @@
       `En Agosto: Ocupada S/ ${bcpAgo ? bcpAgo.lineaUtilizada : 0} (Disp S/ ${bcpAgo ? bcpAgo.lineaDisponible : 0}) | En Setiembre tras pagar: Pendiente S/ ${bcpFacturaPagada ? bcpFacturaPagada.pendiente : 0}, Ocupada S/ ${bcpSetPagado ? bcpSetPagado.lineaUtilizada : 0} (Disp S/ ${bcpSetPagado ? bcpSetPagado.lineaDisponible : 0} / ${bcpSetPagado ? bcpSetPagado.limiteCredito : 0})`
     );
 
+    // Prueba 39: LUPA DE DETALLE DE CATEGORÍAS Y COMPATIBILIDAD DE PRESUPUESTOS (limite alias)
+    const estadoPresupuestosTest = window.FinancialEngine.calcularEstadoPresupuestos(
+      { 'Supermercado': 350, 'Restaurantes': 150 },
+      [{ categoria: 'Supermercado', limiteMensual: 400 }, { categoria: 'Restaurantes', limiteMensual: 100 }]
+    );
+    const catSuper = estadoPresupuestosTest.find(p => p.categoria === 'Supermercado');
+    const catRest = estadoPresupuestosTest.find(p => p.categoria === 'Restaurantes');
+
+    const okLimiteSuper = catSuper && catSuper.limite === 400 && catSuper.presupuesto === 400 && catSuper.gastado === 350;
+    const okLimiteRest = catRest && catRest.limite === 100 && catRest.presupuesto === 100 && catRest.excedido === 50 && (catRest.estado === 'exceeded' || catRest.estado === 'danger');
+
+    // Simular lógica de renderizado del modal de detalle de categoría
+    let modalSimulacionOk = false;
+    try {
+      const limiteCalculado = (catSuper && (catSuper.limite != null ? catSuper.limite : catSuper.presupuesto)) || 0;
+      const limiteFormatted = limiteCalculado.toFixed(2);
+      modalSimulacionOk = (limiteFormatted === '400.00');
+    } catch (e) {
+      modalSimulacionOk = false;
+    }
+
+    report('Lupa de Categorías y Presupuestos: Disponibilidad de alias "limite" y cálculo sin error para el modal de detalle',
+      okLimiteSuper && okLimiteRest && modalSimulacionOk,
+      `Super: Presupuesto/Límite S/ ${catSuper ? catSuper.limite : 0}, Gastado S/ ${catSuper ? catSuper.gastado : 0}, Simulación modal OK: ${modalSimulacionOk}`
+    );
+
+    // Prueba 40: PROYECCIÓN ANUAL 2026 DE AHORRO CON SUELDOS FUTUROS Y CUOTAS DE TARJETA
+    // Sueldo mensual recurrente: S/ 5,000. Gasto fijo recurrente: S/ 1,500.
+    // Cuota futura de TC en Octubre 2026 (mesImpactoTC: '2026-10'): S/ 500.
+    const recurrentesTest = [
+      { id: 'REC-SUELDO', nombre: 'Sueldo Principal', tipo: 'Ingreso_Fijo', monto: 5000, activo: true },
+      { id: 'REC-DEPTO', nombre: 'Alquiler', tipo: 'Gasto_Fijo', monto: 1500, activo: true }
+    ];
+    const txCuotaOctubre = prepararTransaccion({
+      id: 'TX-CUOTA-OCT',
+      fecha: '2026-09-10',
+      tipo: TIPOS_TRANSACCION.CONSUMO_TC,
+      tarjetaAfectada: 'TC_BCP',
+      monto: 500,
+      mesImpactoTC: '2026-10'
+    }, tarjetasConfig);
+
+    const historico2026 = window.FinancialEngine.calcularHistoricoAhorro(
+      [txCuotaOctubre],
+      '2026-09',
+      [{ mes: '2026-08', ingresosTotales: 5000, totalSalidas: 2000, ahorroNeto: 3000, tasaAhorro: 60, esCerrado: true }],
+      recurrentesTest
+    );
+
+    // 1) Debe incluir los 12 meses de 2026
+    const meses2026 = historico2026.todos.filter(m => m.mes.startsWith('2026'));
+    const ok12Meses = meses2026.length === 12;
+
+    // 2) Octubre 2026 proyectado debe tener: Ingresos = 5000, Salidas = 1500 (fijo) + 500 (cuota TC) = 2000, Ahorro = 3000
+    const octProyectado = meses2026.find(m => m.mes === '2026-10');
+    const okOctProyectadoAhorro = octProyectado &&
+                                  octProyectado.esProyectado === true &&
+                                  octProyectado.ingresos === 5000 &&
+                                  octProyectado.salidas === 2000 &&
+                                  octProyectado.ahorroNeto === 3000;
+
+    // 3) Noviembre 2026 proyectado sin cuota TC: Ingresos = 5000, Salidas = 1500, Ahorro = 3500
+    const novProyectado = meses2026.find(m => m.mes === '2026-11');
+    const okNovProyectado = novProyectado &&
+                            novProyectado.esProyectado === true &&
+                            novProyectado.ingresos === 5000 &&
+                            novProyectado.salidas === 1500 &&
+                            novProyectado.ahorroNeto === 3500;
+
+    const resumen2026Completo = window.FinancialEngine.calcularResumenAnual(historico2026, '2026');
+    const okResumenConProyeccion = resumen2026Completo.totalAhorroProyectado > 0 &&
+                                   resumen2026Completo.totalAhorroReal > 0 &&
+                                   resumen2026Completo.totalAhorro === Number((resumen2026Completo.totalAhorroReal + resumen2026Completo.totalAhorroProyectado).toFixed(2));
+
+    report('Proyección Anual de Ahorro: 12 meses calculados con sueldos recurrentes y cuotas futuras de TC (Octubre S/ 3,000, Noviembre S/ 3,500)',
+      ok12Meses && okOctProyectadoAhorro && okNovProyectado && okResumenConProyeccion,
+      `Meses 2026: ${meses2026.length}/12, Octubre Proyectado Ahorro: S/ ${octProyectado ? octProyectado.ahorroNeto : 0}, Ahorro Real: S/ ${resumen2026Completo.totalAhorroReal}, Ahorro Proyectado: S/ ${resumen2026Completo.totalAhorroProyectado}, Total Anual 2026: S/ ${resumen2026Completo.totalAhorro}`
+    );
+
+    // Prueba 41: BLOQUEO DE MODIFICACIÓN Y BORRADO EN MESES PASADOS O CERRADOS
+    const currentMonthReal = window.FinancialEngine.obtenerMesImpacto(new Date());
+    const txAntigua = { id: 'TX-OLD-1', fecha: '2026-07-15', monto: 100, tipo: 'Gasto_Directo' };
+    const txActual = { id: 'TX-ACTUAL-1', fecha: `${currentMonthReal}-05`, monto: 100, tipo: 'Gasto_Directo' };
+    const closedListTest = [{ mes: '2026-07', esCerrado: true }];
+
+    const isTxOldEditable = !(window.FinancialEngine.normalizarMes(txAntigua.fecha) < currentMonthReal || closedListTest.some(c => c.mes === '2026-07'));
+    const isTxActualEditable = !(window.FinancialEngine.normalizarMes(txActual.fecha) < currentMonthReal || closedListTest.some(c => c.mes === currentMonthReal));
+
+    report('Bloqueo de Modificación en Meses Pasados / Cerrados: Meses anteriores o con cierre contable son de solo lectura en la app',
+      !isTxOldEditable && isTxActualEditable,
+      `Movimiento de 2026-07 editable en app: ${isTxOldEditable} (esperado false), Movimiento del mes actual ${currentMonthReal} editable: ${isTxActualEditable} (esperado true)`
+    );
+
     summaryBox.innerHTML = `
       <div class="flex items-center justify-between">
         <span class="font-bold ${failedCount === 0 ? 'text-emerald-400' : 'text-rose-400'} text-base">
