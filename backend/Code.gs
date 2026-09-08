@@ -447,6 +447,11 @@ function getClosedMonths_() {
   if (data.length <= 1) return [];
 
   const list = [];
+  const parseNum_ = (val) => {
+    if (typeof val === 'number') return val;
+    return parseFloat(String(val || '').replace(/[^0-9.-]/g, '')) || 0;
+  };
+
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
     let mesStr = String(row[0] || '').trim();
@@ -455,13 +460,13 @@ function getClosedMonths_() {
     }
     if (!mesStr) continue;
 
-    const ingresos = parseFloat(row[1]) || 0;
-    const gastosDirectos = parseFloat(row[2]) || 0;
-    const prepagos = parseFloat(row[3]) || 0;
-    const pagosTC = parseFloat(row[4]) || 0;
+    const ingresos = parseNum_(row[1]);
+    const gastosDirectos = parseNum_(row[2]);
+    const prepagos = parseNum_(row[3]);
+    const pagosTC = parseNum_(row[4]);
     const salidas = gastosDirectos + prepagos + pagosTC;
-    const ahorroNeto = (row[6] !== undefined && row[6] !== '') ? (parseFloat(row[6]) || (ingresos - salidas)) : (ingresos - salidas);
-    const tasaAhorro = (row[7] !== undefined && row[7] !== '') ? (parseFloat(row[7]) || (ingresos > 0 ? Math.round((ahorroNeto / ingresos) * 100) : 0)) : (ingresos > 0 ? Math.round((ahorroNeto / ingresos) * 100) : 0);
+    const ahorroNeto = (row[6] !== undefined && row[6] !== '') ? parseNum_(row[6]) : (ingresos - salidas);
+    const tasaAhorro = (row[7] !== undefined && row[7] !== '') ? parseNum_(row[7]) : (ingresos > 0 ? Math.round((ahorroNeto / ingresos) * 100) : 0);
     const estadoCierre = row[8] ? String(row[8]).trim() : 'Cerrado';
     const fechaCierre = row[9] ? String(row[9]).trim() : '';
 
