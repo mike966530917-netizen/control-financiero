@@ -813,18 +813,28 @@
         if (t.recurrenteId && String(t.recurrenteId).trim() === recId) return true;
         const notas = String(t.notas || '').toLowerCase();
         const nomLower = recNom.toLowerCase();
-        if (notas.includes(`[fijo: ${recId.toLowerCase()}]`) || (nomLower && notas.includes(`[fijo: ${nomLower}]`))) return true;
-        if (nomLower && (notas === `[fijo] ${nomLower}` || notas.startsWith(`[fijo] ${nomLower}`) || notas.includes(nomLower))) return true;
+        if (notas.includes(`[fijo: ${recId.toLowerCase()}]`)) return true;
+        if (nomLower && (notas.includes(`[fijo: ${nomLower}]`) || notas.startsWith(`[fijo] ${nomLower}`) || notas === `[fijo] ${nomLower}`)) return true;
 
-        // Coincidencia inteligente por tipo y categoría para evitar duplicar Sueldos o gastos fijos en el mes
+        // Coincidencia inteligente por tipo, categoría y monto para evitar duplicar Sueldos o gastos fijos
         const tipoMatch = (rec.tipo === 'Ingreso_Fijo' && t.tipo === TIPOS_TRANSACCION.INGRESO) ||
                           (rec.tipo !== 'Ingreso_Fijo' && t.tipo === TIPOS_TRANSACCION.GASTO_DIRECTO);
         if (tipoMatch) {
           const catTx = normalizarCategoria(t.categoria, t.tipo);
           const catRec = normalizarCategoria(rec.categoria, t.tipo);
           if (catTx && catRec && catTx === catRec) {
-            if (catTx === 'Sueldo') return true;
-            if (Math.abs((parseFloat(t.monto) || 0) - (parseFloat(rec.monto) || 0)) < 0.01) return true;
+            const mTx = parseFloat(t.monto) || 0;
+            const mRec = parseFloat(rec.monto) || 0;
+
+            // Coincidencia exacta de monto
+            if (mRec > 0 && Math.abs(mTx - mRec) < 0.01) return true;
+
+            // Para sueldo, solo concilia automáticamente si el monto es del mismo orden de magnitud
+            // (ej. dentro del 15% por descuentos de ley o pequeñas variaciones),
+            // pero NUNCA permite que un monto pequeño (ej. S/ 28.90 de cashback o transferencias) suplante el sueldo
+            if (catTx === 'Sueldo' && mRec > 0 && mTx >= mRec * 0.85 && mTx <= mRec * 1.15) {
+              return true;
+            }
           }
         }
         return false;
