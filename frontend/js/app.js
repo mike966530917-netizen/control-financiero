@@ -228,7 +228,7 @@
   window.refreshAllData = async () => {
     await loadAppData();
     const modalDetalle = document.getElementById('modal-detalle-categoria');
-    if (modalDetalle && !modalDetalle.classList.contains('hidden') && window.UIManager && window.UIManager.currentDetalleCategoria) {
+    if (modalDetalle && modalDetalle.style.display !== 'none' && window.UIManager && window.UIManager.currentDetalleCategoria) {
       window.UIManager.openDetalleCategoriaModal(window.UIManager.currentDetalleCategoria, window.UIManager.currentDetallePeriodo || 'ACTUAL');
     }
   };
