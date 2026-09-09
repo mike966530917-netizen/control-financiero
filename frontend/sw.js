@@ -3,7 +3,7 @@
  * Carga instantánea offline y gestión de caché de recursos estáticos.
  */
 
-const CACHE_NAME = 'finanzas-pwa-v5';
+const CACHE_NAME = 'finanzas-pwa-v5.1';
 const ASSETS = [
   './',
   './index.html',
@@ -58,9 +58,15 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Network-First para código de la app (JS, HTML, CSS) para asegurar actualizaciones inmediatas
-  const isAppCode = event.request.url.includes('/js/') || 
+  const isAppCode = event.request.mode === 'navigate' ||
+                    event.request.destination === 'document' ||
+                    event.request.destination === 'script' ||
+                    event.request.destination === 'style' ||
+                    event.request.url.includes('/js/') || 
+                    event.request.url.includes('/css/') || 
                     event.request.url.includes('index.html') || 
-                    event.request.mode === 'navigate';
+                    event.request.url.endsWith('/') ||
+                    event.request.url.includes('control-financiero');
 
   if (isAppCode) {
     event.respondWith(

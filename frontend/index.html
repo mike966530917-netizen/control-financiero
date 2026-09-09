@@ -10,28 +10,36 @@
   
   <title>Control Financiero, Tarjetas & Prepagos</title>
   
-  <!-- Invalidación y Purga de Caché de Service Worker v5.0 -->
+  <!-- Invalidación y Purga de Caché de Service Worker v5.1 -->
   <script>
+    window.forcePurgeAndReload = function() {
+      if ('caches' in window) {
+        caches.keys().then(function(keys) {
+          return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+        }).then(function() {
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(regs) {
+              return Promise.all(regs.map(function(r) { return r.unregister(); }));
+            }).then(function() {
+              window.location.href = window.location.pathname + '?nocache=' + Date.now();
+            });
+          } else {
+            window.location.href = window.location.pathname + '?nocache=' + Date.now();
+          }
+        }).catch(function() {
+          window.location.reload(true);
+        });
+      } else {
+        window.location.reload(true);
+      }
+    };
+
     (function() {
-      const APP_BUILD_ID = 'finanzas-pwa-v5.0-refresh';
+      const APP_BUILD_ID = 'finanzas-pwa-v5.1-force';
       const prevBuild = localStorage.getItem('finanzas_build_id');
       if (prevBuild !== APP_BUILD_ID) {
         localStorage.setItem('finanzas_build_id', APP_BUILD_ID);
-        if ('caches' in window) {
-          caches.keys().then(function(keys) {
-            return Promise.all(keys.map(function(k) { return caches.delete(k); }));
-          }).then(function() {
-            if ('serviceWorker' in navigator) {
-              navigator.serviceWorker.getRegistrations().then(function(regs) {
-                return Promise.all(regs.map(function(r) { return r.unregister(); }));
-              }).then(function() {
-                window.location.reload(true);
-              });
-            } else {
-              window.location.reload(true);
-            }
-          }).catch(function() {});
-        }
+        window.forcePurgeAndReload();
       }
     })();
   </script>
@@ -66,7 +74,7 @@
 
   <link rel="stylesheet" href="css/app.css">
 </head>
-<body class="bg-slate-950 text-slate-100 flex flex-col min-h-screen safe-top safe-bottom">
+<body class="bg-slate-950 text-slate-100 flex flex-col min-h-screen safe-top safe-bottom" ontouchstart="">
 
   <!-- ========================================================================
        BARRA SUPERIOR (HEADER STICKY)
@@ -83,6 +91,7 @@
         <div>
           <h1 class="font-extrabold text-base tracking-tight text-white flex items-center gap-1.5">
             Finanzas Pro
+            <span class="text-[9px] px-1.5 py-0.5 rounded-md bg-sky-950 text-sky-400 font-extrabold border border-sky-500/30">v5.1</span>
             <span id="sync-status-badge" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
               Cargando...
             </span>
@@ -93,6 +102,11 @@
 
       <!-- Acciones Header -->
       <div class="flex items-center gap-1.5">
+        <!-- Botón Forzar Recarga y Limpieza -->
+        <button id="btn-force-reload-header" onclick="window.forcePurgeAndReload()" type="button" class="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-sky-400 active:scale-95 transition border border-slate-700/60" title="Limpiar caché y recargar versión más reciente">
+          <span class="text-sm font-bold">🔄</span>
+        </button>
+
         <!-- Botón Instalar PWA (Oculto hasta que el navegador lo permita) -->
         <button id="btn-install-pwa" class="hidden text-xs bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 font-semibold px-2.5 py-1.5 rounded-xl border border-sky-500/40 flex items-center gap-1 active:scale-95 transition">
           📲 Instalar
@@ -771,6 +785,11 @@
             Guardar y Sincronizar
           </button>
         </div>
+        <div class="pt-2">
+          <button type="button" onclick="window.forcePurgeAndReload()" class="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-400 font-bold text-xs border border-sky-500/30 flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer">
+            <span>🔄</span> Limpiar Toda la Caché y Forzar Recarga (v5.1)
+          </button>
+        </div>
       </div>
 
       <!-- Sección Tarjetas de Crédito -->
@@ -1138,11 +1157,11 @@
   <!-- Contenedor flotante de notificaciones Toast -->
   <div id="toast-container" class="fixed top-5 left-4 right-4 z-50 flex flex-col gap-2 pointer-events-none max-w-sm mx-auto"></div>
 
-  <!-- Scripts en orden de dependencia con cache-busting v5.0 -->
-  <script src="js/financial-engine.js?v=5.0"></script>
-  <script src="js/api.js?v=5.0"></script>
-  <script src="js/ui.js?v=5.0"></script>
-  <script src="js/app.js?v=5.0"></script>
+  <!-- Scripts en orden de dependencia con cache-busting v5.1 -->
+  <script src="js/financial-engine.js?v=5.1"></script>
+  <script src="js/api.js?v=5.1"></script>
+  <script src="js/ui.js?v=5.1"></script>
+  <script src="js/app.js?v=5.1"></script>
 
 </body>
 </html>
