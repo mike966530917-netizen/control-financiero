@@ -103,6 +103,16 @@
       });
     }
 
+    if (syncStatusBadge) {
+      syncStatusBadge.style.cursor = 'pointer';
+      syncStatusBadge.title = 'Haz clic para refrescar datos desde Google Sheets';
+      syncStatusBadge.addEventListener('click', async () => {
+        syncStatusBadge.textContent = 'Actualizando...';
+        await loadAppData();
+        UIManager.showToast('Datos sincronizados con Google Sheets', 'info');
+      });
+    }
+
     if (nextMonthBtn) {
       nextMonthBtn.addEventListener('click', () => {
         AppState.selectedMonth = FinancialEngine.sumarMeses(AppState.selectedMonth, 1);
@@ -339,8 +349,12 @@
           
           await ApiService.consolidatePastMonths();
 
-          // También asegurar que los datos calculados en memoria se envíen si estamos offline o para actualización inmediata
-          if (window.lastSummary && window.lastSummary.historicoAhorro) {
+          // Obtener los datos oficiales actualizados directamente de Sheets
+          const remoteClosed = await ApiService.fetchClosedMonths();
+          if (remoteClosed && remoteClosed.length > 0) {
+            AppState.closedMonths = remoteClosed;
+          } else if (window.lastSummary && window.lastSummary.historicoAhorro) {
+            // Si estamos en modo offline, guardar el cálculo local
             const currentM = FinancialEngine.obtenerMesImpacto(new Date());
             const pastUnsaved = window.lastSummary.historicoAhorro.todos.filter(m => 
               m.mes < currentM && !m.esCierreOficial && !m.esProyectado
