@@ -1140,12 +1140,12 @@
               const pct = totalGastado > 0 ? Math.round((val / totalGastado) * 100) : 0;
               const color = colors[idx % colors.length];
               return `
-                <button type="button" onclick="window.UIManager.openDetalleCategoriaModal('${label}')" class="btn-inspect-category w-full flex items-center justify-between p-2 bg-slate-900/60 hover:bg-slate-800/80 rounded-xl border border-slate-800 hover:border-sky-500/40 cursor-pointer transition select-none text-left" data-categoria="${label}" title="Toca para ver los gastos de ${label}">
-                  <div class="flex items-center gap-2 truncate pointer-events-none">
+                <button type="button" onclick="window.UIManager.openDetalleCategoriaModal(this.getAttribute('data-categoria'))" class="btn-inspect-category w-full flex items-center justify-between p-2 bg-slate-900/60 hover:bg-slate-800/80 rounded-xl border border-slate-800 hover:border-sky-500/40 cursor-pointer transition select-none text-left" data-categoria="${label}" title="Toca para ver los gastos de ${label}">
+                  <div class="flex items-center gap-2 truncate">
                     <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: ${color}"></span>
                     <span class="text-slate-300 font-medium truncate text-xs">${label}</span>
                   </div>
-                  <div class="flex items-center gap-1 flex-shrink-0 ml-1 pointer-events-none">
+                  <div class="flex items-center gap-1 flex-shrink-0 ml-1">
                     <span class="text-[11px] text-slate-400">S/ ${val.toFixed(2)}</span>
                     <span class="font-bold text-sky-400 text-xs">(${pct}%)</span>
                   </div>
@@ -1322,26 +1322,27 @@
 
         return `
           <div class="p-3 rounded-2xl glass-panel flex items-center justify-between border border-slate-800">
-            <div class="flex items-center gap-3">
-              <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg bg-slate-800/80">
+            <div class="flex items-center gap-3 min-w-0 flex-1">
+              <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg bg-slate-800/80 flex-shrink-0">
                 ${typeIcon}
               </div>
-              <div>
-                  <button type="button" onclick="window.UIManager.openDetalleCategoriaModal('${tx.categoria || tx.tipo}')" class="btn-inspect-category-btn font-bold text-sm text-slate-100 hover:text-sky-300 active:scale-95 transition flex items-center gap-1.5 cursor-pointer bg-transparent border-0 p-0 text-left" data-inspect-cat="${tx.categoria || tx.tipo}" title="Ver todos los gastos en ${tx.categoria || tx.tipo}">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <button type="button" onclick="window.UIManager.openDetalleCategoriaModal(this.getAttribute('data-inspect-cat'))" class="btn-inspect-category-btn font-bold text-sm text-slate-100 hover:text-sky-300 active:scale-95 transition flex items-center gap-1.5 cursor-pointer bg-transparent border-0 p-0 text-left" data-inspect-cat="${tx.categoria || tx.tipo}" title="Ver todos los gastos en ${tx.categoria || tx.tipo}">
                     <span>${tx.categoria || tx.tipo}</span>
-                    <span class="text-[10px] text-sky-400/80 bg-sky-950/60 px-1 py-0.2 rounded border border-sky-500/20 pointer-events-none">🔍</span>
+                    <span class="text-[10px] text-sky-400/80 bg-sky-950/60 px-1 py-0.2 rounded border border-sky-500/20">🔍</span>
                   </button>
                   <span class="text-[10px] px-2 py-0.5 rounded-md ${badgeColor}">${tx.tipo.replace('_', ' ')}</span>
                   ${(tx.totalCuotas && tx.totalCuotas > 1) ? `<span class="text-[10px] px-2 py-0.5 rounded-md bg-sky-950/80 border border-sky-500/40 text-sky-300 font-extrabold">Cuota ${tx.cuotaActual}/${tx.totalCuotas}</span>` : ''}
                 </div>
-                <p class="text-[11px] text-slate-400">
+                <p class="text-[11px] text-slate-400 truncate mt-0.5">
                   ${tx.fecha} • ${tx.tarjetaAfectada || tx.metodoPago || 'Efectivo'}
                   ${tx.mesImpactoTC ? `(Vence ${(window.FinancialEngine && window.FinancialEngine.normalizarMes) ? window.FinancialEngine.normalizarMes(tx.mesImpactoTC) : tx.mesImpactoTC})` : ''}
                   ${tx.notas ? `• <span class="text-slate-300">${tx.notas}</span>` : ''}
                 </p>
               </div>
             </div>
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-3 flex-shrink-0 ml-2">
               <span class="text-sm ${amountColor}">
                 ${sign}S/ ${(parseFloat(tx.monto) || 0).toFixed(2)}
               </span>
@@ -1406,11 +1407,11 @@
         const widthPercent = Math.min(100, Math.max(3, p.porcentaje));
 
         return `
-          <button type="button" onclick="window.UIManager.openDetalleCategoriaModal('${p.categoria}')" class="btn-inspect-category w-full text-left p-3 bg-slate-900/60 hover:bg-slate-800/80 active:scale-[0.99] rounded-2xl border border-slate-800 hover:border-sky-500/40 space-y-1.5 cursor-pointer transition select-none" data-categoria="${p.categoria}" data-inspect-cat="${p.categoria}" title="Toca para ver qué gastos suman este monto">
-            <div class="flex items-center justify-between text-xs pointer-events-none">
+          <button type="button" onclick="window.UIManager.openDetalleCategoriaModal(this.getAttribute('data-inspect-cat'))" class="btn-inspect-category w-full text-left p-3 bg-slate-900/60 hover:bg-slate-800/80 active:scale-[0.99] rounded-2xl border border-slate-800 hover:border-sky-500/40 space-y-1.5 cursor-pointer transition select-none" data-categoria="${p.categoria}" data-inspect-cat="${p.categoria}" title="Toca para ver qué gastos suman este monto">
+            <div class="flex items-center justify-between text-xs">
               <div class="flex items-center gap-2 font-bold text-slate-200">
                 <span>${p.categoria}</span>
-                <span class="btn-inspect-category-btn text-[10px] text-sky-300 font-semibold px-2 py-0.5 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center gap-1 shadow-sm">
+                <span onclick="event.stopPropagation(); window.UIManager.openDetalleCategoriaModal(this.closest('[data-inspect-cat]').getAttribute('data-inspect-cat'))" class="btn-inspect-category-btn text-[10px] text-sky-300 font-semibold px-2 py-0.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/30 border border-sky-500/30 flex items-center gap-1 shadow-sm active:scale-95 cursor-pointer">
                   🔍 Ver detalle
                 </span>
               </div>
@@ -1419,18 +1420,18 @@
               </span>
             </div>
 
-            <div class="w-full h-2 rounded-full bg-slate-800 overflow-hidden pointer-events-none">
+            <div class="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
               <div class="h-full rounded-full ${barColor} transition-all duration-500" style="width: ${widthPercent}%"></div>
             </div>
 
-            <div class="flex items-center justify-between text-[11px] text-slate-400 pointer-events-none">
+            <div class="flex items-center justify-between text-[11px] text-slate-400">
               <span>Gastado: <strong class="text-slate-200">S/ ${(parseFloat(p.gastado) || 0).toFixed(2)}</strong></span>
               <span>Límite: <strong class="text-slate-300">S/ ${(parseFloat(p.presupuesto) || 0).toFixed(2)}</strong></span>
             </div>
             ${p.restante > 0 ? `
-              <p class="text-[10px] text-emerald-400/90 text-right font-medium pointer-events-none">Te quedan S/ ${(parseFloat(p.restante) || 0).toFixed(2)}</p>
+              <p class="text-[10px] text-emerald-400/90 text-right font-medium">Te quedan S/ ${(parseFloat(p.restante) || 0).toFixed(2)}</p>
             ` : p.excedido > 0 ? `
-              <p class="text-[10px] text-rose-400 text-right font-medium pointer-events-none">Sobregiro de S/ ${(parseFloat(p.excedido) || 0).toFixed(2)}</p>
+              <p class="text-[10px] text-rose-400 text-right font-medium">Sobregiro de S/ ${(parseFloat(p.excedido) || 0).toFixed(2)}</p>
             ` : ''}
           </button>
         `;
