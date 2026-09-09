@@ -975,6 +975,34 @@
       `Ingresos en setiembre: ${ingresosSeptiembre.length} (esperado 1), Monto total: S/ ${ingresosSeptiembre.reduce((a, b) => a + b.monto, 0)}, Estado: ${estadoRec ? estadoRec.estadoMes : 'n/a'}`
     );
 
+    // Prueba 44: PROTECCIÓN CONTRA MONTOS NO COMPARABLES (EJ. S/ 28.90 NO DEBE SUPLANTAR EL SUELDO)
+    const txPequena = {
+      id: 'TX-PEQUENA-1',
+      fecha: '2026-09-05',
+      tipo: 'Ingreso',
+      categoria: 'Sueldo', // Categoría por defecto de ingresos
+      monto: 28.90,
+      mesImpactoEfectivo: '2026-09'
+    };
+    const resPequena = window.FinancialEngine.combinarTransaccionesConRecurrentes(
+      [txPequena], recurrentesTestDeduplicacion, '2026-09', []
+    );
+    const ingresosConPequena = resCombinado.transaccionesConsolidadas.filter(t => t.mesImpactoEfectivo === '2026-09' && t.tipo === 'Ingreso');
+    const estadoRecPequena = resPequena.recurrentesEstadoMes.find(r => r.id === 'REC-SUELDO');
+    const totalIngresosEsperado = resPequena.transaccionesConsolidadas
+      .filter(t => t.mesImpactoEfectivo === '2026-09' && t.tipo === 'Ingreso')
+      .reduce((a, b) => a + (parseFloat(b.monto) || 0), 0);
+
+    const okProteccion = estadoRecPequena && 
+                          estadoRecPequena.estadoMes === 'proyectado' && 
+                          estadoRecPequena.montoMes === 3500 &&
+                          Math.abs(totalIngresosEsperado - (3500 + 28.90)) < 0.01;
+
+    report('Protección de Sueldo: Ingreso menor de S/ 28.90 se mantiene como ingreso variable y NO ajusta ni suplanta el sueldo mensual proyectado (Total: S/ 3,528.90)',
+      okProteccion,
+      `Total ingresos: S/ ${totalIngresosEsperado.toFixed(2)} (esperado 3,528.90), Estado Sueldo: ${estadoRecPequena ? estadoRecPequena.estadoMes : 'n/a'}, Monto Sueldo: ${estadoRecPequena ? estadoRecPequena.montoMes : 0}`
+    );
+
     summaryBox.innerHTML = `
       <div class="flex items-center justify-between">
         <span class="font-bold ${failedCount === 0 ? 'text-emerald-400' : 'text-rose-400'} text-base">

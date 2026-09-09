@@ -1856,7 +1856,8 @@
 
       // Fecha por defecto en el mes seleccionado
       const [anio, mesNum] = (mesActual || new Date().toISOString().slice(0, 7)).split('-').map(Number);
-      const diaAjustado = Math.min(parseInt(item.diaMes, 10) || 1, 28);
+      const maxDiasMes = new Date(anio, mesNum, 0).getDate();
+      const diaAjustado = Math.min(parseInt(item.diaMes, 10) || 1, maxDiasMes);
       const pad = (n) => String(n).padStart(2, '0');
       const fechaDefecto = `${anio}-${pad(mesNum)}-${pad(diaAjustado)}`;
 
