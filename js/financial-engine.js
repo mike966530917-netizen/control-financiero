@@ -42,28 +42,68 @@
     'Otros Ingresos'
   ];
 
+  /**
+   * Normaliza tipos de transacción para aceptar variantes comunes (ej. 'Gasto', 'Consumo', etc.)
+   */
+  function normalizarTipo(tipoRaw, metodoPago = '', tarjetaAfectada = '') {
+    const s = String(tipoRaw || '').trim().toLowerCase();
+    const met = String(metodoPago || '').trim().toLowerCase();
+    const card = String(tarjetaAfectada || '').trim().toLowerCase();
+
+    if (s.includes('ingreso')) return TIPOS_TRANSACCION.INGRESO;
+    if (s.includes('prepago')) return TIPOS_TRANSACCION.PREPAGO_TC;
+    if (s.includes('pago') && (s.includes('tc') || s.includes('vencid') || s.includes('factura'))) {
+      return TIPOS_TRANSACCION.PAGO_TC_VENCIDA;
+    }
+    if (s.includes('consumo') || s === 'tc' || s.includes('tarjeta') || card !== '' || met.includes('tc') || met.includes('tarjeta') || met.includes('crédito') || met.includes('credito')) {
+      return TIPOS_TRANSACCION.CONSUMO_TC;
+    }
+    return TIPOS_TRANSACCION.GASTO_DIRECTO;
+  }
+
   function normalizarCategoria(cat, tipo) {
     if (!cat || typeof cat !== 'string') {
       return tipo === TIPOS_TRANSACCION.INGRESO ? 'Otros Ingresos' : 'Otros Gastos';
     }
-    const c = cat.trim();
-    const aliasMap = {
-      'Vivienda': 'Hogar',
-      'Casa': 'Hogar',
-      'Ocio': 'Entretenimiento',
-      'Diversión': 'Entretenimiento',
-      'Varios': 'Otros Gastos',
-      'General': 'Otros Gastos',
-      'Compras Tarjeta': 'Compras',
-      'Gastos Varios': 'Otros Gastos',
-      'Freelance': 'Freelance / Negocio',
-      'Inversión': 'Inversiones / Rentas',
-      'Inversiones': 'Inversiones / Rentas',
-      'Rentas': 'Inversiones / Rentas',
-      'Ingreso_Extra': 'Freelance / Negocio',
-      'Otros_Ingresos': 'Otros Ingresos'
-    };
-    return aliasMap[c] || c;
+    const raw = cat.trim();
+    if (!raw) {
+      return tipo === TIPOS_TRANSACCION.INGRESO ? 'Otros Ingresos' : 'Otros Gastos';
+    }
+
+    const clean = raw.toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[_\-\s]+/g, ' ')
+      .trim();
+
+    if (tipo === TIPOS_TRANSACCION.INGRESO) {
+      if (clean.includes('sueldo') || clean.includes('salario') || clean.includes('nomina') || clean.includes('planilla')) return 'Sueldo';
+      if (clean.includes('freelance') || clean.includes('negocio') || clean.includes('extra') || clean.includes('honorarios') || clean.includes('recibo')) return 'Freelance / Negocio';
+      if (clean.includes('inversion') || clean.includes('renta') || clean.includes('interes') || clean.includes('dividendo') || clean.includes('deposito')) return 'Inversiones / Rentas';
+      return 'Otros Ingresos';
+    }
+
+    // Mapeo robusto e insensible a tildes/mayúsculas para gastos
+    if (clean.includes('super') || clean.includes('mercado') || clean.includes('bodega') || clean.includes('tottus') || clean.includes('metro') || clean.includes('vea') || clean.includes('wong')) return 'Supermercado';
+    if (clean.includes('restauran') || clean.includes('comida') || clean.includes('almuerzo') || clean.includes('cena') || clean.includes('cafe') || clean.includes('bar') || clean.includes('delivery')) return 'Restaurantes';
+    if (clean.includes('alimentac')) return 'Alimentación';
+    if (clean.includes('hogar') || clean.includes('vivienda') || clean.includes('casa') || clean.includes('alquiler') || clean.includes('depa') || clean.includes('mantenimiento')) return 'Hogar';
+    if (clean.includes('servicio') || clean.includes('luz') || clean.includes('agua') || clean.includes('gas') || clean.includes('telefono') || clean.includes('recibo')) return 'Servicios';
+    if (clean.includes('transporte') || clean.includes('uber') || clean.includes('taxi') || clean.includes('pasaje') || clean.includes('combustible') || clean.includes('gasolina')) return 'Transporte';
+    if (clean.includes('suscripci') || clean.includes('netflix') || clean.includes('spotify') || clean.includes('disney') || clean.includes('youtube') || clean.includes('streaming')) return 'Suscripciones';
+    if (clean.includes('salud') || clean.includes('farmacia') || clean.includes('medico') || clean.includes('doctor') || clean.includes('clinica') || clean.includes('seguro')) return 'Salud';
+    if (clean.includes('educaci') || clean.includes('universidad') || clean.includes('colegio') || clean.includes('curso') || clean.includes('clase') || clean.includes('pension')) return 'Educación';
+    if (clean.includes('compra') || clean.includes('ropa') || clean.includes('tienda') || clean.includes('mall') || clean.includes('zapatos')) return 'Compras';
+    if (clean.includes('tecnolog') || clean.includes('software') || clean.includes('hardware') || clean.includes('app') || clean.includes('computo')) return 'Tecnología';
+    if (clean.includes('entreten') || clean.includes('ocio') || clean.includes('diversi') || clean.includes('cine') || clean.includes('juego') || clean.includes('viaje')) return 'Entretenimiento';
+    if (clean.includes('otro') || clean.includes('vario') || clean.includes('general')) return 'Otros Gastos';
+
+    const matchGasto = CATEGORIAS_GASTO.find(cg => {
+      const cgClean = cg.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+      return cgClean === clean || clean.startsWith(cgClean) || cgClean.startsWith(clean);
+    });
+    if (matchGasto) return matchGasto;
+
+    return raw;
   }
 
   /**
@@ -1050,32 +1090,33 @@
 
     transaccionesConsolidadas.forEach(tx => {
       const monto = parseFloat(tx.monto) || 0;
-      const txMesEfectivo = normalizarMes(tx.mesImpactoEfectivo);
-      const txMesFecha = normalizarMes(tx.fecha);
+      const txMesEfectivo = normalizarMes(tx.mesImpactoEfectivo) || normalizarMes(tx.fecha);
+      const txMesFecha = normalizarMes(tx.fecha) || normalizarMes(tx.mesImpactoEfectivo);
       const esFijo = tx.esFijoProyectado || tx.recurrenteId || (tx.notas && String(tx.notas).includes('[Fijo'));
+      const tipoNorm = normalizarTipo(tx.tipo, tx.metodoPago, tx.tarjetaAfectada);
 
       if (txMesEfectivo === mesActualStr) {
-        if (tx.tipo === TIPOS_TRANSACCION.INGRESO) {
+        if (tipoNorm === TIPOS_TRANSACCION.INGRESO) {
           totalIngresos += monto;
           if (esFijo) totalIngresosFijos += monto;
           else totalIngresosVariables += monto;
 
           const cat = normalizarCategoria(tx.categoria, TIPOS_TRANSACCION.INGRESO);
           ingresosPorCategoria[cat] = (ingresosPorCategoria[cat] || 0) + monto;
-        } else if (tx.tipo === TIPOS_TRANSACCION.GASTO_DIRECTO) {
+        } else if (tipoNorm === TIPOS_TRANSACCION.GASTO_DIRECTO) {
           totalGastosDirectos += monto;
           if (esFijo) totalGastosFijos += monto;
           else totalGastosVariables += monto;
 
           const cat = normalizarCategoria(tx.categoria, TIPOS_TRANSACCION.GASTO_DIRECTO);
           gastosPorCategoria[cat] = (gastosPorCategoria[cat] || 0) + monto;
-        } else if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC) {
+        } else if (tipoNorm === TIPOS_TRANSACCION.PREPAGO_TC) {
           totalPrepagosRealizados += monto;
         }
       }
 
       // En la gráfica de gastos por categoría, incluir los consumos con tarjeta realizados en este mes en sus categorías reales
-      if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC && txMesFecha === mesActualStr && tx.estado !== 'LIQUIDADO' && tx.estado !== 'LIQUIDADA' && !tx.esLiquidado) {
+      if (tipoNorm === TIPOS_TRANSACCION.CONSUMO_TC && txMesFecha === mesActualStr && tx.estado !== 'LIQUIDADO' && tx.estado !== 'LIQUIDADA' && !tx.esLiquidado) {
         const cat = normalizarCategoria(tx.categoria, TIPOS_TRANSACCION.CONSUMO_TC);
         gastosPorCategoria[cat] = (gastosPorCategoria[cat] || 0) + monto;
       }
@@ -1443,12 +1484,13 @@
       }
 
       const monto = parseFloat(tx.monto) || 0;
-      const txMesEfectivo = normalizarMes(tx.mesImpactoEfectivo);
-      const txMesFecha = normalizarMes(tx.fecha);
+      const txMesEfectivo = normalizarMes(tx.mesImpactoEfectivo) || normalizarMes(tx.fecha);
+      const txMesFecha = normalizarMes(tx.fecha) || normalizarMes(tx.mesImpactoEfectivo);
       const esFijo = !!(tx.esFijoProyectado || tx.recurrenteId || (tx.notas && String(tx.notas).includes('[Fijo')));
+      const tipoNorm = normalizarTipo(tx.tipo, tx.metodoPago, tx.tarjetaAfectada);
 
       // 1. Gastos Directos del mes
-      if (tx.tipo === TIPOS_TRANSACCION.GASTO_DIRECTO && txMesEfectivo === mesActualStr) {
+      if (tipoNorm === TIPOS_TRANSACCION.GASTO_DIRECTO && txMesEfectivo === mesActualStr) {
         const catTx = normalizarCategoria(tx.categoria, TIPOS_TRANSACCION.GASTO_DIRECTO);
         if (catTx === catBuscada) {
           totalGastado += monto;
@@ -1467,10 +1509,14 @@
       }
 
       // 2. Consumos con Tarjeta de Crédito realizados en este mes
-      if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC && txMesFecha === mesActualStr) {
+      if (tipoNorm === TIPOS_TRANSACCION.CONSUMO_TC && txMesFecha === mesActualStr) {
         const catTx = normalizarCategoria(tx.categoria, TIPOS_TRANSACCION.CONSUMO_TC);
         if (catTx === catBuscada) {
           totalGastado += monto;
+          const cuotaStr = (tx.cuotaActual && tx.totalCuotas)
+            ? `Cuota ${tx.cuotaActual}/${tx.totalCuotas}`
+            : (tx.numeroCuota && tx.totalCuotas ? `Cuota ${tx.numeroCuota}/${tx.totalCuotas}` : null);
+
           movimientos.push({
             id: tx.id,
             fecha: tx.fecha || '',
@@ -1478,9 +1524,9 @@
             tipo: 'Consumo_TC',
             tipoLabel: 'Tarjeta de Crédito',
             icono: '💳',
-            origen: tx.tarjetaAfectada || 'Tarjeta de Crédito',
+            origen: tx.tarjetaAfectada || tx.metodoPago || 'Tarjeta de Crédito',
             monto: monto,
-            cuotaInfo: tx.numeroCuota && tx.totalCuotas ? `Cuota ${tx.numeroCuota}/${tx.totalCuotas}` : null
+            cuotaInfo: cuotaStr
           });
         }
       }
@@ -1503,6 +1549,7 @@
     TIPOS_TRANSACCION,
     CATEGORIAS_GASTO,
     CATEGORIAS_INGRESO,
+    normalizarTipo,
     normalizarCategoria,
     combinarTransaccionesConRecurrentes,
     calcularCicloTarjeta,
