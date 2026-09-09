@@ -811,9 +811,22 @@
       // Buscar si ya existe una transacción confirmada/asentada para este fijo en el mes
       const txExistente = txsMes.find(t => {
         if (t.recurrenteId && String(t.recurrenteId).trim() === recId) return true;
-        const notas = String(t.notas || '');
-        if (notas.includes(`[Fijo: ${recId}]`) || notas.includes(`[Fijo: ${recNom}]`)) return true;
-        if (notas === `[Fijo] ${recNom}` || notas.startsWith(`[Fijo] ${recNom}`)) return true;
+        const notas = String(t.notas || '').toLowerCase();
+        const nomLower = recNom.toLowerCase();
+        if (notas.includes(`[fijo: ${recId.toLowerCase()}]`) || (nomLower && notas.includes(`[fijo: ${nomLower}]`))) return true;
+        if (nomLower && (notas === `[fijo] ${nomLower}` || notas.startsWith(`[fijo] ${nomLower}`) || notas.includes(nomLower))) return true;
+
+        // Coincidencia inteligente por tipo y categoría para evitar duplicar Sueldos o gastos fijos en el mes
+        const tipoMatch = (rec.tipo === 'Ingreso_Fijo' && t.tipo === TIPOS_TRANSACCION.INGRESO) ||
+                          (rec.tipo !== 'Ingreso_Fijo' && t.tipo === TIPOS_TRANSACCION.GASTO_DIRECTO);
+        if (tipoMatch) {
+          const catTx = normalizarCategoria(t.categoria, t.tipo);
+          const catRec = normalizarCategoria(rec.categoria, t.tipo);
+          if (catTx && catRec && catTx === catRec) {
+            if (catTx === 'Sueldo') return true;
+            if (Math.abs((parseFloat(t.monto) || 0) - (parseFloat(rec.monto) || 0)) < 0.01) return true;
+          }
+        }
         return false;
       });
 

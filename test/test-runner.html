@@ -946,6 +946,35 @@
       `Norm '2026-01: ${normApostrofe}, Norm 2026-2: ${normSimple}, Enero Ahorro: S/ ${mesEnero ? mesEnero.ahorroNeto : 0}, Febrero Ahorro: S/ ${mesFebrero ? mesFebrero.ahorroNeto : 0}`
     );
 
+    // Prueba 43: DEDUPLICACIÓN INTELIGENTE DE SUELDO FIJO EN EL MES EN CURSO
+    const recurrentesTestDeduplicacion = [
+      { id: 'REC-SUELDO', nombre: 'Sueldo Principal', tipo: 'Ingreso_Fijo', monto: 3500, categoria: 'Sueldo', diaMes: 28, activo: true }
+    ];
+    // Transacción real asentada en setiembre
+    const txRealSueldo = {
+      id: 'TX-REAL-1',
+      fecha: '2026-09-28',
+      tipo: 'Ingreso',
+      categoria: 'Sueldo',
+      monto: 3500,
+      mesImpactoEfectivo: '2026-09'
+    };
+    const resCombinado = window.FinancialEngine.combinarTransaccionesConRecurrentes(
+      [txRealSueldo], recurrentesTestDeduplicacion, '2026-09', []
+    );
+    // Debe haber solo 1 transacción (la real) y ninguna virtual duplicada
+    const ingresosSeptiembre = resCombinado.transaccionesConsolidadas.filter(t => t.mesImpactoEfectivo === '2026-09' && t.tipo === 'Ingreso');
+    const estadoRec = resCombinado.recurrentesEstadoMes.find(r => r.id === 'REC-SUELDO');
+
+    const okSinDuplicado = ingresosSeptiembre.length === 1 &&
+                           ingresosSeptiembre[0].monto === 3500 &&
+                           estadoRec && estadoRec.estadoMes === 'confirmado';
+
+    report('Deduplicación Inteligente de Ingresos Fijos: Si el sueldo ya fue registrado en el mes, no se duplica artificialmente (Ingresos: S/ 3,500)',
+      okSinDuplicado,
+      `Ingresos en setiembre: ${ingresosSeptiembre.length} (esperado 1), Monto total: S/ ${ingresosSeptiembre.reduce((a, b) => a + b.monto, 0)}, Estado: ${estadoRec ? estadoRec.estadoMes : 'n/a'}`
+    );
+
     summaryBox.innerHTML = `
       <div class="flex items-center justify-between">
         <span class="font-bold ${failedCount === 0 ? 'text-emerald-400' : 'text-rose-400'} text-base">

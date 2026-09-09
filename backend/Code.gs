@@ -10,7 +10,10 @@
 
 // Nombres de las hojas en Google Sheets
 const SHEETS = {
-  TRANSACCIONES: 'TRANSACCIONES',
+  TRANSACCIONES: 'TRANSACCIONES',       // Histórico general consolidado (preservado intacto)
+  INGRESOS: 'INGRESOS',                 // Pestaña exclusiva de Ingresos
+  GASTOS_EFECTIVO: 'GASTOS_EFECTIVO',   // Pestaña exclusiva de Gastos en efectivo, débito, yape, transferencias
+  GASTOS_TC: 'GASTOS_TC',               // Pestaña exclusiva de Consumos, Prepagos y Pagos de Tarjetas de Crédito
   TARJETAS: 'TARJETAS_CONFIG',
   CONSOLIDADO: 'CONSOLIDADO_MENSUAL',
   PRESUPUESTOS: 'PRESUPUESTOS',
@@ -24,6 +27,7 @@ function onOpen() {
   try {
     const ui = SpreadsheetApp.getUi();
     ui.createMenu('💰 Control Financiero')
+      .addItem('📂 Organizar Transacciones en 3 Pestañas (Ingresos / Efectivo / TC)', 'migrarTransaccionesATresHojas')
       .addItem('📊 Consolidar Meses Pasados en este Sheet', 'consolidarMesesPasados')
       .addItem('⚙️ Inicializar / Reparar Pestañas', 'setupSheets')
       .addToUi();
@@ -42,29 +46,37 @@ function setupSheets() {
   
   // 1. Pestaña TRANSACCIONES (NO destructivo: preserva todos los registros existentes)
   let sheetTx = ss.getSheetByName(SHEETS.TRANSACCIONES);
+  const txHeaders = [
+    'ID', 'Fecha', 'Hora', 'Tipo', 'Metodo_Pago', 
+    'Tarjeta_Afectada', 'Categoria', 'Monto', 'Moneda', 
+    'Mes_Impacto_Efectivo', 'Mes_Impacto_TC', 'Notas'
+  ];
   if (!sheetTx) {
     sheetTx = ss.insertSheet(SHEETS.TRANSACCIONES);
-    const txHeaders = [
-      'ID', 'Fecha', 'Hora', 'Tipo', 'Metodo_Pago', 
-      'Tarjeta_Afectada', 'Categoria', 'Monto', 'Moneda', 
-      'Mes_Impacto_Efectivo', 'Mes_Impacto_TC', 'Notas'
-    ];
     sheetTx.appendRow(txHeaders);
     formatHeaderRow(sheetTx, '#1e293b', '#ffffff');
     sheetTx.setFrozenRows(1);
     sheetTx.getRange(2, 8, 500, 1).setNumberFormat('#,##0.00');
   } else if (sheetTx.getLastRow() === 0) {
-    const txHeaders = [
-      'ID', 'Fecha', 'Hora', 'Tipo', 'Metodo_Pago', 
-      'Tarjeta_Afectada', 'Categoria', 'Monto', 'Moneda', 
-      'Mes_Impacto_Efectivo', 'Mes_Impacto_TC', 'Notas'
-    ];
     sheetTx.appendRow(txHeaders);
     formatHeaderRow(sheetTx, '#1e293b', '#ffffff');
     sheetTx.setFrozenRows(1);
   }
 
-  // 2. Pestaña TARJETAS_CONFIG (Preserva tarjetas personalizadas del usuario)
+  // 2. Las 3 Pestañas Especializadas de Transacciones
+  const sheetIngresos = getOrCreateSheet_(ss, SHEETS.INGRESOS, [
+    'ID', 'Fecha', 'Hora', 'Tipo', 'Metodo_Pago', 'Categoria', 'Monto', 'Moneda', 'Mes_Impacto_Efectivo', 'Notas'
+  ], '#059669', 7);
+
+  const sheetGastosEf = getOrCreateSheet_(ss, SHEETS.GASTOS_EFECTIVO, [
+    'ID', 'Fecha', 'Hora', 'Tipo', 'Metodo_Pago', 'Categoria', 'Monto', 'Moneda', 'Mes_Impacto_Efectivo', 'Notas'
+  ], '#dc2626', 7);
+
+  const sheetGastosTC = getOrCreateSheet_(ss, SHEETS.GASTOS_TC, [
+    'ID', 'Fecha', 'Hora', 'Tipo', 'Tarjeta_Afectada', 'Metodo_Pago', 'Categoria', 'Monto', 'Moneda', 'Mes_Impacto_TC', 'Mes_Impacto_Efectivo', 'Notas'
+  ], '#2563eb', 8);
+
+  // 3. Pestaña TARJETAS_CONFIG (Preserva tarjetas personalizadas del usuario)
   let sheetCards = ss.getSheetByName(SHEETS.TARJETAS);
   if (!sheetCards) {
     sheetCards = ss.insertSheet(SHEETS.TARJETAS);
@@ -88,7 +100,7 @@ function setupSheets() {
     sheetCards.setFrozenRows(1);
   }
 
-  // 3. Pestaña CONSOLIDADO_MENSUAL (Historial oficial de cierres y ahorro mensual)
+  // 4. Pestaña CONSOLIDADO_MENSUAL (Historial oficial de cierres y ahorro mensual)
   let sheetCons = ss.getSheetByName(SHEETS.CONSOLIDADO);
   const consHeaders = [
     'Mes (YYYY-MM)', 'Ingresos_Totales', 'Gastos_Directos', 
@@ -109,12 +121,7 @@ function setupSheets() {
     sheetCons.getRange(2, 2, 100, 6).setNumberFormat('#,##0.00');
   }
 
-  // Auto-consolidar meses pasados si la hoja está vacía
-  if (sheetCons.getLastRow() <= 1) {
-    consolidarMesesPasados(false);
-  }
-
-  // 4. Pestaña PRESUPUESTOS (Preserva presupuestos creados por el usuario)
+  // 5. Pestaña PRESUPUESTOS (Preserva presupuestos creados por el usuario)
   let sheetBudgets = ss.getSheetByName(SHEETS.PRESUPUESTOS);
   if (!sheetBudgets) {
     sheetBudgets = ss.insertSheet(SHEETS.PRESUPUESTOS);
@@ -147,7 +154,7 @@ function setupSheets() {
     sheetBudgets.setFrozenRows(1);
   }
 
-  // 5. Pestaña RECURRENTES (Preserva movimientos fijos del usuario sin datos demo)
+  // 6. Pestaña RECURRENTES (Preserva movimientos fijos del usuario)
   let sheetRec = ss.getSheetByName(SHEETS.RECURRENTES);
   if (!sheetRec) {
     sheetRec = ss.insertSheet(SHEETS.RECURRENTES);
@@ -161,21 +168,23 @@ function setupSheets() {
     sheetRec.appendRow(recHeaders);
     formatHeaderRow(sheetRec, '#6366f1', '#ffffff');
     sheetRec.setFrozenRows(1);
-  } else {
-    // Si la hoja contiene semillas de prueba demo antiguas ('REC-1' a 'REC-5'), limpiarlas automáticamente
-    const data = sheetRec.getDataRange().getValues();
-    for (let i = data.length - 1; i >= 1; i--) {
-      const idStr = String(data[i][0] || '').trim();
-      const nomStr = String(data[i][1] || '').trim();
-      if (['REC-1', 'REC-2', 'REC-3', 'REC-4', 'REC-5'].includes(idStr) ||
-          ['Suscripciones Digitales', 'Alquiler de Vivienda', 'Servicios Luz y Agua', 'Internet Hogar', 'Sueldo Principal'].includes(nomStr)) {
-        sheetRec.deleteRow(i + 1);
-      }
-    }
+  }
+
+  // Si la pestaña TRANSACCIONES tiene datos y las 3 pestañas especializadas están vacías, migrar y ordenar
+  if (sheetTx && sheetTx.getLastRow() > 1 && 
+      (!sheetIngresos || sheetIngresos.getLastRow() <= 1) &&
+      (!sheetGastosEf || sheetGastosEf.getLastRow() <= 1) &&
+      (!sheetGastosTC || sheetGastosTC.getLastRow() <= 1)) {
+    migrarTransaccionesATresHojas(false);
+  }
+
+  // Auto-consolidar meses pasados si la hoja está vacía
+  if (sheetCons && sheetCons.getLastRow() <= 1) {
+    consolidarMesesPasados(false);
   }
 
   // Autoajuste de columnas
-  [sheetTx, sheetCards, sheetCons, sheetBudgets, sheetRec].forEach(s => {
+  [sheetTx, sheetIngresos, sheetGastosEf, sheetGastosTC, sheetCards, sheetCons, sheetBudgets, sheetRec].forEach(s => {
     if (s) {
       for (let c = 1; c <= s.getLastColumn(); c++) {
         s.autoResizeColumn(c);
@@ -291,6 +300,8 @@ function doPost(e) {
       result = reopenMonth_(payload.mes);
     } else if (action === 'consolidatePastMonths') {
       result = consolidarMesesPasados(false);
+    } else if (action === 'migrarTransaccionesATresHojas') {
+      result = migrarTransaccionesATresHojas(false);
     } else {
       result = { success: false, error: 'Acción POST no reconocida' };
     }
@@ -433,18 +444,19 @@ function getRecurrentesConfig_() {
     const idStr = String(row[0] || '').trim();
     const nomStr = String(row[1] || '').trim();
 
-    // Omitir semillas demo de prueba antiguas
-    if (['REC-1', 'REC-2', 'REC-3', 'REC-4', 'REC-5'].includes(idStr)) continue;
-    if (['Suscripciones Digitales', 'Alquiler de Vivienda', 'Servicios Luz y Agua', 'Internet Hogar', 'Sueldo Principal'].includes(nomStr)) continue;
-
-    if (row[0] && row[1]) {
-      const activoVal = String(row[7] || '').trim().toUpperCase();
+    if (idStr || nomStr) {
+      const activoVal = String(row[7] !== undefined ? row[7] : '').trim().toUpperCase();
       const esActivo = (activoVal === 'SI' || activoVal === 'TRUE' || activoVal === '1' || activoVal === '');
+      const rawMonto = row[3];
+      const parsedMonto = typeof rawMonto === 'number'
+        ? rawMonto
+        : parseFloat(String(rawMonto || '').replace(/[^0-9.-]/g, '')) || 0;
+
       items.push({
-        id: idStr,
-        nombre: nomStr,
+        id: idStr || ('REC-' + i),
+        nombre: nomStr || ('Recurrente ' + i),
         tipo: String(row[2] || 'Gasto_Fijo').trim(),
-        monto: parseFloat(row[3]) || 0,
+        monto: parsedMonto,
         categoria: String(row[4] || 'Varios').trim(),
         metodoPago: String(row[5] || 'Efectivo').trim(),
         diaMes: parseInt(row[6], 10) || 1,
@@ -846,10 +858,129 @@ function deleteRecurrente_(id) {
 
 function getTransactions_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEETS.TRANSACCIONES);
-  if (!sheet) return [];
+  
+  const sheetIngresos = ss.getSheetByName(SHEETS.INGRESOS);
+  const sheetGastosEf = ss.getSheetByName(SHEETS.GASTOS_EFECTIVO);
+  const sheetGastosTC = ss.getSheetByName(SHEETS.GASTOS_TC);
 
-  const data = sheet.getDataRange().getValues();
+  const hasNewSheets = (sheetIngresos && sheetIngresos.getLastRow() > 1) ||
+                       (sheetGastosEf && sheetGastosEf.getLastRow() > 1) ||
+                       (sheetGastosTC && sheetGastosTC.getLastRow() > 1);
+
+  const parseNum_ = (val) => {
+    if (typeof val === 'number') return val;
+    if (val === null || val === undefined || val === '') return 0;
+    let s = String(val).trim().replace(/[^0-9.,-]/g, '');
+    if (s.includes(',') && s.includes('.')) {
+      if (s.indexOf('.') < s.indexOf(',')) s = s.replace(/\./g, '').replace(',', '.');
+      else s = s.replace(/,/g, '');
+    } else if (s.includes(',')) s = s.replace(',', '.');
+    return parseFloat(s) || 0;
+  };
+
+  const formatDate_ = (val) => {
+    if (val instanceof Date) return Utilities.formatDate(val, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    return String(val || '').trim().slice(0, 10);
+  };
+
+  const formatMes_ = (val) => {
+    if (val instanceof Date) return Utilities.formatDate(val, Session.getScriptTimeZone(), 'yyyy-MM');
+    let s = String(val || '').trim().replace(/^'+/, '');
+    const match = s.match(/^(\d{4})[-/](\d{1,2})/);
+    if (match) return `${match[1]}-${match[2].padStart(2, '0')}`;
+    return s.slice(0, 7);
+  };
+
+  if (hasNewSheets) {
+    const txs = [];
+
+    // 1. Leer INGRESOS: ['ID', 'Fecha', 'Hora', 'Tipo', 'Metodo_Pago', 'Categoria', 'Monto', 'Moneda', 'Mes_Impacto_Efectivo', 'Notas']
+    if (sheetIngresos && sheetIngresos.getLastRow() > 1) {
+      const data = sheetIngresos.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        const row = data[i];
+        if (row[0] || row[1]) {
+          txs.push({
+            id: String(row[0] || ('TX-ING-' + i)).trim(),
+            fecha: formatDate_(row[1]),
+            hora: String(row[2] || '12:00:00').trim(),
+            tipo: 'Ingreso',
+            metodoPago: String(row[4] || 'Transferencia').trim(),
+            tarjetaAfectada: '',
+            categoria: String(row[5] || 'Otros Ingresos').trim(),
+            monto: parseNum_(row[6]),
+            moneda: String(row[7] || 'PEN').trim(),
+            mesImpactoEfectivo: formatMes_(row[8]),
+            mesImpactoTC: '',
+            notas: String(row[9] || '').trim()
+          });
+        }
+      }
+    }
+
+    // 2. Leer GASTOS_EFECTIVO: ['ID', 'Fecha', 'Hora', 'Tipo', 'Metodo_Pago', 'Categoria', 'Monto', 'Moneda', 'Mes_Impacto_Efectivo', 'Notas']
+    if (sheetGastosEf && sheetGastosEf.getLastRow() > 1) {
+      const data = sheetGastosEf.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        const row = data[i];
+        if (row[0] || row[1]) {
+          txs.push({
+            id: String(row[0] || ('TX-EF-' + i)).trim(),
+            fecha: formatDate_(row[1]),
+            hora: String(row[2] || '12:00:00').trim(),
+            tipo: String(row[3] || 'Gasto_Directo').trim(),
+            metodoPago: String(row[4] || 'Efectivo').trim(),
+            tarjetaAfectada: '',
+            categoria: String(row[5] || 'Varios').trim(),
+            monto: parseNum_(row[6]),
+            moneda: String(row[7] || 'PEN').trim(),
+            mesImpactoEfectivo: formatMes_(row[8]),
+            mesImpactoTC: '',
+            notas: String(row[9] || '').trim()
+          });
+        }
+      }
+    }
+
+    // 3. Leer GASTOS_TC: ['ID', 'Fecha', 'Hora', 'Tipo', 'Tarjeta_Afectada', 'Metodo_Pago', 'Categoria', 'Monto', 'Moneda', 'Mes_Impacto_TC', 'Mes_Impacto_Efectivo', 'Notas']
+    if (sheetGastosTC && sheetGastosTC.getLastRow() > 1) {
+      const data = sheetGastosTC.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        const row = data[i];
+        if (row[0] || row[1]) {
+          txs.push({
+            id: String(row[0] || ('TX-TC-' + i)).trim(),
+            fecha: formatDate_(row[1]),
+            hora: String(row[2] || '12:00:00').trim(),
+            tipo: String(row[3] || 'Consumo_TC').trim(),
+            tarjetaAfectada: String(row[4] || '').trim(),
+            metodoPago: String(row[5] || 'Tarjeta').trim(),
+            categoria: String(row[6] || 'Varios').trim(),
+            monto: parseNum_(row[7]),
+            moneda: String(row[8] || 'PEN').trim(),
+            mesImpactoTC: formatMes_(row[9]),
+            mesImpactoEfectivo: formatMes_(row[10]),
+            notas: String(row[11] || '').trim()
+          });
+        }
+      }
+    }
+
+    // Ordenar todas las transacciones combinadas cronológicamente por Fecha y Hora ascendente
+    txs.sort((a, b) => {
+      const fa = (a.fecha || '') + ' ' + (a.hora || '');
+      const fb = (b.fecha || '') + ' ' + (b.hora || '');
+      return fa < fb ? -1 : (fa > fb ? 1 : 0);
+    });
+
+    return txs;
+  }
+
+  // Fallback: leer de la pestaña TRANSACCIONES original y migrar automáticamente a las 3 hojas
+  const sheetTx = ss.getSheetByName(SHEETS.TRANSACCIONES);
+  if (!sheetTx) return [];
+
+  const data = sheetTx.getDataRange().getValues();
   if (data.length <= 1) return [];
 
   const txs = [];
@@ -858,55 +989,19 @@ function getTransactions_() {
     const hasData = row[0] || (row[1] && row[7] !== '' && row[7] !== null);
     if (hasData) {
       const id = row[0] ? String(row[0]).trim() : ('TX-ROW-' + (i + 1));
-      // Normalizar fechas a ISO string 'YYYY-MM-DD'
-      let fechaStr = row[1];
-      if (row[1] instanceof Date) {
-        fechaStr = Utilities.formatDate(row[1], Session.getScriptTimeZone(), 'yyyy-MM-dd');
-      } else {
-        fechaStr = String(row[1] || '').trim().slice(0, 10);
-      }
-
-      // Normalizar mesImpactoEfectivo y mesImpactoTC para evitar que objetos Date o textos largos lleguen al cliente
-      let mesEfStr = row[9];
-      if (mesEfStr instanceof Date) {
-        mesEfStr = Utilities.formatDate(mesEfStr, Session.getScriptTimeZone(), 'yyyy-MM');
-      } else if (typeof mesEfStr === 'string' && mesEfStr.trim() !== '') {
-        mesEfStr = mesEfStr.trim();
-        if (mesEfStr.indexOf('GMT') !== -1 || mesEfStr.indexOf('00:00:00') !== -1 || !/^\d{4}-\d{2}$/.test(mesEfStr)) {
-          const d = new Date(mesEfStr);
-          if (!isNaN(d.getTime())) {
-            mesEfStr = Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM');
-          }
-        }
-      }
-
-      let mesTcStr = row[10];
-      if (mesTcStr instanceof Date) {
-        mesTcStr = Utilities.formatDate(mesTcStr, Session.getScriptTimeZone(), 'yyyy-MM');
-      } else if (typeof mesTcStr === 'string' && mesTcStr.trim() !== '') {
-        mesTcStr = mesTcStr.trim();
-        if (mesTcStr.indexOf('GMT') !== -1 || mesTcStr.indexOf('00:00:00') !== -1 || !/^\d{4}-\d{2}$/.test(mesTcStr)) {
-          const d = new Date(mesTcStr);
-          if (!isNaN(d.getTime())) {
-            mesTcStr = Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM');
-          }
-        }
-      }
-
-      const rawMonto = row[7];
-      const parsedMonto = typeof rawMonto === 'number' 
-        ? rawMonto 
-        : parseFloat(String(rawMonto || '').replace(/[^0-9.-]/g, '')) || 0;
+      let fechaStr = formatDate_(row[1]);
+      let mesEfStr = formatMes_(row[9]);
+      let mesTcStr = formatMes_(row[10]);
 
       txs.push({
         id: id,
         fecha: fechaStr,
-        hora: String(row[2] || ''),
+        hora: String(row[2] || '12:00:00').trim(),
         tipo: String(row[3] || 'Gasto_Directo').trim(),
         metodoPago: String(row[4] || '').trim(),
         tarjetaAfectada: String(row[5] || '').trim(),
         categoria: String(row[6] || '').trim(),
-        monto: parsedMonto,
+        monto: parseNum_(row[7]),
         moneda: String(row[8] || 'PEN').trim(),
         mesImpactoEfectivo: String(mesEfStr || '').trim(),
         mesImpactoTC: String(mesTcStr || '').trim(),
@@ -914,6 +1009,14 @@ function getTransactions_() {
       });
     }
   }
+
+  // Si hay transacciones en TRANSACCIONES, migrar a las 3 hojas en segundo plano
+  if (txs.length > 0) {
+    try {
+      migrarTransaccionesATresHojas(false);
+    } catch (eMig) {}
+  }
+
   return txs;
 }
 
@@ -987,8 +1090,23 @@ function sumarMeses_(mesYYYYMM, n) {
  */
 function addTransaction_(tx) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEETS.TRANSACCIONES);
-  if (!sheet) throw new Error('Hoja TRANSACCIONES no encontrada.');
+  let sheetTx = ss.getSheetByName(SHEETS.TRANSACCIONES);
+  if (!sheetTx) {
+    setupSheets();
+    sheetTx = ss.getSheetByName(SHEETS.TRANSACCIONES);
+  }
+
+  const sheetIngresos = getOrCreateSheet_(ss, SHEETS.INGRESOS, [
+    'ID', 'Fecha', 'Hora', 'Tipo', 'Metodo_Pago', 'Categoria', 'Monto', 'Moneda', 'Mes_Impacto_Efectivo', 'Notas'
+  ], '#059669', 7);
+
+  const sheetGastosEf = getOrCreateSheet_(ss, SHEETS.GASTOS_EFECTIVO, [
+    'ID', 'Fecha', 'Hora', 'Tipo', 'Metodo_Pago', 'Categoria', 'Monto', 'Moneda', 'Mes_Impacto_Efectivo', 'Notas'
+  ], '#dc2626', 7);
+
+  const sheetGastosTC = getOrCreateSheet_(ss, SHEETS.GASTOS_TC, [
+    'ID', 'Fecha', 'Hora', 'Tipo', 'Tarjeta_Afectada', 'Metodo_Pago', 'Categoria', 'Monto', 'Moneda', 'Mes_Impacto_TC', 'Mes_Impacto_Efectivo', 'Notas'
+  ], '#2563eb', 8);
 
   const cards = getCardsConfig_();
   const id = tx.id || ('TX-' + new Date().getTime() + '-' + Math.floor(Math.random() * 1000));
@@ -1015,12 +1133,21 @@ function addTransaction_(tx) {
       const cuotaId = `${id}_C${c}`;
       const cuotaNotas = notas ? `${notas} (Cuota ${c}/${numCuotas})` : `Cuota ${c}/${numCuotas} sin intereses`;
 
-      sheet.appendRow([
+      // 1. Guardar en TRANSACCIONES (maestro)
+      sheetTx.appendRow([
         cuotaId, cuotaFecha, hora, tipo, metodoPago,
         tarjetaAfectada, categoria, cuotaMonto, moneda,
         '', "'" + cicloCuota.mesImpactoTC, cuotaNotas
       ]);
+
+      // 2. Guardar en GASTOS_TC
+      sheetGastosTC.appendRow([
+        cuotaId, cuotaFecha, hora, tipo, tarjetaAfectada,
+        metodoPago, categoria, cuotaMonto, moneda,
+        "'" + cicloCuota.mesImpactoTC, '', cuotaNotas
+      ]);
     }
+    sortSheetByDate_(sheetGastosTC, 2, 3);
     SpreadsheetApp.flush();
     try {
       verificarYEnviarAlertasAutomaticas_();
@@ -1041,23 +1168,19 @@ function addTransaction_(tx) {
     const card = cards.find(c => c.id === tarjetaAfectada);
     if (!card) throw new Error('Tarjeta no encontrada: ' + tarjetaAfectada);
     const ciclo = calcularCicloTC_(fecha, card.diaCorte, card.diaVencimiento);
-    mesImpactoEfectivo = ''; // NO resta efectivo al consumir con tarjeta
+    mesImpactoEfectivo = '';
     mesImpactoTC = tx.mesImpactoTC || ciclo.mesImpactoTC;
   } else if (tipo === 'Prepago_TC') {
     const card = cards.find(c => c.id === tarjetaAfectada);
     if (!card) throw new Error('Tarjeta no encontrada para Prepago: ' + tarjetaAfectada);
-    // Doble impacto:
-    // 1) Sale efectivo este mes
     mesImpactoEfectivo = mesTransaccion;
-    // 2) Amortiza la deuda de la tarjeta para el próximo ciclo de facturación
     mesImpactoTC = tx.mesImpactoTC || sumarMeses_(mesTransaccion, 1);
   } else if (tipo === 'Pago_TC_Vencida') {
     mesImpactoEfectivo = mesTransaccion;
     mesImpactoTC = tx.mesImpactoTC || mesTransaccion;
   }
 
-  // Se antepone apóstrofe "'" para que Google Sheets almacene el valor como texto estricto
-  // y no intente parsear "2026-10" como una fecha nativa con hora y zona horaria.
+  // 1. Guardar en TRANSACCIONES (maestro)
   const newRow = [
     id, fecha, hora, tipo, metodoPago, tarjetaAfectada,
     categoria, monto, moneda, 
@@ -1065,8 +1188,32 @@ function addTransaction_(tx) {
     mesImpactoTC ? "'" + mesImpactoTC : '', 
     notas
   ];
+  sheetTx.appendRow(newRow);
 
-  sheet.appendRow(newRow);
+  // 2. Guardar en la pestaña correspondiente y ordenar por fecha
+  if (tipo === 'Ingreso') {
+    sheetIngresos.appendRow([
+      id, fecha, hora, tipo, metodoPago, categoria, monto, moneda,
+      mesImpactoEfectivo ? "'" + mesImpactoEfectivo : '', notas
+    ]);
+    sortSheetByDate_(sheetIngresos, 2, 3);
+  } else if (tipo === 'Consumo_TC' || tipo === 'Prepago_TC' || tipo === 'Pago_TC_Vencida') {
+    sheetGastosTC.appendRow([
+      id, fecha, hora, tipo, tarjetaAfectada, metodoPago, categoria, monto, moneda,
+      mesImpactoTC ? "'" + mesImpactoTC : '',
+      mesImpactoEfectivo ? "'" + mesImpactoEfectivo : '',
+      notas
+    ]);
+    sortSheetByDate_(sheetGastosTC, 2, 3);
+  } else {
+    sheetGastosEf.appendRow([
+      id, fecha, hora, tipo, metodoPago, categoria, monto, moneda,
+      mesImpactoEfectivo ? "'" + mesImpactoEfectivo : '', notas
+    ]);
+    sortSheetByDate_(sheetGastosEf, 2, 3);
+  }
+
+  SpreadsheetApp.flush();
 
   // Verificación y envío de alertas automáticas en tiempo real
   try {
@@ -1107,21 +1254,251 @@ function batchSyncTransactions_(txArray) {
 }
 
 /**
- * Elimina una transacción por ID
+ * Elimina una transacción por ID tanto de TRANSACCIONES como de las 3 pestañas especializadas
  */
 function deleteTransaction_(txId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEETS.TRANSACCIONES);
-  if (!sheet) return { success: false, error: 'Hoja no encontrada' };
+  const sheetsToCheck = [
+    ss.getSheetByName(SHEETS.TRANSACCIONES),
+    ss.getSheetByName(SHEETS.INGRESOS),
+    ss.getSheetByName(SHEETS.GASTOS_EFECTIVO),
+    ss.getSheetByName(SHEETS.GASTOS_TC)
+  ];
 
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(txId)) {
-      sheet.deleteRow(i + 1);
-      return { success: true, deletedId: txId };
+  let deleted = false;
+  sheetsToCheck.forEach(sheet => {
+    if (!sheet) return;
+    const data = sheet.getDataRange().getValues();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][0]).trim() === String(txId).trim()) {
+        sheet.deleteRow(i + 1);
+        deleted = true;
+        break;
+      }
+    }
+  });
+
+  SpreadsheetApp.flush();
+  if (deleted) return { success: true, deletedId: txId };
+  return { success: false, error: 'Transacción no encontrada' };
+}
+
+/**
+ * ==============================================================================
+ * CLASIFICACIÓN Y MIGRACIÓN A 3 PESTAÑAS: INGRESOS, GASTOS_EFECTIVO, GASTOS_TC
+ * ==============================================================================
+ * Distribuye todas las transacciones de TRANSACCIONES en 3 pestañas especializadas.
+ * PRESERVA intacta la pestaña TRANSACCIONES original como respaldo histórico.
+ * Ordena cada pestaña cronológicamente por Fecha y Hora ascendente.
+ */
+function migrarTransaccionesATresHojas(mostrarAlerta = true) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  // 1. Obtener todas las transacciones existentes desde TRANSACCIONES
+  let sheetTx = ss.getSheetByName(SHEETS.TRANSACCIONES);
+  if (!sheetTx) {
+    setupSheets();
+    sheetTx = ss.getSheetByName(SHEETS.TRANSACCIONES);
+  }
+
+  const rawData = sheetTx.getDataRange().getValues();
+  if (rawData.length <= 1) {
+    if (mostrarAlerta) {
+      try {
+        const ui = SpreadsheetApp.getUi();
+        ui.alert('Aviso', 'No hay transacciones en TRANSACCIONES para clasificar.', ui.ButtonSet.OK);
+      } catch (e) {}
+    }
+    return { success: true, count: 0 };
+  }
+
+  // 2. Asegurar existencia de las 3 pestañas con formato
+  const sheetIngresos = getOrCreateSheet_(ss, SHEETS.INGRESOS, [
+    'ID', 'Fecha', 'Hora', 'Tipo', 'Metodo_Pago', 'Categoria', 'Monto', 'Moneda', 'Mes_Impacto_Efectivo', 'Notas'
+  ], '#059669', 7);
+
+  const sheetGastosEf = getOrCreateSheet_(ss, SHEETS.GASTOS_EFECTIVO, [
+    'ID', 'Fecha', 'Hora', 'Tipo', 'Metodo_Pago', 'Categoria', 'Monto', 'Moneda', 'Mes_Impacto_Efectivo', 'Notas'
+  ], '#dc2626', 7);
+
+  const sheetGastosTC = getOrCreateSheet_(ss, SHEETS.GASTOS_TC, [
+    'ID', 'Fecha', 'Hora', 'Tipo', 'Tarjeta_Afectada', 'Metodo_Pago', 'Categoria', 'Monto', 'Moneda', 'Mes_Impacto_TC', 'Mes_Impacto_Efectivo', 'Notas'
+  ], '#2563eb', 8);
+
+  // Limpiar datos previos de las 3 pestañas (preservando fila 1 de encabezados)
+  [sheetIngresos, sheetGastosEf, sheetGastosTC].forEach(s => {
+    if (s.getLastRow() > 1) {
+      s.getRange(2, 1, s.getLastRow() - 1, s.getLastColumn()).clearContent();
+    }
+  });
+
+  const listIngresos = [];
+  const listGastosEf = [];
+  const listGastosTC = [];
+
+  const parseNum_ = (val) => {
+    if (typeof val === 'number') return val;
+    if (val === null || val === undefined || val === '') return 0;
+    let s = String(val).trim().replace(/[^0-9.,-]/g, '');
+    if (s.includes(',') && s.includes('.')) {
+      if (s.indexOf('.') < s.indexOf(',')) s = s.replace(/\./g, '').replace(',', '.');
+      else s = s.replace(/,/g, '');
+    } else if (s.includes(',')) s = s.replace(',', '.');
+    return parseFloat(s) || 0;
+  };
+
+  const formatDateVal_ = (val) => {
+    if (val instanceof Date) return Utilities.formatDate(val, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    return String(val || '').trim().slice(0, 10);
+  };
+
+  const formatMesVal_ = (val) => {
+    if (val instanceof Date) return Utilities.formatDate(val, Session.getScriptTimeZone(), 'yyyy-MM');
+    let s = String(val || '').trim().replace(/^'+/, '');
+    const match = s.match(/^(\d{4})[-/](\d{1,2})/);
+    if (match) return `${match[1]}-${match[2].padStart(2, '0')}`;
+    return s.slice(0, 7);
+  };
+
+  // 3. Procesar y clasificar cada fila de TRANSACCIONES
+  for (let i = 1; i < rawData.length; i++) {
+    const row = rawData[i];
+    const hasData = row[0] || (row[1] && row[7] !== '' && row[7] !== null);
+    if (!hasData) continue;
+
+    const id = row[0] ? String(row[0]).trim() : ('TX-ROW-' + (i + 1));
+    const fecha = formatDateVal_(row[1]);
+    const hora = String(row[2] || '12:00:00').trim();
+    const tipo = String(row[3] || 'Gasto_Directo').trim();
+    const metodoPago = String(row[4] || '').trim();
+    const tarjetaAfectada = String(row[5] || '').trim();
+    const categoria = String(row[6] || '').trim();
+    const monto = parseNum_(row[7]);
+    const moneda = String(row[8] || 'PEN').trim();
+    const mesEf = formatMesVal_(row[9]);
+    const mesTC = formatMesVal_(row[10]);
+    const notas = String(row[11] || '').trim();
+
+    if (tipo === 'Ingreso') {
+      listIngresos.push({
+        fechaSort: fecha + ' ' + hora,
+        rowValues: [
+          id, fecha, hora, tipo, metodoPago, categoria, monto, moneda, 
+          mesEf ? "'" + mesEf : '', notas
+        ]
+      });
+    } else if (tipo === 'Consumo_TC' || tipo === 'Prepago_TC' || tipo === 'Pago_TC_Vencida') {
+      listGastosTC.push({
+        fechaSort: fecha + ' ' + hora,
+        rowValues: [
+          id, fecha, hora, tipo, tarjetaAfectada, metodoPago, categoria, monto, moneda, 
+          mesTC ? "'" + mesTC : '', mesEf ? "'" + mesEf : '', notas
+        ]
+      });
+    } else {
+      // Gastos directos en efectivo, yape, débito, transferencias, etc.
+      listGastosEf.push({
+        fechaSort: fecha + ' ' + hora,
+        rowValues: [
+          id, fecha, hora, tipo, metodoPago, categoria, monto, moneda, 
+          mesEf ? "'" + mesEf : '', notas
+        ]
+      });
     }
   }
-  return { success: false, error: 'Transacción no encontrada' };
+
+  // 4. Ordenar cronológicamente por Fecha y Hora ascendente
+  const sortFn = (a, b) => (a.fechaSort < b.fechaSort ? -1 : (a.fechaSort > b.fechaSort ? 1 : 0));
+  listIngresos.sort(sortFn);
+  listGastosEf.sort(sortFn);
+  listGastosTC.sort(sortFn);
+
+  // 5. Escribir en lotes (batch) en cada pestaña
+  if (listIngresos.length > 0) {
+    sheetIngresos.getRange(2, 1, listIngresos.length, listIngresos[0].rowValues.length)
+      .setValues(listIngresos.map(item => item.rowValues));
+    sheetIngresos.getRange(2, 7, listIngresos.length, 1).setNumberFormat('#,##0.00');
+  }
+
+  if (listGastosEf.length > 0) {
+    sheetGastosEf.getRange(2, 1, listGastosEf.length, listGastosEf[0].rowValues.length)
+      .setValues(listGastosEf.map(item => item.rowValues));
+    sheetGastosEf.getRange(2, 7, listGastosEf.length, 1).setNumberFormat('#,##0.00');
+  }
+
+  if (listGastosTC.length > 0) {
+    sheetGastosTC.getRange(2, 1, listGastosTC.length, listGastosTC[0].rowValues.length)
+      .setValues(listGastosTC.map(item => item.rowValues));
+    sheetGastosTC.getRange(2, 8, listGastosTC.length, 1).setNumberFormat('#,##0.00');
+  }
+
+  SpreadsheetApp.flush();
+
+  const totalMigrados = listIngresos.length + listGastosEf.length + listGastosTC.length;
+  if (mostrarAlerta) {
+    try {
+      const ui = SpreadsheetApp.getUi();
+      ui.alert('Organización Completada', 
+        `Se han clasificado y ordenado por fecha ${totalMigrados} movimientos:\n` +
+        `• 💵 INGRESOS: ${listIngresos.length}\n` +
+        `• 👛 GASTOS_EFECTIVO: ${listGastosEf.length}\n` +
+        `• 💳 GASTOS_TC: ${listGastosTC.length}\n\n` +
+        `La pestaña original TRANSACCIONES se mantiene intacta como respaldo histórico.`, 
+        ui.ButtonSet.OK
+      );
+    } catch (e) {}
+  }
+
+  return {
+    success: true,
+    ingresosCount: listIngresos.length,
+    gastosEfCount: listGastosEf.length,
+    gastosTCCount: listGastosTC.length,
+    totalCount: totalMigrados
+  };
+}
+
+/**
+ * Ordena una hoja por fecha (colFecha) y hora (colHora) de forma ascendente
+ */
+function sortSheetByDate_(sheet, colFecha, colHora) {
+  try {
+    if (!sheet) return;
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 2) {
+      const lastCol = sheet.getLastColumn();
+      sheet.getRange(2, 1, lastRow - 1, lastCol).sort([
+        { column: colFecha, ascending: true },
+        { column: colHora, ascending: true }
+      ]);
+    }
+  } catch (e) {
+    Logger.log('Aviso al ordenar hoja ' + (sheet ? sheet.getName() : '') + ': ' + e.toString());
+  }
+}
+
+/**
+ * Obtiene o crea una pestaña con encabezados estilizados y formato
+ */
+function getOrCreateSheet_(ss, sheetName, headers, headerColor, currencyCol) {
+  let sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+    sheet.appendRow(headers);
+    formatHeaderRow(sheet, headerColor, '#ffffff');
+    sheet.setFrozenRows(1);
+    if (currencyCol) {
+      sheet.getRange(2, currencyCol, 500, 1).setNumberFormat('#,##0.00');
+    }
+  } else if (sheet.getLastRow() === 0) {
+    sheet.appendRow(headers);
+    formatHeaderRow(sheet, headerColor, '#ffffff');
+    sheet.setFrozenRows(1);
+    if (currencyCol) {
+      sheet.getRange(2, currencyCol, 500, 1).setNumberFormat('#,##0.00');
+    }
+  }
+  return sheet;
 }
 
 /**
