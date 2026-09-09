@@ -2250,7 +2250,6 @@
       }
 
       // Mostrar modal inmediatamente para que el usuario vea respuesta visual
-      modal.classList.remove('hidden');
       modal.style.display = 'flex';
 
       if (!categoria) {
@@ -2470,12 +2469,10 @@
         }
 
         // Mostrar modal infaliblemente
-        modal.classList.remove('hidden');
         modal.style.display = 'flex';
       } catch (err) {
         console.error('[UI] Error al desplegar detalle de categoría:', err);
         this.showToast(`Error al abrir detalle: ${err.message}`, 'error');
-        modal.classList.remove('hidden');
         modal.style.display = 'flex';
       }
     }
@@ -2483,7 +2480,6 @@
     closeDetalleCategoriaModal() {
       const modal = document.getElementById('modal-detalle-categoria');
       if (modal) {
-        modal.classList.add('hidden');
         modal.style.display = 'none';
       }
     }
