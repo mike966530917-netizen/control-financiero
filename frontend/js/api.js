@@ -221,7 +221,29 @@
       localStorage.setItem(STORAGE_KEYS.CLOSED_MONTHS, JSON.stringify(list || []));
     }
 
+    async fetchClosedMonths() {
+      if (!this.apiUrl || !this.isOnline) {
+        return this.getLocalClosedMonths();
+      }
+
+      try {
+        const url = `${this.apiUrl}${this.apiUrl.includes('?') ? '&' : '?'}action=getClosedMonths`;
+        const res = await fetch(url, { redirect: 'follow', cache: 'no-store' });
+        const data = await res.json();
+        if (data.success && Array.isArray(data.closedMonths)) {
+          this.saveLocalClosedMonths(data.closedMonths);
+          return data.closedMonths;
+        }
+      } catch (err) {
+        console.warn('[API] Error al consultar closedMonths en Sheets:', err);
+      }
+      return this.getLocalClosedMonths();
+    }
+
     async saveClosedMonth(monthData) {
+      if (monthData && monthData.mes) {
+        monthData.mes = String(monthData.mes).replace(/^'+/, '').trim();
+      }
       const list = this.getLocalClosedMonths();
       const idx = list.findIndex(m => m.mes === monthData.mes);
       if (idx >= 0) {
@@ -250,7 +272,8 @@
     }
 
     async reopenMonth(mesKey) {
-      const list = this.getLocalClosedMonths().filter(m => m.mes !== mesKey);
+      const cleanKey = String(mesKey || '').replace(/^'+/, '').trim();
+      const list = this.getLocalClosedMonths().filter(m => m.mes !== cleanKey);
       this.saveLocalClosedMonths(list);
 
       if (!this.apiUrl || !this.isOnline) {
@@ -261,7 +284,7 @@
         await fetch(this.apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action: 'reopenMonth', mes: mesKey }),
+          body: JSON.stringify({ action: 'reopenMonth', mes: cleanKey }),
           redirect: 'follow'
         });
         return { success: true };

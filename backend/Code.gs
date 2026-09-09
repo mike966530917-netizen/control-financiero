@@ -475,26 +475,74 @@ function getClosedMonths_() {
   const list = [];
   const parseNum_ = (val) => {
     if (typeof val === 'number') return val;
-    return parseFloat(String(val || '').replace(/[^0-9.-]/g, '')) || 0;
+    if (val === null || val === undefined || val === '') return 0;
+    let s = String(val).trim().replace(/[^0-9.,-]/g, '');
+    if (s.includes(',') && s.includes('.')) {
+      if (s.indexOf('.') < s.indexOf(',')) {
+        s = s.replace(/\./g, '').replace(',', '.');
+      } else {
+        s = s.replace(/,/g, '');
+      }
+    } else if (s.includes(',')) {
+      s = s.replace(',', '.');
+    }
+    return parseFloat(s) || 0;
   };
+
+  // Detección dinámica e inteligente de columnas según encabezados reales
+  const headerRow = data[0].map(h => String(h || '').trim().toLowerCase());
+  const colMes = headerRow.findIndex(h => h.includes('mes') || h.includes('fecha'));
+  const colIngresos = headerRow.findIndex(h => h.includes('ingreso'));
+  const colGastos = headerRow.findIndex(h => h.includes('gasto'));
+  const colPrepagos = headerRow.findIndex(h => h.includes('prepago'));
+  const colPagosTC = headerRow.findIndex(h => h.includes('pago') || h.includes('tc_vencida'));
+  const colFlujo = headerRow.findIndex(h => h.includes('flujo'));
+  const colAhorro = headerRow.findIndex(h => h.includes('ahorro'));
+  const colTasa = headerRow.findIndex(h => h.includes('tasa'));
+  const colEstado = headerRow.findIndex(h => h.includes('estado'));
+  const colFecha = headerRow.findIndex(h => h.includes('fecha_cierre') || h.includes('cierre'));
 
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
-    let mesStr = String(row[0] || '').trim();
-    if (row[0] instanceof Date) {
-      mesStr = Utilities.formatDate(row[0], Session.getScriptTimeZone(), 'yyyy-MM');
+    const rawMes = colMes >= 0 ? row[colMes] : row[0];
+    let mesStr = String(rawMes || '').trim().replace(/^'+/, '');
+    if (rawMes instanceof Date) {
+      mesStr = Utilities.formatDate(rawMes, Session.getScriptTimeZone(), 'yyyy-MM');
+    }
+    const matchM = mesStr.match(/^(\d{4})[-/](\d{1,2})$/);
+    if (matchM) {
+      mesStr = `${matchM[1]}-${matchM[2].padStart(2, '0')}`;
     }
     if (!mesStr) continue;
 
-    const ingresos = parseNum_(row[1]);
-    const gastosDirectos = parseNum_(row[2]);
-    const prepagos = parseNum_(row[3]);
-    const pagosTC = parseNum_(row[4]);
+    const ingresos = colIngresos >= 0 ? parseNum_(row[colIngresos]) : parseNum_(row[1]);
+    const gastosDirectos = colGastos >= 0 ? parseNum_(row[colGastos]) : parseNum_(row[2]);
+    const prepagos = colPrepagos >= 0 ? parseNum_(row[colPrepagos]) : parseNum_(row[3]);
+    const pagosTC = colPagosTC >= 0 ? parseNum_(row[colPagosTC]) : parseNum_(row[4]);
     const salidas = gastosDirectos + prepagos + pagosTC;
-    const ahorroNeto = (row[6] !== undefined && row[6] !== '') ? parseNum_(row[6]) : (ingresos - salidas);
-    const tasaAhorro = (row[7] !== undefined && row[7] !== '') ? parseNum_(row[7]) : (ingresos > 0 ? Math.round((ahorroNeto / ingresos) * 100) : 0);
-    const estadoCierre = row[8] ? String(row[8]).trim() : 'Cerrado';
-    const fechaCierre = row[9] ? String(row[9]).trim() : '';
+
+    // Obtener ahorro neto desde columna de Ahorro, Flujo Libre o cálculo
+    const rawAhorro = colAhorro >= 0 ? parseNum_(row[colAhorro]) : null;
+    const rawFlujo = colFlujo >= 0 ? parseNum_(row[colFlujo]) : null;
+
+    let ahorroNeto = 0;
+    if (rawAhorro !== null && rawAhorro !== 0) {
+      ahorroNeto = rawAhorro;
+    } else if (rawFlujo !== null && rawFlujo !== 0) {
+      ahorroNeto = rawFlujo;
+    } else if (ingresos !== 0 || salidas !== 0) {
+      ahorroNeto = ingresos - salidas;
+    } else {
+      ahorroNeto = rawAhorro !== null ? rawAhorro : (rawFlujo !== null ? rawFlujo : 0);
+    }
+
+    let tasaAhorro = colTasa >= 0 ? parseNum_(row[colTasa]) : 0;
+    if (tasaAhorro === 0 && ingresos > 0) {
+      tasaAhorro = Math.round((ahorroNeto / ingresos) * 100);
+    }
+
+    const estadoCierre = colEstado >= 0 ? String(row[colEstado] || '').trim() : 'Cerrado';
+    const fechaCierre = colFecha >= 0 ? String(row[colFecha] || '').trim() : '';
 
     list.push({
       mes: mesStr,
@@ -503,9 +551,10 @@ function getClosedMonths_() {
       prepagosTC: prepagos,
       pagosTC: pagosTC,
       totalSalidas: salidas,
+      flujoLibreNeto: ahorroNeto,
       ahorroNeto: ahorroNeto,
       tasaAhorro: tasaAhorro,
-      esCerrado: estadoCierre === 'Cerrado',
+      esCerrado: estadoCierre !== 'Abierto',
       fechaCierre: fechaCierre,
       cerradoPorUsuario: true
     });
@@ -521,17 +570,20 @@ function saveClosedMonth_(monthData) {
     sheet = ss.getSheetByName(SHEETS.CONSOLIDADO);
   }
 
-  const mesKey = String(monthData.mes || '').trim();
+  const mesKey = String(monthData.mes || '').trim().replace(/^'+/, '');
   if (!mesKey) throw new Error('Mes inválido');
 
   const data = sheet.getDataRange().getValues();
   let foundRow = -1;
 
   for (let i = 1; i < data.length; i++) {
-    let rowMes = String(data[i][0] || '').trim();
+    let rowMes = String(data[i][0] || '').trim().replace(/^'+/, '');
     if (data[i][0] instanceof Date) {
       rowMes = Utilities.formatDate(data[i][0], Session.getScriptTimeZone(), 'yyyy-MM');
     }
+    const matchM = rowMes.match(/^(\d{4})[-/](\d{1,2})$/);
+    if (matchM) rowMes = `${matchM[1]}-${matchM[2].padStart(2, '0')}`;
+
     if (rowMes === mesKey) {
       foundRow = i + 1;
       break;
@@ -545,8 +597,8 @@ function saveClosedMonth_(monthData) {
     parseFloat(monthData.gastosDirectos) || 0,
     parseFloat(monthData.prepagosTC || monthData.prepagos) || 0,
     parseFloat(monthData.pagosTC || monthData.facturacionTC) || 0,
-    parseFloat(monthData.flujoLibreNeto || monthData.balanceLibreNeto) || 0,
-    parseFloat(monthData.ahorroNeto) || 0,
+    parseFloat(monthData.flujoLibreNeto || monthData.balanceLibreNeto || monthData.ahorroNeto) || 0,
+    parseFloat(monthData.ahorroNeto || monthData.flujoLibreNeto) || 0,
     parseFloat(monthData.tasaAhorro) || 0,
     'Cerrado',
     monthData.fechaCierre || nowStr,
@@ -567,19 +619,23 @@ function reopenMonth_(mesKey) {
   const sheet = ss.getSheetByName(SHEETS.CONSOLIDADO);
   if (!sheet) return { success: true };
 
+  const targetMes = String(mesKey || '').trim().replace(/^'+/, '');
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
-    let rowMes = String(data[i][0] || '').trim();
+    let rowMes = String(data[i][0] || '').trim().replace(/^'+/, '');
     if (data[i][0] instanceof Date) {
       rowMes = Utilities.formatDate(data[i][0], Session.getScriptTimeZone(), 'yyyy-MM');
     }
-    if (rowMes === mesKey) {
+    const matchM = rowMes.match(/^(\d{4})[-/](\d{1,2})$/);
+    if (matchM) rowMes = `${matchM[1]}-${matchM[2].padStart(2, '0')}`;
+
+    if (rowMes === targetMes) {
       sheet.deleteRow(i + 1);
       break;
     }
   }
   SpreadsheetApp.flush();
-  return { success: true, mes: mesKey };
+  return { success: true, mes: targetMes };
 }
 
 /**
@@ -599,10 +655,12 @@ function consolidarMesesPasados(mostrarAlerta = true) {
   const existingData = sheetCons.getDataRange().getValues();
   const closedSet = new Set();
   for (let i = 1; i < existingData.length; i++) {
-    let m = String(existingData[i][0] || '').trim();
+    let m = String(existingData[i][0] || '').trim().replace(/^'+/, '');
     if (existingData[i][0] instanceof Date) {
       m = Utilities.formatDate(existingData[i][0], Session.getScriptTimeZone(), 'yyyy-MM');
     }
+    const matchM = m.match(/^(\d{4})[-/](\d{1,2})$/);
+    if (matchM) m = `${matchM[1]}-${matchM[2].padStart(2, '0')}`;
     if (m) closedSet.add(m);
   }
 

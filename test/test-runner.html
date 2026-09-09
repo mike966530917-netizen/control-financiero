@@ -924,6 +924,28 @@
       `Movimiento de 2026-07 editable en app: ${isTxOldEditable} (esperado false), Movimiento del mes actual ${currentMonthReal} editable: ${isTxActualEditable} (esperado true)`
     );
 
+    // Prueba 42: LECTURA DE AHORRO MANUAL EDITADO EN GOOGLE SHEETS Y NORMALIZACIÓN DE APÓSTROFE
+    const normApostrofe = window.FinancialEngine.normalizarMes("'2026-01");
+    const normSimple = window.FinancialEngine.normalizarMes("2026-2");
+    const okNorm = normApostrofe === '2026-01' && normSimple === '2026-02';
+
+    // Simular un mes cerrado donde el usuario editó en Google Sheet Ahorro = S/ 2500 directamente
+    const closedFromSheets = [
+      { mes: "'2026-01", ahorroNeto: 2500, ingresosTotales: 0, totalSalidas: 0, esCerrado: true },
+      { mes: "2026-02", ahorroNeto: 1800, ingresosTotales: 5000, totalSalidas: 3200, esCerrado: true }
+    ];
+    const histConSheetsManual = window.FinancialEngine.calcularHistoricoAhorro([], '2026-09', closedFromSheets, []);
+    const mesEnero = histConSheetsManual.todos.find(m => m.mes === '2026-01');
+    const mesFebrero = histConSheetsManual.todos.find(m => m.mes === '2026-02');
+
+    const okEneroAhorro = mesEnero && mesEnero.ahorroNeto === 2500 && mesEnero.esCierreOficial === true;
+    const okFebreroAhorro = mesFebrero && mesFebrero.ahorroNeto === 1800 && mesFebrero.esCierreOficial === true;
+
+    report('Lectura Robusta de Ahorros Manuales desde Google Sheets: Respeta Ahorro_Neto sin sobreecribirlo en 0 y normaliza apóstrofes (\'2026-01 -> 2026-01)',
+      okNorm && okEneroAhorro && okFebreroAhorro,
+      `Norm '2026-01: ${normApostrofe}, Norm 2026-2: ${normSimple}, Enero Ahorro: S/ ${mesEnero ? mesEnero.ahorroNeto : 0}, Febrero Ahorro: S/ ${mesFebrero ? mesFebrero.ahorroNeto : 0}`
+    );
+
     summaryBox.innerHTML = `
       <div class="flex items-center justify-between">
         <span class="font-bold ${failedCount === 0 ? 'text-emerald-400' : 'text-rose-400'} text-base">

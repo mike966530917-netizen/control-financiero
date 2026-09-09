@@ -143,14 +143,26 @@
   function normalizarMes(val) {
     if (!val) return '';
     if (typeof val !== 'string') val = String(val);
-    val = val.trim();
+    val = val.replace(/^'+/, '').trim();
     if (!val) return '';
 
     // Si ya es YYYY-MM
     if (/^\d{4}-\d{2}$/.test(val)) return val;
 
+    // Si es YYYY-M o YYYY/M o YYYY/MM
+    const simpleMatch = val.match(/^(\d{4})[-/](\d{1,2})$/);
+    if (simpleMatch) {
+      return `${simpleMatch[1]}-${simpleMatch[2].padStart(2, '0')}`;
+    }
+
     // Si empieza con YYYY-MM-DD
     if (/^\d{4}-\d{2}-\d{2}/.test(val)) return val.slice(0, 7);
+
+    // Si tiene formato DD/MM/YYYY
+    const dmyMatch = val.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+    if (dmyMatch) {
+      return `${dmyMatch[3]}-${dmyMatch[2].padStart(2, '0')}`;
+    }
 
     // Si es un string de fecha largo de Google Sheets o Date estándar
     const parsed = new Date(val);
@@ -160,7 +172,7 @@
       return `${y}-${m}`;
     }
 
-    return val.slice(0, 7);
+    return val.replace(/[^0-9-]/g, '').slice(0, 7);
   }
 
   /**
@@ -563,18 +575,38 @@
 
       let finalIngresos = 0;
       let finalSalidas = 0;
+      let ahorroNeto = 0;
+      let tasaAhorro = 0;
       let esProyectado = false;
       let estadoTexto = 'Mes Pasado';
 
       if (cierreOficial) {
         // 1. Cierre oficial congelado con datos históricos
-        finalIngresos = (cierreOficial.ingresosTotales !== undefined) 
+        finalIngresos = (cierreOficial.ingresosTotales !== undefined && cierreOficial.ingresosTotales !== null) 
           ? Number(cierreOficial.ingresosTotales) 
           : (cierreOficial.ingresos !== undefined ? Number(cierreOficial.ingresos) : 0);
         
-        finalSalidas = (cierreOficial.totalSalidas !== undefined) 
+        finalSalidas = (cierreOficial.totalSalidas !== undefined && cierreOficial.totalSalidas !== null) 
           ? Number(cierreOficial.totalSalidas) 
           : (cierreOficial.salidas !== undefined ? Number(cierreOficial.salidas) : 0);
+
+        // Si el cierre oficial tiene ahorroNeto explícito (de Google Sheets), usarlo directamente
+        if (cierreOficial.ahorroNeto !== undefined && cierreOficial.ahorroNeto !== null && !isNaN(Number(cierreOficial.ahorroNeto))) {
+          ahorroNeto = Number(Number(cierreOficial.ahorroNeto).toFixed(2));
+          // Si el usuario editó el ahorro pero dejó ingresos y salidas en 0, cuadrar ingresos
+          if (finalIngresos === 0 && finalSalidas === 0 && ahorroNeto !== 0) {
+            if (ahorroNeto > 0) finalIngresos = ahorroNeto;
+            else finalSalidas = Math.abs(ahorroNeto);
+          }
+        } else {
+          ahorroNeto = Number((finalIngresos - finalSalidas).toFixed(2));
+        }
+
+        if (cierreOficial.tasaAhorro !== undefined && cierreOficial.tasaAhorro !== null && !isNaN(Number(cierreOficial.tasaAhorro)) && Number(cierreOficial.tasaAhorro) > 0) {
+          tasaAhorro = Math.round(Number(cierreOficial.tasaAhorro));
+        } else {
+          tasaAhorro = finalIngresos > 0 ? Math.round((ahorroNeto / finalIngresos) * 100) : 0;
+        }
 
         estadoTexto = '🔒 Mes Cerrado';
       } else if (esFuturo) {
@@ -611,6 +643,8 @@
         const deudaTCFutura = Math.max(0, cuotasTCFuturas - prepagosTCFuturos);
         finalIngresos = Number(ingresosFuturos.toFixed(2));
         finalSalidas = Number((gastosDirectosFuturos + deudaTCFutura).toFixed(2));
+        ahorroNeto = Number((finalIngresos - finalSalidas).toFixed(2));
+        tasaAhorro = finalIngresos > 0 ? Math.round((ahorroNeto / finalIngresos) * 100) : 0;
       } else {
         // 3. Mes en curso o mes pasado sin cierre oficial
         let ingresos = 0;
@@ -642,12 +676,11 @@
         const salidaTCMes = Math.max(deudaFacturadaMes, pagosTC);
         finalSalidas = Number((gastosDirectos + prepagos + salidaTCMes).toFixed(2));
         finalIngresos = Number(ingresos.toFixed(2));
+        ahorroNeto = Number((finalIngresos - finalSalidas).toFixed(2));
+        tasaAhorro = finalIngresos > 0 ? Math.round((ahorroNeto / finalIngresos) * 100) : 0;
 
         estadoTexto = esMesEnCurso ? '🟢 Mes en Curso' : 'Mes Pasado';
       }
-
-      const ahorroNeto = Number((finalIngresos - finalSalidas).toFixed(2));
-      const tasaAhorro = finalIngresos > 0 ? Math.round((ahorroNeto / finalIngresos) * 100) : 0;
 
       return {
         mes: mesKey,
