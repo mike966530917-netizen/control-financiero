@@ -3,7 +3,7 @@
  * Carga instantánea offline y gestión de caché de recursos estáticos.
  */
 
-const CACHE_NAME = 'finanzas-pwa-v5.1';
+const CACHE_NAME = 'finanzas-pwa-v5.2';
 const ASSETS = [
   './',
   './index.html',

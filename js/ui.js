@@ -153,9 +153,12 @@
         const trigger = el.closest('.btn-inspect-category, .btn-inspect-category-btn, [data-inspect-cat]');
         if (trigger) {
           const cat = trigger.getAttribute('data-inspect-cat') || trigger.getAttribute('data-categoria');
+          console.log('[LUPA v5.2] Click delegado detectado — trigger:', trigger.tagName, '| cat:', cat);
           if (cat) {
             e.preventDefault();
             this.openDetalleCategoriaModal(cat);
+          } else {
+            console.warn('[LUPA v5.2] El trigger no tiene data-inspect-cat ni data-categoria:', trigger.outerHTML.slice(0, 200));
           }
         }
       });
@@ -1140,25 +1143,18 @@
               const pct = totalGastado > 0 ? Math.round((val / totalGastado) * 100) : 0;
               const color = colors[idx % colors.length];
               return `
-                <button type="button" onclick="window.UIManager.openDetalleCategoriaModal(this.getAttribute('data-categoria'))" class="btn-inspect-category w-full flex items-center justify-between p-2 bg-slate-900/60 hover:bg-slate-800/80 rounded-xl border border-slate-800 hover:border-sky-500/40 cursor-pointer transition select-none text-left" data-categoria="${label}" title="Toca para ver los gastos de ${label}">
-                  <div class="flex items-center gap-2 truncate">
+                <button type="button" class="btn-inspect-category w-full flex items-center justify-between p-2 bg-slate-900/60 hover:bg-slate-800/80 rounded-xl border border-slate-800 hover:border-sky-500/40 cursor-pointer transition select-none text-left" data-inspect-cat="${label}" title="Toca para ver los gastos de ${label}">
+                  <div class="flex items-center gap-2 truncate pointer-events-none">
                     <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: ${color}"></span>
                     <span class="text-slate-300 font-medium truncate text-xs">${label}</span>
                   </div>
-                  <div class="flex items-center gap-1 flex-shrink-0 ml-1">
+                  <div class="flex items-center gap-1 flex-shrink-0 ml-1 pointer-events-none">
                     <span class="text-[11px] text-slate-400">S/ ${val.toFixed(2)}</span>
                     <span class="font-bold text-sky-400 text-xs">(${pct}%)</span>
                   </div>
                 </button>
               `;
             }).join('');
-
-            catLegend.querySelectorAll('.btn-inspect-category').forEach(el => {
-              el.addEventListener('click', () => {
-                const cat = el.getAttribute('data-categoria');
-                this.openDetalleCategoriaModal(cat);
-              });
-            });
           }
         }
       }
@@ -1328,9 +1324,9 @@
               </div>
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1.5 flex-wrap">
-                  <button type="button" onclick="window.UIManager.openDetalleCategoriaModal(this.getAttribute('data-inspect-cat'))" class="btn-inspect-category-btn font-bold text-sm text-slate-100 hover:text-sky-300 active:scale-95 transition flex items-center gap-1.5 cursor-pointer bg-transparent border-0 p-0 text-left" data-inspect-cat="${tx.categoria || tx.tipo}" title="Ver todos los gastos en ${tx.categoria || tx.tipo}">
-                    <span>${tx.categoria || tx.tipo}</span>
-                    <span class="text-[10px] text-sky-400/80 bg-sky-950/60 px-1 py-0.2 rounded border border-sky-500/20">🔍</span>
+                  <button type="button" class="btn-inspect-category-btn font-bold text-sm text-slate-100 hover:text-sky-300 active:scale-95 transition flex items-center gap-1.5 cursor-pointer bg-transparent border-0 p-0 text-left" data-inspect-cat="${tx.categoria || tx.tipo}" title="Ver todos los gastos en ${tx.categoria || tx.tipo}">
+                    <span class="pointer-events-none">${tx.categoria || tx.tipo}</span>
+                    <span class="text-[10px] text-sky-400/80 bg-sky-950/60 px-1 py-0.2 rounded border border-sky-500/20 pointer-events-none">🔍</span>
                   </button>
                   <span class="text-[10px] px-2 py-0.5 rounded-md ${badgeColor}">${tx.tipo.replace('_', ' ')}</span>
                   ${(tx.totalCuotas && tx.totalCuotas > 1) ? `<span class="text-[10px] px-2 py-0.5 rounded-md bg-sky-950/80 border border-sky-500/40 text-sky-300 font-extrabold">Cuota ${tx.cuotaActual}/${tx.totalCuotas}</span>` : ''}
@@ -1407,11 +1403,11 @@
         const widthPercent = Math.min(100, Math.max(3, p.porcentaje));
 
         return `
-          <button type="button" onclick="window.UIManager.openDetalleCategoriaModal(this.getAttribute('data-inspect-cat'))" class="btn-inspect-category w-full text-left p-3 bg-slate-900/60 hover:bg-slate-800/80 active:scale-[0.99] rounded-2xl border border-slate-800 hover:border-sky-500/40 space-y-1.5 cursor-pointer transition select-none" data-categoria="${p.categoria}" data-inspect-cat="${p.categoria}" title="Toca para ver qué gastos suman este monto">
-            <div class="flex items-center justify-between text-xs">
+          <button type="button" class="btn-inspect-category w-full text-left p-3 bg-slate-900/60 hover:bg-slate-800/80 active:scale-[0.99] rounded-2xl border border-slate-800 hover:border-sky-500/40 space-y-1.5 cursor-pointer transition select-none" data-inspect-cat="${p.categoria}" title="Toca para ver qué gastos suman este monto">
+            <div class="flex items-center justify-between text-xs pointer-events-none">
               <div class="flex items-center gap-2 font-bold text-slate-200">
                 <span>${p.categoria}</span>
-                <span onclick="event.stopPropagation(); window.UIManager.openDetalleCategoriaModal(this.closest('[data-inspect-cat]').getAttribute('data-inspect-cat'))" class="btn-inspect-category-btn text-[10px] text-sky-300 font-semibold px-2 py-0.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/30 border border-sky-500/30 flex items-center gap-1 shadow-sm active:scale-95 cursor-pointer">
+                <span class="text-[10px] text-sky-300 font-semibold px-2 py-0.5 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center gap-1">
                   🔍 Ver detalle
                 </span>
               </div>
@@ -1420,18 +1416,18 @@
               </span>
             </div>
 
-            <div class="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+            <div class="w-full h-2 rounded-full bg-slate-800 overflow-hidden pointer-events-none">
               <div class="h-full rounded-full ${barColor} transition-all duration-500" style="width: ${widthPercent}%"></div>
             </div>
 
-            <div class="flex items-center justify-between text-[11px] text-slate-400">
+            <div class="flex items-center justify-between text-[11px] text-slate-400 pointer-events-none">
               <span>Gastado: <strong class="text-slate-200">S/ ${(parseFloat(p.gastado) || 0).toFixed(2)}</strong></span>
               <span>Límite: <strong class="text-slate-300">S/ ${(parseFloat(p.presupuesto) || 0).toFixed(2)}</strong></span>
             </div>
             ${p.restante > 0 ? `
-              <p class="text-[10px] text-emerald-400/90 text-right font-medium">Te quedan S/ ${(parseFloat(p.restante) || 0).toFixed(2)}</p>
+              <p class="text-[10px] text-emerald-400/90 text-right font-medium pointer-events-none">Te quedan S/ ${(parseFloat(p.restante) || 0).toFixed(2)}</p>
             ` : p.excedido > 0 ? `
-              <p class="text-[10px] text-rose-400 text-right font-medium">Sobregiro de S/ ${(parseFloat(p.excedido) || 0).toFixed(2)}</p>
+              <p class="text-[10px] text-rose-400 text-right font-medium pointer-events-none">Sobregiro de S/ ${(parseFloat(p.excedido) || 0).toFixed(2)}</p>
             ` : ''}
           </button>
         `;
@@ -2246,9 +2242,19 @@
     }
 
     openDetalleCategoriaModal(categoria, periodo = 'ACTUAL') {
+      console.log('[LUPA v5.2] openDetalleCategoriaModal llamada con:', categoria, '| periodo:', periodo);
       const modal = document.getElementById('modal-detalle-categoria');
       if (!modal) {
         console.warn('[UI] Modal de detalle de categoría no encontrado en el DOM.');
+        return;
+      }
+
+      // Mostrar modal inmediatamente para que el usuario vea respuesta visual
+      modal.classList.remove('hidden');
+      modal.style.display = 'flex';
+
+      if (!categoria) {
+        console.warn('[LUPA v5.2] categoria es null/undefined — abortando renderizado interno');
         return;
       }
 
