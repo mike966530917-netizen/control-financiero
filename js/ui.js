@@ -68,8 +68,30 @@
 
       const closeDetalleCatBtn = document.getElementById('btn-close-detalle-cat-modal');
       const okDetalleCatBtn = document.getElementById('btn-ok-detalle-cat');
+      const modalDetalle = document.getElementById('modal-detalle-categoria');
       if (closeDetalleCatBtn) closeDetalleCatBtn.addEventListener('click', () => this.closeDetalleCategoriaModal());
       if (okDetalleCatBtn) okDetalleCatBtn.addEventListener('click', () => this.closeDetalleCategoriaModal());
+      if (modalDetalle) {
+        modalDetalle.addEventListener('click', (e) => {
+          if (e.target === modalDetalle) this.closeDetalleCategoriaModal();
+        });
+      }
+
+      // Escuchador global delegado e infalible para ver detalle de categorías
+      document.addEventListener('click', (e) => {
+        let el = e.target;
+        if (el && el.nodeType === 3) el = el.parentElement;
+        if (!el || typeof el.closest !== 'function') return;
+
+        const trigger = el.closest('.btn-inspect-category, .btn-inspect-category-btn, [data-inspect-cat]');
+        if (trigger) {
+          const cat = trigger.getAttribute('data-inspect-cat') || trigger.getAttribute('data-categoria');
+          if (cat) {
+            e.preventDefault();
+            this.openDetalleCategoriaModal(cat);
+          }
+        }
+      });
 
       const btnToggleTxs = document.getElementById('btn-toggle-all-txs');
       if (btnToggleTxs) {
@@ -139,9 +161,14 @@
         this.renderRecurrentesList(window.cachedRecurrentes, window.cachedRecurrentesMes, window.cachedRecurrentesEstadoMes);
       }
 
-      // Redibujar gráficos si se abre la pestaña de gráficos
+      // Redibujar gráficos y presupuestos si se abre la pestaña de gráficos
       if (viewId === 'view-charts' && window.lastSummary) {
-        setTimeout(() => this.renderCharts(window.lastSummary), 50);
+        setTimeout(() => {
+          this.renderCharts(window.lastSummary);
+          if (window.lastSummary.presupuestos) {
+            this.renderBudgetsProgress(window.lastSummary.presupuestos);
+          }
+        }, 50);
       }
     }
 
@@ -1224,8 +1251,10 @@
                 ${typeIcon}
               </div>
               <div>
-                <div class="flex items-center gap-2 flex-wrap">
-                  <span class="font-bold text-sm text-slate-100">${tx.categoria || tx.tipo}</span>
+                  <button type="button" class="btn-inspect-category-btn font-bold text-sm text-slate-100 hover:text-sky-300 active:scale-95 transition flex items-center gap-1.5 cursor-pointer bg-transparent border-0 p-0 text-left" data-inspect-cat="${tx.categoria || tx.tipo}" title="Ver todos los gastos en ${tx.categoria || tx.tipo}">
+                    <span>${tx.categoria || tx.tipo}</span>
+                    <span class="text-[10px] text-sky-400/80 bg-sky-950/60 px-1 py-0.2 rounded border border-sky-500/20">🔍</span>
+                  </button>
                   <span class="text-[10px] px-2 py-0.5 rounded-md ${badgeColor}">${tx.tipo.replace('_', ' ')}</span>
                   ${(tx.totalCuotas && tx.totalCuotas > 1) ? `<span class="text-[10px] px-2 py-0.5 rounded-md bg-sky-950/80 border border-sky-500/40 text-sky-300 font-extrabold">Cuota ${tx.cuotaActual}/${tx.totalCuotas}</span>` : ''}
                 </div>
@@ -1301,31 +1330,31 @@
         const widthPercent = Math.min(100, Math.max(3, p.porcentaje));
 
         return `
-          <div class="btn-inspect-category p-3 bg-slate-900/60 hover:bg-slate-800/80 rounded-2xl border border-slate-800 hover:border-sky-500/40 space-y-1.5 cursor-pointer transition" data-categoria="${p.categoria}" title="Toca para ver qué gastos suman este monto">
+          <div class="btn-inspect-category p-3 bg-slate-900/60 hover:bg-slate-800/80 active:scale-[0.99] rounded-2xl border border-slate-800 hover:border-sky-500/40 space-y-1.5 cursor-pointer transition select-none" data-categoria="${p.categoria}" data-inspect-cat="${p.categoria}" title="Toca para ver qué gastos suman este monto">
             <div class="flex items-center justify-between text-xs">
               <div class="flex items-center gap-2 font-bold text-slate-200">
                 <span>${p.categoria}</span>
-                <button type="button" class="btn-inspect-category-btn text-[10px] text-sky-300 hover:text-sky-200 font-semibold px-2 py-0.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/25 border border-sky-500/30 cursor-pointer active:scale-95 transition flex items-center gap-1" data-categoria="${p.categoria}" title="Ver detalle de gastos en ${p.categoria}">
+                <span class="btn-inspect-category-btn text-[10px] text-sky-300 font-semibold px-2 py-0.5 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center gap-1 shadow-sm">
                   🔍 Ver detalle
-                </button>
+                </span>
               </div>
               <span class="text-[10px] font-bold px-2 py-0.5 rounded-md border ${badgeBg}">
                 ${statusBadge}
               </span>
             </div>
 
-            <div class="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+            <div class="w-full h-2 rounded-full bg-slate-800 overflow-hidden pointer-events-none">
               <div class="h-full rounded-full ${barColor} transition-all duration-500" style="width: ${widthPercent}%"></div>
             </div>
 
-            <div class="flex items-center justify-between text-[11px] text-slate-400">
-              <span>Gastado: <strong class="text-slate-200">S/ ${p.gastado.toFixed(2)}</strong></span>
-              <span>Límite: <strong class="text-slate-300">S/ ${p.presupuesto.toFixed(2)}</strong></span>
+            <div class="flex items-center justify-between text-[11px] text-slate-400 pointer-events-none">
+              <span>Gastado: <strong class="text-slate-200">S/ ${(parseFloat(p.gastado) || 0).toFixed(2)}</strong></span>
+              <span>Límite: <strong class="text-slate-300">S/ ${(parseFloat(p.presupuesto) || 0).toFixed(2)}</strong></span>
             </div>
             ${p.restante > 0 ? `
-              <p class="text-[10px] text-emerald-400/90 text-right font-medium">Te quedan S/ ${p.restante.toFixed(2)}</p>
+              <p class="text-[10px] text-emerald-400/90 text-right font-medium pointer-events-none">Te quedan S/ ${(parseFloat(p.restante) || 0).toFixed(2)}</p>
             ` : p.excedido > 0 ? `
-              <p class="text-[10px] text-rose-400 text-right font-medium">Sobregiro de S/ ${p.excedido.toFixed(2)}</p>
+              <p class="text-[10px] text-rose-400 text-right font-medium pointer-events-none">Sobregiro de S/ ${(parseFloat(p.excedido) || 0).toFixed(2)}</p>
             ` : ''}
           </div>
         `;
@@ -1333,8 +1362,10 @@
 
       container.querySelectorAll('.btn-inspect-category').forEach(el => {
         el.addEventListener('click', (e) => {
-          const target = e.target.closest('[data-categoria]');
-          const cat = target ? target.getAttribute('data-categoria') : el.getAttribute('data-categoria');
+          let target = e.target;
+          if (target && target.nodeType === 3) target = target.parentElement;
+          const catEl = (target && typeof target.closest === 'function') ? target.closest('[data-categoria], [data-inspect-cat]') : el;
+          const cat = (catEl ? (catEl.getAttribute('data-categoria') || catEl.getAttribute('data-inspect-cat')) : null) || el.getAttribute('data-categoria');
           if (cat) this.openDetalleCategoriaModal(cat);
         });
       });
@@ -2139,174 +2170,201 @@
 
     openDetalleCategoriaModal(categoria) {
       const modal = document.getElementById('modal-detalle-categoria');
-      if (!modal) return;
+      if (!modal) {
+        console.warn('[UI] Modal de detalle de categoría no encontrado en el DOM.');
+        return;
+      }
 
-      const titleEl = document.getElementById('detalle-cat-title');
-      const subtitleEl = document.getElementById('detalle-cat-subtitle');
-      const iconEl = document.getElementById('detalle-cat-icon');
-      const summaryEl = document.getElementById('detalle-cat-summary');
-      const countEl = document.getElementById('detalle-cat-count');
-      const listEl = document.getElementById('detalle-cat-movements-list');
-      const footerTotalEl = document.getElementById('detalle-cat-total-footer');
+      try {
+        const titleEl = document.getElementById('detalle-cat-title');
+        const subtitleEl = document.getElementById('detalle-cat-subtitle');
+        const iconEl = document.getElementById('detalle-cat-icon');
+        const summaryEl = document.getElementById('detalle-cat-summary');
+        const countEl = document.getElementById('detalle-cat-count');
+        const listEl = document.getElementById('detalle-cat-movements-list');
+        const footerTotalEl = document.getElementById('detalle-cat-total-footer');
 
-      const summary = window.lastSummary || {};
-      const mesActual = summary.mesActual || (window.AppState?.selectedMonth) || new Date().toISOString().slice(0, 7);
-      const txs = summary.transaccionesConsolidadas || window.cachedTransactions || (window.AppState?.transactions) || [];
+        const safeNum = (v) => {
+          const parsed = parseFloat(v);
+          return isNaN(parsed) ? 0 : parsed;
+        };
+        const safeFixed = (v) => safeNum(v).toFixed(2);
 
-      // Obtener desglose desde el motor financiero
-      const detalle = FinancialEngine.obtenerDetalleGastosPorCategoria(txs, categoria, mesActual);
+        const summary = window.lastSummary || {};
+        const mesActual = summary.mesActual || (window.AppState && window.AppState.selectedMonth) || new Date().toISOString().slice(0, 7);
+        const txs = summary.transaccionesConsolidadas || window.cachedTransactions || (window.AppState && window.AppState.transactions) || [];
 
-      // Buscar si tiene presupuesto configurado (con normalización robusta)
-      const catNorm = (categoria || '').trim().toLowerCase();
-      const presupuesto = (summary.presupuestos || []).find(p => {
-        if (!p || !p.categoria) return false;
-        const pNorm = p.categoria.trim().toLowerCase();
-        return pNorm === catNorm || 
-               FinancialEngine.normalizarCategoria(p.categoria, 'Gasto_Directo') === detalle.categoria;
-      }) || null;
-
-      if (titleEl) titleEl.textContent = detalle.categoria;
-      if (subtitleEl) subtitleEl.textContent = `Periodo: ${mesActual || 'Mes en curso'}`;
-
-      // Iconos representativos por categoría
-      const iconos = {
-        'Supermercado': '🛒',
-        'Restaurantes': '🍽️',
-        'Alimentación': '🍲',
-        'Servicios': '💡',
-        'Transporte': '🚗',
-        'Hogar': '🏠',
-        'Educación': '📚',
-        'Salud': '💊',
-        'Compras': '🛍️',
-        'Tecnología': '💻',
-        'Suscripciones': '📺',
-        'Entretenimiento': '🎬',
-        'Otros Gastos': '📦'
-      };
-      if (iconEl) iconEl.textContent = iconos[detalle.categoria] || '📊';
-
-      // Resumen del presupuesto
-      if (summaryEl) {
-        if (presupuesto) {
-          const limiteVal = (presupuesto.limite != null ? presupuesto.limite : (presupuesto.presupuesto != null ? presupuesto.presupuesto : 0)) || 0;
-          const porcentajeVal = presupuesto.porcentaje != null ? presupuesto.porcentaje : (limiteVal > 0 ? Math.round((detalle.totalGastado / limiteVal) * 100) : 0);
-          const restanteVal = presupuesto.restante != null ? presupuesto.restante : (limiteVal - detalle.totalGastado);
-
-          const isDanger = (presupuesto.estado === 'PELIGRO' || presupuesto.estado === 'exceeded' || presupuesto.estado === 'danger' || restanteVal < 0 || porcentajeVal >= 90);
-          const isWarning = (presupuesto.estado === 'ALERTA' || presupuesto.estado === 'warning' || porcentajeVal >= 70);
-
-          let badgeBg = 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
-          let badgeText = `${porcentajeVal}% consumido`;
-          let barBg = 'bg-emerald-400';
-          if (isDanger) {
-            badgeBg = 'bg-rose-500/20 text-rose-400 border-rose-500/30';
-            barBg = 'bg-rose-500';
-            badgeText = restanteVal < 0 ? `Excedido (+S/ ${Math.abs(restanteVal).toFixed(2)})` : `${porcentajeVal}% consumido`;
-          } else if (isWarning) {
-            badgeBg = 'bg-amber-500/20 text-amber-400 border-amber-500/30';
-            barBg = 'bg-amber-400';
-          }
-          const widthPercent = Math.min(100, Math.max(2, porcentajeVal));
-
-          summaryEl.innerHTML = `
-            <div class="flex items-center justify-between text-xs mb-1">
-              <span class="text-slate-400 font-semibold">Presupuesto asignado:</span>
-              <span class="text-slate-200 font-bold">S/ ${limiteVal.toFixed(2)}</span>
-            </div>
-            <div class="flex items-center justify-between text-xs mb-2">
-              <span class="text-slate-300 font-extrabold">Total gastado:</span>
-              <span class="text-white font-extrabold text-sm">S/ ${detalle.totalGastado.toFixed(2)}</span>
-            </div>
-            <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden mb-1.5">
-              <div class="${barBg} h-full rounded-full transition-all duration-500" style="width: ${widthPercent}%"></div>
-            </div>
-            <div class="flex items-center justify-between text-[11px]">
-              <span class="text-slate-400">Disponible: <b class="${restanteVal < 0 ? 'text-rose-400' : 'text-emerald-400'}">S/ ${restanteVal.toFixed(2)}</b></span>
-              <span class="px-2 py-0.5 rounded border text-[10px] font-bold ${badgeBg}">${badgeText}</span>
-            </div>
-          `;
-        } else {
-          summaryEl.innerHTML = `
-            <div class="flex items-center justify-between text-xs">
-              <span class="text-slate-400 font-semibold">Total gastado en ${detalle.categoria}:</span>
-              <span class="text-white font-extrabold text-sm">S/ ${detalle.totalGastado.toFixed(2)}</span>
-            </div>
-            <p class="text-[10px] text-slate-500 mt-1">Sin límite de presupuesto asignado para esta categoría.</p>
-          `;
+        // Obtener desglose desde el motor financiero
+        let detalle = null;
+        if (window.FinancialEngine && typeof window.FinancialEngine.obtenerDetalleGastosPorCategoria === 'function') {
+          detalle = window.FinancialEngine.obtenerDetalleGastosPorCategoria(txs, categoria, mesActual);
         }
-      }
+        if (!detalle) {
+          detalle = {
+            categoria: categoria || 'General',
+            mes: mesActual,
+            totalGastado: 0,
+            movimientosCount: 0,
+            movimientos: []
+          };
+        }
 
-      // Contador
-      if (countEl) {
-        countEl.textContent = `${detalle.movimientosCount} ${detalle.movimientosCount === 1 ? 'gasto' : 'gastos'}`;
-      }
+        // Buscar si tiene presupuesto configurado
+        const catNorm = (categoria || '').trim().toLowerCase();
+        const presupuesto = (summary.presupuestos || []).find(p => {
+          if (!p || !p.categoria) return false;
+          const pNorm = p.categoria.trim().toLowerCase();
+          return pNorm === catNorm || 
+                 (window.FinancialEngine && window.FinancialEngine.sonCategoriasEquivalentes && 
+                  window.FinancialEngine.sonCategoriasEquivalentes(p.categoria, categoria));
+        }) || null;
 
-      // Lista de movimientos contribuyentes
-      if (listEl) {
-        if (!detalle.movimientos || detalle.movimientos.length === 0) {
-          listEl.innerHTML = `
-            <div class="p-4 text-center text-xs text-slate-500 bg-slate-950/40 rounded-xl border border-slate-800/80">
-              No hay gastos registrados en ${detalle.categoria} para este periodo.
-            </div>
-          `;
-        } else {
-          listEl.innerHTML = detalle.movimientos.map(m => {
-            const iconBadge = m.icono || (m.tipo === 'Consumo_TC' ? '💳' : (m.esFijo ? '⚙️' : '📉'));
-            let badgeTipo = `<span class="text-[9px] px-1.5 py-0.5 rounded font-bold bg-slate-800 text-slate-300">${m.tipoLabel}</span>`;
-            if (m.tipo === 'Consumo_TC') {
-              badgeTipo = `<span class="text-[9px] px-1.5 py-0.5 rounded font-bold bg-purple-950 text-purple-300 border border-purple-500/30">💳 TC</span>`;
-            } else if (m.esFijo) {
-              badgeTipo = `<span class="text-[9px] px-1.5 py-0.5 rounded font-bold bg-sky-950 text-sky-300 border border-sky-500/30">⚙️ Fijo</span>`;
+        if (titleEl) titleEl.textContent = detalle.categoria || categoria;
+        if (subtitleEl) subtitleEl.textContent = `Periodo: ${mesActual || 'Mes en curso'}`;
+
+        // Iconos representativos por categoría
+        const iconos = {
+          'Supermercado': '🛒',
+          'Restaurantes': '🍽️',
+          'Alimentación': '🍲',
+          'Servicios': '💡',
+          'Transporte': '🚗',
+          'Hogar': '🏠',
+          'Educación': '📚',
+          'Salud': '💊',
+          'Compras': '🛍️',
+          'Tecnología': '💻',
+          'Suscripciones': '📺',
+          'Entretenimiento': '🎬',
+          'Otros Gastos': '📦'
+        };
+        if (iconEl) iconEl.textContent = iconos[detalle.categoria] || '📊';
+
+        // Resumen del presupuesto
+        if (summaryEl) {
+          const totalGastadoVal = safeNum(detalle.totalGastado);
+          if (presupuesto) {
+            const limiteVal = safeNum(presupuesto.limite != null ? presupuesto.limite : (presupuesto.presupuesto != null ? presupuesto.presupuesto : 0));
+            const porcentajeVal = limiteVal > 0 ? Math.round((totalGastadoVal / limiteVal) * 100) : (totalGastadoVal > 0 ? 100 : 0);
+            const restanteVal = limiteVal - totalGastadoVal;
+
+            const isDanger = (presupuesto.estado === 'PELIGRO' || presupuesto.estado === 'exceeded' || presupuesto.estado === 'danger' || restanteVal < 0 || porcentajeVal >= 90);
+            const isWarning = (presupuesto.estado === 'ALERTA' || presupuesto.estado === 'warning' || porcentajeVal >= 70);
+
+            let badgeBg = 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
+            let badgeText = `${porcentajeVal}% consumido`;
+            let barBg = 'bg-emerald-400';
+            if (isDanger) {
+              badgeBg = 'bg-rose-500/20 text-rose-400 border-rose-500/30';
+              barBg = 'bg-rose-500';
+              badgeText = restanteVal < 0 ? `Excedido (+S/ ${safeFixed(Math.abs(restanteVal))})` : `${porcentajeVal}% consumido`;
+            } else if (isWarning) {
+              badgeBg = 'bg-amber-500/20 text-amber-400 border-amber-500/30';
+              barBg = 'bg-amber-400';
             }
+            const widthPercent = Math.min(100, Math.max(2, porcentajeVal));
 
-            return `
-              <div class="p-2.5 rounded-xl bg-slate-950/60 hover:bg-slate-900/80 border border-slate-800/80 flex items-center justify-between gap-2 transition">
-                <div class="flex items-center gap-2.5 min-w-0 flex-1">
-                  <div class="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-sm flex-shrink-0">
-                    ${iconBadge}
-                  </div>
-                  <div class="min-w-0 flex-1">
-                    <div class="flex items-center gap-1.5 flex-wrap">
-                      <span class="font-bold text-xs text-slate-200 truncate">${m.concepto || detalle.categoria}</span>
-                      ${badgeTipo}
-                      ${m.cuotaInfo ? `<span class="text-[9px] px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-500/30 font-semibold">${m.cuotaInfo}</span>` : ''}
-                    </div>
-                    <div class="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
-                      <span>📅 ${m.fecha || 'Sin fecha'}</span>
-                      <span>•</span>
-                      <span class="truncate">🏦 ${m.origen || 'General'}</span>
-                    </div>
-                  </div>
-                </div>
-                <span class="text-xs font-black text-rose-400 flex-shrink-0 ml-2">
-                  -S/ ${m.monto.toFixed(2)}
-                </span>
+            summaryEl.innerHTML = `
+              <div class="flex items-center justify-between text-xs mb-1">
+                <span class="text-slate-400 font-semibold">Presupuesto asignado:</span>
+                <span class="text-slate-200 font-bold">S/ ${safeFixed(limiteVal)}</span>
+              </div>
+              <div class="flex items-center justify-between text-xs mb-2">
+                <span class="text-slate-300 font-extrabold">Total gastado:</span>
+                <span class="text-white font-extrabold text-sm">S/ ${safeFixed(totalGastadoVal)}</span>
+              </div>
+              <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden mb-1.5">
+                <div class="${barBg} h-full rounded-full transition-all duration-500" style="width: ${widthPercent}%"></div>
+              </div>
+              <div class="flex items-center justify-between text-[11px]">
+                <span class="text-slate-400">Disponible: <b class="${restanteVal < 0 ? 'text-rose-400' : 'text-emerald-400'}">S/ ${safeFixed(restanteVal)}</b></span>
+                <span class="px-2 py-0.5 rounded border text-[10px] font-bold ${badgeBg}">${badgeText}</span>
               </div>
             `;
-          }).join('');
+          } else {
+            summaryEl.innerHTML = `
+              <div class="flex items-center justify-between text-xs">
+                <span class="text-slate-400 font-semibold">Total gastado en ${detalle.categoria}:</span>
+                <span class="text-white font-extrabold text-sm">S/ ${safeFixed(totalGastadoVal)}</span>
+              </div>
+              <p class="text-[10px] text-slate-500 mt-1">Sin límite de presupuesto asignado para esta categoría.</p>
+            `;
+          }
         }
-      }
 
-      if (footerTotalEl) {
-        footerTotalEl.textContent = `Total en ${detalle.categoria}: S/ ${detalle.totalGastado.toFixed(2)}`;
-      }
-
-      // Handler para cerrar al hacer clic en el backdrop
-      const onBackdropClick = (e) => {
-        if (e.target === modal) {
-          this.closeDetalleCategoriaModal();
-          modal.removeEventListener('click', onBackdropClick);
+        // Contador
+        if (countEl) {
+          const count = detalle.movimientosCount || (detalle.movimientos ? detalle.movimientos.length : 0);
+          countEl.textContent = `${count} ${count === 1 ? 'gasto' : 'gastos'}`;
         }
-      };
-      modal.addEventListener('click', onBackdropClick);
 
-      modal.classList.remove('hidden');
+        // Lista de movimientos contribuyentes
+        if (listEl) {
+          if (!detalle.movimientos || detalle.movimientos.length === 0) {
+            listEl.innerHTML = `
+              <div class="p-4 text-center text-xs text-slate-500 bg-slate-950/40 rounded-xl border border-slate-800/80">
+                No hay gastos registrados en ${detalle.categoria} para este periodo (${mesActual}).
+              </div>
+            `;
+          } else {
+            listEl.innerHTML = detalle.movimientos.map(m => {
+              const iconBadge = m.icono || (m.tipo === 'Consumo_TC' ? '💳' : (m.esFijo ? '⚙️' : '📉'));
+              let badgeTipo = `<span class="text-[9px] px-1.5 py-0.5 rounded font-bold bg-slate-800 text-slate-300">${m.tipoLabel || 'Gasto'}</span>`;
+              if (m.tipo === 'Consumo_TC') {
+                badgeTipo = `<span class="text-[9px] px-1.5 py-0.5 rounded font-bold bg-purple-950 text-purple-300 border border-purple-500/30">💳 TC</span>`;
+              } else if (m.esFijo) {
+                badgeTipo = `<span class="text-[9px] px-1.5 py-0.5 rounded font-bold bg-sky-950 text-sky-300 border border-sky-500/30">⚙️ Fijo</span>`;
+              }
+
+              return `
+                <div class="p-2.5 rounded-xl bg-slate-950/60 hover:bg-slate-900/80 border border-slate-800/80 flex items-center justify-between gap-2 transition">
+                  <div class="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div class="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-sm flex-shrink-0">
+                      ${iconBadge}
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <div class="flex items-center gap-1.5 flex-wrap">
+                        <span class="font-bold text-xs text-slate-200 truncate">${m.concepto || detalle.categoria}</span>
+                        ${badgeTipo}
+                        ${m.cuotaInfo ? `<span class="text-[9px] px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-500/30 font-semibold">${m.cuotaInfo}</span>` : ''}
+                      </div>
+                      <div class="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
+                        <span>📅 ${m.fecha || 'Sin fecha'}</span>
+                        <span>•</span>
+                        <span class="truncate">🏦 ${m.origen || 'General'}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <span class="text-xs font-black text-rose-400 flex-shrink-0 ml-2">
+                    -S/ ${safeFixed(m.monto)}
+                  </span>
+                </div>
+              `;
+            }).join('');
+          }
+        }
+
+        if (footerTotalEl) {
+          footerTotalEl.textContent = `Total en ${detalle.categoria}: S/ ${safeFixed(detalle.totalGastado)}`;
+        }
+
+        // Mostrar modal infaliblemente
+        modal.classList.remove('hidden');
+        modal.style.display = 'flex';
+      } catch (err) {
+        console.error('[UI] Error al desplegar detalle de categoría:', err);
+        this.showToast(`Error al abrir detalle: ${err.message}`, 'error');
+        modal.classList.remove('hidden');
+        modal.style.display = 'flex';
+      }
     }
 
     closeDetalleCategoriaModal() {
       const modal = document.getElementById('modal-detalle-categoria');
-      if (modal) modal.classList.add('hidden');
+      if (modal) {
+        modal.classList.add('hidden');
+        modal.style.display = 'none';
+      }
     }
 
     // ==========================================================================

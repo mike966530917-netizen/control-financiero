@@ -107,6 +107,30 @@
   }
 
   /**
+   * Compara dos nombres de categoría de manera flexible y tolerante a mayúsculas,
+   * tildes, plurales y alias.
+   */
+  function sonCategoriasEquivalentes(catA, catB) {
+    if (!catA || !catB) return false;
+    if (catA === catB) return true;
+    const strA = String(catA).trim();
+    const strB = String(catB).trim();
+    if (strA.toLowerCase() === strB.toLowerCase()) return true;
+
+    const normA = normalizarCategoria(strA, TIPOS_TRANSACCION.GASTO_DIRECTO);
+    const normB = normalizarCategoria(strB, TIPOS_TRANSACCION.GASTO_DIRECTO);
+    if (normA && normB && normA.toLowerCase() === normB.toLowerCase()) return true;
+
+    const cleanA = strA.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
+    const cleanB = strB.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
+    if (cleanA && cleanB) {
+      if (cleanA === cleanB) return true;
+      if (cleanA.startsWith(cleanB) || cleanB.startsWith(cleanA)) return true;
+    }
+    return false;
+  }
+
+  /**
    * Determina el ciclo de facturación y fecha de vencimiento de pago
    * para una tarjeta según su fecha de consumo, día de corte y día de vencimiento.
    * 
@@ -1479,6 +1503,7 @@
     let totalGastado = 0;
 
     (transaccionesConsolidadas || []).forEach(tx => {
+      if (!tx) return;
       if (tx.estado === 'LIQUIDADO' || tx.estado === 'LIQUIDADA' || tx.esLiquidado === true) {
         return;
       }
@@ -1486,49 +1511,50 @@
       const monto = parseFloat(tx.monto) || 0;
       const txMesEfectivo = normalizarMes(tx.mesImpactoEfectivo) || normalizarMes(tx.fecha);
       const txMesFecha = normalizarMes(tx.fecha) || normalizarMes(tx.mesImpactoEfectivo);
+      const txMesTC = normalizarMes(tx.mesImpactoTC);
       const esFijo = !!(tx.esFijoProyectado || tx.recurrenteId || (tx.notas && String(tx.notas).includes('[Fijo')));
       const tipoNorm = normalizarTipo(tx.tipo, tx.metodoPago, tx.tarjetaAfectada);
 
+      // Verificación robusta e insensible a mayúsculas/acentos
+      const coincideCategoria = sonCategoriasEquivalentes(tx.categoria, categoria) || 
+                                sonCategoriasEquivalentes(tx.categoria, catBuscada);
+
+      if (!coincideCategoria) return;
+
       // 1. Gastos Directos del mes
-      if (tipoNorm === TIPOS_TRANSACCION.GASTO_DIRECTO && txMesEfectivo === mesActualStr) {
-        const catTx = normalizarCategoria(tx.categoria, TIPOS_TRANSACCION.GASTO_DIRECTO);
-        if (catTx === catBuscada) {
-          totalGastado += monto;
-          movimientos.push({
-            id: tx.id,
-            fecha: tx.fecha || '',
-            concepto: tx.notas || tx.nombre || tx.categoria,
-            tipo: esFijo ? 'Gasto_Fijo' : 'Gasto_Directo',
-            tipoLabel: esFijo ? 'Gasto Fijo' : 'Gasto Directo',
-            icono: esFijo ? '⚙️' : '📉',
-            origen: tx.metodoPago || 'Efectivo',
-            monto: monto,
-            esFijo: esFijo
-          });
-        }
+      if (tipoNorm === TIPOS_TRANSACCION.GASTO_DIRECTO && (txMesEfectivo === mesActualStr || txMesFecha === mesActualStr)) {
+        totalGastado += monto;
+        movimientos.push({
+          id: tx.id || `tx-dir-${movimientos.length}`,
+          fecha: tx.fecha || '',
+          concepto: tx.notas || tx.nombre || tx.categoria || catBuscada,
+          tipo: esFijo ? 'Gasto_Fijo' : 'Gasto_Directo',
+          tipoLabel: esFijo ? 'Gasto Fijo' : 'Gasto Directo',
+          icono: esFijo ? '⚙️' : '📉',
+          origen: tx.metodoPago || 'Efectivo',
+          monto: Number(monto.toFixed(2)),
+          esFijo: esFijo
+        });
       }
 
       // 2. Consumos con Tarjeta de Crédito realizados en este mes
-      if (tipoNorm === TIPOS_TRANSACCION.CONSUMO_TC && txMesFecha === mesActualStr) {
-        const catTx = normalizarCategoria(tx.categoria, TIPOS_TRANSACCION.CONSUMO_TC);
-        if (catTx === catBuscada) {
-          totalGastado += monto;
-          const cuotaStr = (tx.cuotaActual && tx.totalCuotas)
-            ? `Cuota ${tx.cuotaActual}/${tx.totalCuotas}`
-            : (tx.numeroCuota && tx.totalCuotas ? `Cuota ${tx.numeroCuota}/${tx.totalCuotas}` : null);
+      if (tipoNorm === TIPOS_TRANSACCION.CONSUMO_TC && (txMesFecha === mesActualStr || txMesEfectivo === mesActualStr || txMesTC === mesActualStr)) {
+        totalGastado += monto;
+        const cuotaStr = (tx.cuotaActual && tx.totalCuotas)
+          ? `Cuota ${tx.cuotaActual}/${tx.totalCuotas}`
+          : (tx.numeroCuota && tx.totalCuotas ? `Cuota ${tx.numeroCuota}/${tx.totalCuotas}` : null);
 
-          movimientos.push({
-            id: tx.id,
-            fecha: tx.fecha || '',
-            concepto: tx.notas || tx.nombre || tx.categoria,
-            tipo: 'Consumo_TC',
-            tipoLabel: 'Tarjeta de Crédito',
-            icono: '💳',
-            origen: tx.tarjetaAfectada || tx.metodoPago || 'Tarjeta de Crédito',
-            monto: monto,
-            cuotaInfo: cuotaStr
-          });
-        }
+        movimientos.push({
+          id: tx.id || `tx-tc-${movimientos.length}`,
+          fecha: tx.fecha || '',
+          concepto: tx.notas || tx.nombre || tx.categoria || catBuscada,
+          tipo: 'Consumo_TC',
+          tipoLabel: 'Tarjeta de Crédito',
+          icono: '💳',
+          origen: tx.tarjetaAfectada || tx.metodoPago || 'Tarjeta de Crédito',
+          monto: Number(monto.toFixed(2)),
+          cuotaInfo: cuotaStr
+        });
       }
     });
 
@@ -1551,6 +1577,7 @@
     CATEGORIAS_INGRESO,
     normalizarTipo,
     normalizarCategoria,
+    sonCategoriasEquivalentes,
     combinarTransaccionesConRecurrentes,
     calcularCicloTarjeta,
     normalizarMes,
