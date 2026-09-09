@@ -210,33 +210,35 @@
     val = val.replace(/^'+/, '').trim();
     if (!val) return '';
 
-    // Si ya es YYYY-MM
+    // Si ya es exactamente YYYY-MM
     if (/^\d{4}-\d{2}$/.test(val)) return val;
 
+    // Si empieza con formato YYYY-MM-DD (con o sin hora)
+    if (/^\d{4}-\d{2}-\d{2}/.test(val)) return val.slice(0, 7);
+
     // Si es YYYY-M o YYYY/M o YYYY/MM
-    const simpleMatch = val.match(/^(\d{4})[-/](\d{1,2})$/);
+    const simpleMatch = val.match(/^(\d{4})[-/](\d{1,2})/);
     if (simpleMatch) {
       return `${simpleMatch[1]}-${simpleMatch[2].padStart(2, '0')}`;
     }
 
-    // Si empieza con YYYY-MM-DD
-    if (/^\d{4}-\d{2}-\d{2}/.test(val)) return val.slice(0, 7);
-
-    // Si tiene formato DD/MM/YYYY
-    const dmyMatch = val.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+    // Si tiene formato DD/MM/YYYY o DD-MM-YYYY (con o sin hora o texto posterior)
+    const dmyMatch = val.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
     if (dmyMatch) {
       return `${dmyMatch[3]}-${dmyMatch[2].padStart(2, '0')}`;
     }
 
     // Si es un string de fecha largo de Google Sheets o Date estándar
     const parsed = new Date(val);
-    if (!isNaN(parsed.getTime())) {
+    if (!isNaN(parsed.getTime()) && parsed.getFullYear() > 2000) {
       const y = parsed.getFullYear();
       const m = String(parsed.getMonth() + 1).padStart(2, '0');
       return `${y}-${m}`;
     }
 
-    return val.replace(/[^0-9-]/g, '').slice(0, 7);
+    const cleaned = val.replace(/[^0-9-]/g, '');
+    if (/^\d{4}-\d{2}$/.test(cleaned)) return cleaned;
+    return '';
   }
 
   /**
@@ -1114,8 +1116,10 @@
 
     transaccionesConsolidadas.forEach(tx => {
       const monto = parseFloat(tx.monto) || 0;
-      const txMesEfectivo = normalizarMes(tx.mesImpactoEfectivo) || normalizarMes(tx.fecha);
-      const txMesFecha = normalizarMes(tx.fecha) || normalizarMes(tx.mesImpactoEfectivo);
+      let txMesEfectivo = normalizarMes(tx.mesImpactoEfectivo);
+      let txMesFecha = normalizarMes(tx.fecha);
+      if (!txMesEfectivo && txMesFecha) txMesEfectivo = txMesFecha;
+      if (!txMesFecha && txMesEfectivo) txMesFecha = txMesEfectivo;
       const esFijo = tx.esFijoProyectado || tx.recurrenteId || (tx.notas && String(tx.notas).includes('[Fijo'));
       const tipoNorm = normalizarTipo(tx.tipo, tx.metodoPago, tx.tarjetaAfectada);
 
@@ -1491,7 +1495,7 @@
    * @param {string} mesActualStr - Mes en formato 'YYYY-MM'
    * @returns {Object} { categoria, mes, totalGastado, movimientosCount, movimientos: Array }
    */
-  function obtenerDetalleGastosPorCategoria(transaccionesConsolidadas = [], categoria = '', mesActualStr = null) {
+  function obtenerDetalleGastosPorCategoria(transaccionesConsolidadas = [], categoria = '', mesActualStr = null, mostrarTodosLosMeses = false) {
     if (!mesActualStr) {
       mesActualStr = obtenerMesImpacto(new Date());
     } else {
@@ -1500,7 +1504,9 @@
 
     const catBuscada = normalizarCategoria(categoria, TIPOS_TRANSACCION.GASTO_DIRECTO);
     const movimientos = [];
+    const todosMovimientos = [];
     let totalGastado = 0;
+    let totalGastadoHistorico = 0;
 
     (transaccionesConsolidadas || []).forEach(tx => {
       if (!tx) return;
@@ -1509,9 +1515,13 @@
       }
 
       const monto = parseFloat(tx.monto) || 0;
-      const txMesEfectivo = normalizarMes(tx.mesImpactoEfectivo) || normalizarMes(tx.fecha);
-      const txMesFecha = normalizarMes(tx.fecha) || normalizarMes(tx.mesImpactoEfectivo);
-      const txMesTC = normalizarMes(tx.mesImpactoTC);
+      let txMesEfectivo = normalizarMes(tx.mesImpactoEfectivo);
+      let txMesFecha = normalizarMes(tx.fecha);
+      let txMesTC = normalizarMes(tx.mesImpactoTC);
+
+      if (!txMesEfectivo && txMesFecha) txMesEfectivo = txMesFecha;
+      if (!txMesFecha && txMesEfectivo) txMesFecha = txMesEfectivo;
+
       const esFijo = !!(tx.esFijoProyectado || tx.recurrenteId || (tx.notas && String(tx.notas).includes('[Fijo')));
       const tipoNorm = normalizarTipo(tx.tipo, tx.metodoPago, tx.tarjetaAfectada);
 
@@ -1521,12 +1531,12 @@
 
       if (!coincideCategoria) return;
 
-      // 1. Gastos Directos del mes
-      if (tipoNorm === TIPOS_TRANSACCION.GASTO_DIRECTO && (txMesEfectivo === mesActualStr || txMesFecha === mesActualStr)) {
-        totalGastado += monto;
-        movimientos.push({
-          id: tx.id || `tx-dir-${movimientos.length}`,
+      // 1. Gastos Directos
+      if (tipoNorm === TIPOS_TRANSACCION.GASTO_DIRECTO) {
+        const itemGasto = {
+          id: tx.id || `tx-dir-${todosMovimientos.length}`,
           fecha: tx.fecha || '',
+          mes: txMesEfectivo || txMesFecha || '',
           concepto: tx.notas || tx.nombre || tx.categoria || catBuscada,
           tipo: esFijo ? 'Gasto_Fijo' : 'Gasto_Directo',
           tipoLabel: esFijo ? 'Gasto Fijo' : 'Gasto Directo',
@@ -1534,19 +1544,27 @@
           origen: tx.metodoPago || 'Efectivo',
           monto: Number(monto.toFixed(2)),
           esFijo: esFijo
-        });
+        };
+
+        totalGastadoHistorico += monto;
+        todosMovimientos.push(itemGasto);
+
+        if (txMesEfectivo === mesActualStr || txMesFecha === mesActualStr) {
+          totalGastado += monto;
+          movimientos.push(itemGasto);
+        }
       }
 
       // 2. Consumos con Tarjeta de Crédito realizados en este mes
-      if (tipoNorm === TIPOS_TRANSACCION.CONSUMO_TC && (txMesFecha === mesActualStr || txMesEfectivo === mesActualStr || txMesTC === mesActualStr)) {
-        totalGastado += monto;
+      if (tipoNorm === TIPOS_TRANSACCION.CONSUMO_TC) {
         const cuotaStr = (tx.cuotaActual && tx.totalCuotas)
           ? `Cuota ${tx.cuotaActual}/${tx.totalCuotas}`
           : (tx.numeroCuota && tx.totalCuotas ? `Cuota ${tx.numeroCuota}/${tx.totalCuotas}` : null);
 
-        movimientos.push({
-          id: tx.id || `tx-tc-${movimientos.length}`,
+        const itemTC = {
+          id: tx.id || `tx-tc-${todosMovimientos.length}`,
           fecha: tx.fecha || '',
+          mes: txMesTC || txMesFecha || txMesEfectivo || '',
           concepto: tx.notas || tx.nombre || tx.categoria || catBuscada,
           tipo: 'Consumo_TC',
           tipoLabel: 'Tarjeta de Crédito',
@@ -1554,19 +1572,36 @@
           origen: tx.tarjetaAfectada || tx.metodoPago || 'Tarjeta de Crédito',
           monto: Number(monto.toFixed(2)),
           cuotaInfo: cuotaStr
-        });
+        };
+
+        totalGastadoHistorico += monto;
+        todosMovimientos.push(itemTC);
+
+        if (txMesFecha === mesActualStr || txMesEfectivo === mesActualStr || txMesTC === mesActualStr) {
+          totalGastado += monto;
+          movimientos.push(itemTC);
+        }
       }
     });
 
     // Ordenar movimientos por fecha descendente
     movimientos.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
+    todosMovimientos.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
+
+    const itemsFinales = mostrarTodosLosMeses ? todosMovimientos : movimientos;
 
     return {
       categoria: catBuscada,
       mes: mesActualStr,
-      totalGastado: Number(totalGastado.toFixed(2)),
-      movimientosCount: movimientos.length,
-      movimientos: movimientos
+      totalGastado: Number((mostrarTodosLosMeses ? totalGastadoHistorico : totalGastado).toFixed(2)),
+      totalGastadoMes: Number(totalGastado.toFixed(2)),
+      totalGastadoHistorico: Number(totalGastadoHistorico.toFixed(2)),
+      movimientosCount: itemsFinales.length,
+      movimientosMesCount: movimientos.length,
+      movimientosHistoricoCount: todosMovimientos.length,
+      movimientos: itemsFinales,
+      movimientosMes: movimientos,
+      movimientosHistorico: todosMovimientos
     };
   }
 
