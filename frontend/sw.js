@@ -3,7 +3,7 @@
  * Carga instantánea offline y gestión de caché de recursos estáticos.
  */
 
-const CACHE_NAME = 'finanzas-pwa-v3';
+const CACHE_NAME = 'finanzas-pwa-v4';
 const ASSETS = [
   './',
   './index.html',
@@ -50,27 +50,46 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Intercepción de solicitudes de red (Network First con fallback a Cache)
+// Intercepción de solicitudes de red
 self.addEventListener('fetch', (event) => {
   // Ignorar llamadas a la API de Google Apps Script (se manejan en api.js con cola offline)
   if (event.request.url.includes('script.google.com') || event.request.url.includes('script.googleusercontent.com')) {
     return;
   }
 
+  // Network-First para código de la app (JS, HTML, CSS) para asegurar actualizaciones inmediatas
+  const isAppCode = event.request.url.includes('/js/') || 
+                    event.request.url.includes('index.html') || 
+                    event.request.mode === 'navigate';
+
+  if (isAppCode) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const clone = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return networkResponse;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // Cache-First para recursos estáticos pesados (CDN, fuentes, imágenes)
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
-        // Retornar caché y actualizar en background si es posible
         fetch(event.request).then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
             caches.open(CACHE_NAME).then((cache) => cache.put(event.request, networkResponse));
           }
-        }).catch(() => {/* Red no disponible, se usó caché */});
+        }).catch(() => {});
         return cachedResponse;
       }
 
       return fetch(event.request).catch(() => {
-        // Fallback básico para navegación
         if (event.request.mode === 'navigate') {
           return caches.match('./index.html');
         }
