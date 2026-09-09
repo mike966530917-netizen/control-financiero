@@ -879,16 +879,31 @@ function getTransactions_() {
   };
 
   const formatDate_ = (val) => {
+    if (!val) return '';
     if (val instanceof Date) return Utilities.formatDate(val, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-    return String(val || '').trim().slice(0, 10);
+    let s = String(val || '').trim().replace(/^'+/, '');
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    const dmy = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+    if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+    return s.slice(0, 10);
   };
 
-  const formatMes_ = (val) => {
-    if (val instanceof Date) return Utilities.formatDate(val, Session.getScriptTimeZone(), 'yyyy-MM');
-    let s = String(val || '').trim().replace(/^'+/, '');
-    const match = s.match(/^(\d{4})[-/](\d{1,2})/);
-    if (match) return `${match[1]}-${match[2].padStart(2, '0')}`;
-    return s.slice(0, 7);
+  const formatMes_ = (val, fechaFallback = '') => {
+    let target = val;
+    if (!target || target === '') target = fechaFallback;
+    if (!target) return '';
+    if (target instanceof Date) return Utilities.formatDate(target, Session.getScriptTimeZone(), 'yyyy-MM');
+    let s = String(target || '').trim().replace(/^'+/, '');
+    if (/^\d{4}-\d{2}$/.test(s)) return s;
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 7);
+    const ym = s.match(/^(\d{4})[-/](\d{1,2})/);
+    if (ym) return `${ym[1]}-${ym[2].padStart(2, '0')}`;
+    const dmy = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+    if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}`;
+    if (fechaFallback && target !== fechaFallback) {
+      return formatMes_(fechaFallback, '');
+    }
+    return '';
   };
 
   if (hasNewSheets) {
@@ -901,7 +916,7 @@ function getTransactions_() {
         const row = data[i];
         if (row[0] || row[1]) {
           const fStr = formatDate_(row[1]);
-          const mEfStr = formatMes_(row[8]) || (fStr ? fStr.slice(0, 7) : '');
+          const mEfStr = formatMes_(row[8], fStr);
           txs.push({
             id: String(row[0] || ('TX-ING-' + i)).trim(),
             fecha: fStr,
@@ -927,7 +942,7 @@ function getTransactions_() {
         const row = data[i];
         if (row[0] || row[1]) {
           const fStr = formatDate_(row[1]);
-          const mEfStr = formatMes_(row[8]) || (fStr ? fStr.slice(0, 7) : '');
+          const mEfStr = formatMes_(row[8], fStr);
           const rawTipo = String(row[3] || '').trim();
           const tipoFinal = (rawTipo.toLowerCase() === 'gasto' || !rawTipo) ? 'Gasto_Directo' : rawTipo;
 
@@ -972,8 +987,8 @@ function getTransactions_() {
             categoria: String(row[6] || 'Varios').trim(),
             monto: parseNum_(row[7]),
             moneda: String(row[8] || 'PEN').trim(),
-            mesImpactoTC: formatMes_(row[9]),
-            mesImpactoEfectivo: formatMes_(row[10]),
+            mesImpactoTC: formatMes_(row[9], fStr),
+            mesImpactoEfectivo: formatMes_(row[10], fStr),
             notas: String(row[11] || '').trim()
           });
         }
@@ -1004,8 +1019,8 @@ function getTransactions_() {
     if (hasData) {
       const id = row[0] ? String(row[0]).trim() : ('TX-ROW-' + (i + 1));
       let fechaStr = formatDate_(row[1]);
-      let mesEfStr = formatMes_(row[9]);
-      let mesTcStr = formatMes_(row[10]);
+      let mesEfStr = formatMes_(row[9], fechaStr);
+      let mesTcStr = formatMes_(row[10], fechaStr);
 
       txs.push({
         id: id,

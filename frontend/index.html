@@ -10,6 +10,32 @@
   
   <title>Control Financiero, Tarjetas & Prepagos</title>
   
+  <!-- Invalidación y Purga de Caché de Service Worker v5.0 -->
+  <script>
+    (function() {
+      const APP_BUILD_ID = 'finanzas-pwa-v5.0-refresh';
+      const prevBuild = localStorage.getItem('finanzas_build_id');
+      if (prevBuild !== APP_BUILD_ID) {
+        localStorage.setItem('finanzas_build_id', APP_BUILD_ID);
+        if ('caches' in window) {
+          caches.keys().then(function(keys) {
+            return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+          }).then(function() {
+            if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.getRegistrations().then(function(regs) {
+                return Promise.all(regs.map(function(r) { return r.unregister(); }));
+              }).then(function() {
+                window.location.reload(true);
+              });
+            } else {
+              window.location.reload(true);
+            }
+          }).catch(function() {});
+        }
+      }
+    })();
+  </script>
+
   <!-- Manifest PWA e Iconos -->
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
@@ -263,9 +289,12 @@
         <h3 class="text-sm font-bold text-slate-300 flex items-center gap-2">
           <span>🕒</span> Movimientos Registrados
         </h3>
+        <button id="btn-refresh-txs" type="button" class="text-xs px-2.5 py-1 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-sky-400 font-semibold border border-slate-700 flex items-center gap-1 active:scale-95 transition cursor-pointer" title="Refrescar datos desde Google Sheets">
+          <span id="txs-refresh-icon">🔄</span> <span>Actualizar</span>
+        </button>
       </div>
 
-      <!-- Pills de Filtro -->
+      <!-- Pills de Filtro de Tipo -->
       <div class="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
         <button class="tx-filter-pill px-3 py-1.5 rounded-xl text-xs font-semibold bg-sky-500/20 text-sky-400 border border-sky-500/40 cursor-pointer" data-filter="ALL">
           Todos
@@ -282,6 +311,26 @@
         <button class="tx-filter-pill px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700/50 cursor-pointer" data-filter="Prepago_TC">
           ⚡ Prepagos
         </button>
+      </div>
+
+      <!-- Filtro Rápido por Categoría -->
+      <div class="flex items-center gap-2">
+        <select id="tx-category-filter-select" class="w-full bg-slate-900/90 border border-slate-700/80 text-slate-200 text-xs rounded-xl px-3 py-2 focus:outline-none focus:border-sky-500 transition">
+          <option value="ALL">🔍 Todas las categorías</option>
+          <option value="Supermercado">🛒 Supermercado</option>
+          <option value="Restaurantes">🍽️ Restaurantes</option>
+          <option value="Alimentación">🍲 Alimentación</option>
+          <option value="Hogar">🏠 Hogar</option>
+          <option value="Servicios">💡 Servicios</option>
+          <option value="Transporte">🚗 Transporte</option>
+          <option value="Suscripciones">📺 Suscripciones</option>
+          <option value="Salud">💊 Salud</option>
+          <option value="Educación">📚 Educación</option>
+          <option value="Compras">🛍️ Compras</option>
+          <option value="Tecnología">💻 Tecnología</option>
+          <option value="Entretenimiento">🎬 Entretenimiento</option>
+          <option value="Otros Gastos">📦 Otros Gastos</option>
+        </select>
       </div>
 
       <!-- Lista de transacciones -->
@@ -1034,21 +1083,36 @@
        MODAL: DETALLE Y DESGLOSE DE GASTOS POR CATEGORÍA
        ======================================================================== -->
   <div id="modal-detalle-categoria" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-slate-900 border border-sky-500/40 rounded-3xl w-full max-w-md p-5 space-y-4 shadow-2xl max-h-[90vh] flex flex-col">
+    <div class="bg-slate-900 border border-sky-500/40 rounded-3xl w-full max-w-md p-5 space-y-3.5 shadow-2xl max-h-[92vh] flex flex-col">
       <div class="flex items-center justify-between pb-2 border-b border-slate-800 flex-shrink-0">
-        <div class="flex items-center gap-2.5">
-          <span id="detalle-cat-icon" class="text-2xl">📊</span>
-          <div>
-            <h3 id="detalle-cat-title" class="font-extrabold text-base text-white">Detalle de Categoría</h3>
-            <p id="detalle-cat-subtitle" class="text-[11px] text-slate-400">Gastos contribuyentes del periodo</p>
+        <div class="flex items-center gap-2.5 min-w-0">
+          <span id="detalle-cat-icon" class="text-2xl flex-shrink-0">📊</span>
+          <div class="min-w-0">
+            <h3 id="detalle-cat-title" class="font-extrabold text-base text-white truncate">Detalle de Categoría</h3>
+            <p id="detalle-cat-subtitle" class="text-[11px] text-slate-400 truncate">Gastos contribuyentes del periodo</p>
           </div>
         </div>
-        <button id="btn-close-detalle-cat-modal" class="text-slate-400 hover:text-white p-1 rounded-lg text-base cursor-pointer">✕</button>
+        <div class="flex items-center gap-2 flex-shrink-0">
+          <button id="btn-refresh-detalle-cat" type="button" class="text-xs px-2.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold flex items-center gap-1.5 active:scale-95 transition cursor-pointer shadow-md shadow-sky-600/30" title="Refrescar gastos desde Google Sheets">
+            <span id="detalle-cat-refresh-icon">🔄</span> <span class="hidden sm:inline">Actualizar</span>
+          </button>
+          <button id="btn-close-detalle-cat-modal" type="button" class="text-slate-400 hover:text-white p-1 rounded-lg text-base cursor-pointer">✕</button>
+        </div>
       </div>
 
       <!-- Resumen de Presupuesto vs Gastado -->
       <div id="detalle-cat-summary" class="bg-slate-950/70 p-3 rounded-2xl border border-slate-800 space-y-2 flex-shrink-0">
         <!-- Renderizado dinámico: gastado, límite, barra y porcentaje -->
+      </div>
+
+      <!-- Conmutador de Periodo: Mes Actual vs Todos los Meses -->
+      <div class="flex items-center gap-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800 text-xs flex-shrink-0">
+        <button id="btn-detalle-periodo-actual" type="button" class="flex-1 py-1.5 rounded-lg font-bold bg-sky-600 text-white transition text-center cursor-pointer shadow-sm">
+          Mes Actual (<span id="detalle-cat-mes-pill">...</span>)
+        </button>
+        <button id="btn-detalle-periodo-todos" type="button" class="flex-1 py-1.5 rounded-lg font-semibold text-slate-400 hover:text-slate-200 transition text-center cursor-pointer">
+          Todos los Meses (<span id="detalle-cat-todos-pill">0</span>)
+        </button>
       </div>
 
       <!-- Lista de Movimientos Contribuyentes -->
@@ -1057,14 +1121,14 @@
           <span class="font-bold text-slate-300">Movimientos que suman este monto:</span>
           <span id="detalle-cat-count" class="font-semibold text-sky-400">0 gastos</span>
         </div>
-        <div id="detalle-cat-movements-list" class="space-y-2 max-h-[42vh] overflow-y-auto pr-0.5">
+        <div id="detalle-cat-movements-list" class="space-y-2 max-h-[38vh] overflow-y-auto pr-0.5">
           <!-- Renderizado dinámico de movimientos -->
         </div>
       </div>
 
       <div class="flex items-center justify-between pt-2 border-t border-slate-800 flex-shrink-0">
         <span id="detalle-cat-total-footer" class="text-xs font-bold text-slate-300">Total: S/ 0.00</span>
-        <button id="btn-ok-detalle-cat" class="px-5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow-lg shadow-sky-600/30 cursor-pointer">
+        <button id="btn-ok-detalle-cat" type="button" class="px-5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold shadow-lg shadow-sky-600/30 cursor-pointer active:scale-95 transition">
           Entendido
         </button>
       </div>
@@ -1074,11 +1138,11 @@
   <!-- Contenedor flotante de notificaciones Toast -->
   <div id="toast-container" class="fixed top-5 left-4 right-4 z-50 flex flex-col gap-2 pointer-events-none max-w-sm mx-auto"></div>
 
-  <!-- Scripts en orden de dependencia con cache-busting v4.1 -->
-  <script src="js/financial-engine.js?v=4.1"></script>
-  <script src="js/api.js?v=4.1"></script>
-  <script src="js/ui.js?v=4.1"></script>
-  <script src="js/app.js?v=4.1"></script>
+  <!-- Scripts en orden de dependencia con cache-busting v5.0 -->
+  <script src="js/financial-engine.js?v=5.0"></script>
+  <script src="js/api.js?v=5.0"></script>
+  <script src="js/ui.js?v=5.0"></script>
+  <script src="js/app.js?v=5.0"></script>
 
 </body>
 </html>

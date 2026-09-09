@@ -24,6 +24,7 @@
 
   <script>
     window.onerror = function(msg, url, line, col, error) {
+      if (msg === 'Script error.' || line === 0 || (url && (url.includes('cdn.tailwindcss.com') || url.includes('jsdelivr')))) return;
       const box = document.getElementById('summary-box');
       if (box) box.innerHTML = `<p style="color:red">Error en línea ${line}: ${msg} ${error ? error.stack : ''}</p>`;
     };

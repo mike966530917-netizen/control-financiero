@@ -77,6 +77,73 @@
         });
       }
 
+      // Botón de refresco en vivo dentro del modal de categoría
+      const refreshDetalleCatBtn = document.getElementById('btn-refresh-detalle-cat');
+      if (refreshDetalleCatBtn) {
+        refreshDetalleCatBtn.addEventListener('click', async () => {
+          const icon = document.getElementById('detalle-cat-refresh-icon');
+          if (icon) icon.classList.add('animate-spin');
+          try {
+            if (window.refreshAllData) {
+              await window.refreshAllData();
+            } else if (window.loadAppData) {
+              await window.loadAppData();
+            }
+            this.openDetalleCategoriaModal(this.currentDetalleCategoria || '', this.currentDetallePeriodo || 'ACTUAL');
+            this.showToast('Gastos actualizados desde Google Sheets', 'success');
+          } catch (e) {
+            this.showToast('Error al refrescar: ' + e.message, 'error');
+          } finally {
+            if (icon) icon.classList.remove('animate-spin');
+          }
+        });
+      }
+
+      // Conmutadores de periodo dentro del modal de categoría
+      const btnPeriodoActual = document.getElementById('btn-detalle-periodo-actual');
+      const btnPeriodoTodos = document.getElementById('btn-detalle-periodo-todos');
+      if (btnPeriodoActual) {
+        btnPeriodoActual.addEventListener('click', () => {
+          this.openDetalleCategoriaModal(this.currentDetalleCategoria || '', 'ACTUAL');
+        });
+      }
+      if (btnPeriodoTodos) {
+        btnPeriodoTodos.addEventListener('click', () => {
+          this.openDetalleCategoriaModal(this.currentDetalleCategoria || '', 'TODOS');
+        });
+      }
+
+      // Botón de refresco en vivo en Movimientos Registrados
+      const refreshTxsBtn = document.getElementById('btn-refresh-txs');
+      if (refreshTxsBtn) {
+        refreshTxsBtn.addEventListener('click', async () => {
+          const icon = document.getElementById('txs-refresh-icon');
+          if (icon) icon.classList.add('animate-spin');
+          try {
+            if (window.refreshAllData) {
+              await window.refreshAllData();
+            } else if (window.loadAppData) {
+              await window.loadAppData();
+            }
+            this.showToast('Movimientos actualizados desde Google Sheets', 'success');
+          } catch (e) {
+            this.showToast('Error al actualizar: ' + e.message, 'error');
+          } finally {
+            if (icon) icon.classList.remove('animate-spin');
+          }
+        });
+      }
+
+      // Selector de filtro de categoría en Movimientos Registrados
+      const catFilterSelect = document.getElementById('tx-category-filter-select');
+      if (catFilterSelect) {
+        catFilterSelect.addEventListener('change', () => {
+          this.selectedCategoryFilter = catFilterSelect.value;
+          const allTxs = window.cachedTransactions || (window.AppState && window.AppState.transactions) || [];
+          this.renderTransactionsList(allTxs, this.currentFilter || 'ALL');
+        });
+      }
+
       // Escuchador global delegado e infalible para ver detalle de categorías
       document.addEventListener('click', (e) => {
         let el = e.target;
@@ -1073,16 +1140,16 @@
               const pct = totalGastado > 0 ? Math.round((val / totalGastado) * 100) : 0;
               const color = colors[idx % colors.length];
               return `
-                <div class="btn-inspect-category flex items-center justify-between p-2 bg-slate-900/60 hover:bg-slate-800/80 rounded-xl border border-slate-800 hover:border-sky-500/40 cursor-pointer transition" data-categoria="${label}" title="Toca para ver los gastos de ${label}">
-                  <div class="flex items-center gap-2 truncate">
+                <button type="button" onclick="window.UIManager.openDetalleCategoriaModal('${label}')" class="btn-inspect-category w-full flex items-center justify-between p-2 bg-slate-900/60 hover:bg-slate-800/80 rounded-xl border border-slate-800 hover:border-sky-500/40 cursor-pointer transition select-none text-left" data-categoria="${label}" title="Toca para ver los gastos de ${label}">
+                  <div class="flex items-center gap-2 truncate pointer-events-none">
                     <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: ${color}"></span>
                     <span class="text-slate-300 font-medium truncate text-xs">${label}</span>
                   </div>
-                  <div class="flex items-center gap-1 flex-shrink-0 ml-1">
+                  <div class="flex items-center gap-1 flex-shrink-0 ml-1 pointer-events-none">
                     <span class="text-[11px] text-slate-400">S/ ${val.toFixed(2)}</span>
                     <span class="font-bold text-sky-400 text-xs">(${pct}%)</span>
                   </div>
-                </div>
+                </button>
               `;
             }).join('');
 
@@ -1166,11 +1233,20 @@
         filtered = filtered.filter(t => t.tipo === currentFilter);
       }
 
+      if (this.selectedCategoryFilter && this.selectedCategoryFilter !== 'ALL') {
+        filtered = filtered.filter(t => {
+          if (!t.categoria) return false;
+          return t.categoria === this.selectedCategoryFilter ||
+                 (window.FinancialEngine && window.FinancialEngine.sonCategoriasEquivalentes &&
+                  window.FinancialEngine.sonCategoriasEquivalentes(t.categoria, this.selectedCategoryFilter));
+        });
+      }
+
       if (!filtered.length) {
         container.innerHTML = `
           <div class="text-center py-8 text-slate-400 text-sm">
             <span class="text-3xl block mb-2">📋</span>
-            No hay transacciones registradas en este periodo.
+            No hay transacciones registradas para este filtro.
           </div>
         `;
         if (toggleContainer) toggleContainer.classList.add('hidden');
@@ -1251,9 +1327,9 @@
                 ${typeIcon}
               </div>
               <div>
-                  <button type="button" class="btn-inspect-category-btn font-bold text-sm text-slate-100 hover:text-sky-300 active:scale-95 transition flex items-center gap-1.5 cursor-pointer bg-transparent border-0 p-0 text-left" data-inspect-cat="${tx.categoria || tx.tipo}" title="Ver todos los gastos en ${tx.categoria || tx.tipo}">
+                  <button type="button" onclick="window.UIManager.openDetalleCategoriaModal('${tx.categoria || tx.tipo}')" class="btn-inspect-category-btn font-bold text-sm text-slate-100 hover:text-sky-300 active:scale-95 transition flex items-center gap-1.5 cursor-pointer bg-transparent border-0 p-0 text-left" data-inspect-cat="${tx.categoria || tx.tipo}" title="Ver todos los gastos en ${tx.categoria || tx.tipo}">
                     <span>${tx.categoria || tx.tipo}</span>
-                    <span class="text-[10px] text-sky-400/80 bg-sky-950/60 px-1 py-0.2 rounded border border-sky-500/20">🔍</span>
+                    <span class="text-[10px] text-sky-400/80 bg-sky-950/60 px-1 py-0.2 rounded border border-sky-500/20 pointer-events-none">🔍</span>
                   </button>
                   <span class="text-[10px] px-2 py-0.5 rounded-md ${badgeColor}">${tx.tipo.replace('_', ' ')}</span>
                   ${(tx.totalCuotas && tx.totalCuotas > 1) ? `<span class="text-[10px] px-2 py-0.5 rounded-md bg-sky-950/80 border border-sky-500/40 text-sky-300 font-extrabold">Cuota ${tx.cuotaActual}/${tx.totalCuotas}</span>` : ''}
@@ -1330,8 +1406,8 @@
         const widthPercent = Math.min(100, Math.max(3, p.porcentaje));
 
         return `
-          <div class="btn-inspect-category p-3 bg-slate-900/60 hover:bg-slate-800/80 active:scale-[0.99] rounded-2xl border border-slate-800 hover:border-sky-500/40 space-y-1.5 cursor-pointer transition select-none" data-categoria="${p.categoria}" data-inspect-cat="${p.categoria}" title="Toca para ver qué gastos suman este monto">
-            <div class="flex items-center justify-between text-xs">
+          <button type="button" onclick="window.UIManager.openDetalleCategoriaModal('${p.categoria}')" class="btn-inspect-category w-full text-left p-3 bg-slate-900/60 hover:bg-slate-800/80 active:scale-[0.99] rounded-2xl border border-slate-800 hover:border-sky-500/40 space-y-1.5 cursor-pointer transition select-none" data-categoria="${p.categoria}" data-inspect-cat="${p.categoria}" title="Toca para ver qué gastos suman este monto">
+            <div class="flex items-center justify-between text-xs pointer-events-none">
               <div class="flex items-center gap-2 font-bold text-slate-200">
                 <span>${p.categoria}</span>
                 <span class="btn-inspect-category-btn text-[10px] text-sky-300 font-semibold px-2 py-0.5 rounded-lg bg-sky-500/15 border border-sky-500/30 flex items-center gap-1 shadow-sm">
@@ -1356,7 +1432,7 @@
             ` : p.excedido > 0 ? `
               <p class="text-[10px] text-rose-400 text-right font-medium pointer-events-none">Sobregiro de S/ ${(parseFloat(p.excedido) || 0).toFixed(2)}</p>
             ` : ''}
-          </div>
+          </button>
         `;
       }).join('');
 
@@ -2168,12 +2244,15 @@
       };
     }
 
-    openDetalleCategoriaModal(categoria) {
+    openDetalleCategoriaModal(categoria, periodo = 'ACTUAL') {
       const modal = document.getElementById('modal-detalle-categoria');
       if (!modal) {
         console.warn('[UI] Modal de detalle de categoría no encontrado en el DOM.');
         return;
       }
+
+      this.currentDetalleCategoria = categoria;
+      this.currentDetallePeriodo = periodo;
 
       try {
         const titleEl = document.getElementById('detalle-cat-title');
@@ -2183,6 +2262,10 @@
         const countEl = document.getElementById('detalle-cat-count');
         const listEl = document.getElementById('detalle-cat-movements-list');
         const footerTotalEl = document.getElementById('detalle-cat-total-footer');
+        const mesPillEl = document.getElementById('detalle-cat-mes-pill');
+        const todosPillEl = document.getElementById('detalle-cat-todos-pill');
+        const btnActual = document.getElementById('btn-detalle-periodo-actual');
+        const btnTodos = document.getElementById('btn-detalle-periodo-todos');
 
         const safeNum = (v) => {
           const parsed = parseFloat(v);
@@ -2194,10 +2277,12 @@
         const mesActual = summary.mesActual || (window.AppState && window.AppState.selectedMonth) || new Date().toISOString().slice(0, 7);
         const txs = summary.transaccionesConsolidadas || window.cachedTransactions || (window.AppState && window.AppState.transactions) || [];
 
+        const mostrarTodos = (periodo === 'TODOS');
+
         // Obtener desglose desde el motor financiero
         let detalle = null;
         if (window.FinancialEngine && typeof window.FinancialEngine.obtenerDetalleGastosPorCategoria === 'function') {
-          detalle = window.FinancialEngine.obtenerDetalleGastosPorCategoria(txs, categoria, mesActual);
+          detalle = window.FinancialEngine.obtenerDetalleGastosPorCategoria(txs, categoria, mesActual, mostrarTodos);
         }
         if (!detalle) {
           detalle = {
@@ -2205,8 +2290,23 @@
             mes: mesActual,
             totalGastado: 0,
             movimientosCount: 0,
+            movimientosHistoricoCount: 0,
             movimientos: []
           };
+        }
+
+        // Estilos y textos de selector de periodos
+        if (mesPillEl) mesPillEl.textContent = mesActual;
+        if (todosPillEl) todosPillEl.textContent = detalle.movimientosHistoricoCount || 0;
+
+        if (btnActual && btnTodos) {
+          if (mostrarTodos) {
+            btnActual.className = 'flex-1 py-1.5 rounded-lg font-semibold text-slate-400 hover:text-slate-200 transition text-center cursor-pointer';
+            btnTodos.className = 'flex-1 py-1.5 rounded-lg font-bold bg-sky-600 text-white transition text-center cursor-pointer shadow-sm';
+          } else {
+            btnActual.className = 'flex-1 py-1.5 rounded-lg font-bold bg-sky-600 text-white transition text-center cursor-pointer shadow-sm';
+            btnTodos.className = 'flex-1 py-1.5 rounded-lg font-semibold text-slate-400 hover:text-slate-200 transition text-center cursor-pointer';
+          }
         }
 
         // Buscar si tiene presupuesto configurado
@@ -2220,7 +2320,9 @@
         }) || null;
 
         if (titleEl) titleEl.textContent = detalle.categoria || categoria;
-        if (subtitleEl) subtitleEl.textContent = `Periodo: ${mesActual || 'Mes en curso'}`;
+        if (subtitleEl) subtitleEl.textContent = mostrarTodos 
+          ? `Mostrando histórico acumulado de todos los meses`
+          : `Periodo actual: ${mesActual || 'Mes en curso'}`;
 
         // Iconos representativos por categoría
         const iconos = {
@@ -2243,7 +2345,7 @@
         // Resumen del presupuesto
         if (summaryEl) {
           const totalGastadoVal = safeNum(detalle.totalGastado);
-          if (presupuesto) {
+          if (presupuesto && !mostrarTodos) {
             const limiteVal = safeNum(presupuesto.limite != null ? presupuesto.limite : (presupuesto.presupuesto != null ? presupuesto.presupuesto : 0));
             const porcentajeVal = limiteVal > 0 ? Math.round((totalGastadoVal / limiteVal) * 100) : (totalGastadoVal > 0 ? 100 : 0);
             const restanteVal = limiteVal - totalGastadoVal;
@@ -2266,11 +2368,11 @@
 
             summaryEl.innerHTML = `
               <div class="flex items-center justify-between text-xs mb-1">
-                <span class="text-slate-400 font-semibold">Presupuesto asignado:</span>
+                <span class="text-slate-400 font-semibold">Presupuesto mensual:</span>
                 <span class="text-slate-200 font-bold">S/ ${safeFixed(limiteVal)}</span>
               </div>
               <div class="flex items-center justify-between text-xs mb-2">
-                <span class="text-slate-300 font-extrabold">Total gastado:</span>
+                <span class="text-slate-300 font-extrabold">Total gastado (${mesActual}):</span>
                 <span class="text-white font-extrabold text-sm">S/ ${safeFixed(totalGastadoVal)}</span>
               </div>
               <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden mb-1.5">
@@ -2284,10 +2386,10 @@
           } else {
             summaryEl.innerHTML = `
               <div class="flex items-center justify-between text-xs">
-                <span class="text-slate-400 font-semibold">Total gastado en ${detalle.categoria}:</span>
+                <span class="text-slate-400 font-semibold">${mostrarTodos ? 'Gasto total histórico:' : `Total gastado en ${detalle.categoria}:`}</span>
                 <span class="text-white font-extrabold text-sm">S/ ${safeFixed(totalGastadoVal)}</span>
               </div>
-              <p class="text-[10px] text-slate-500 mt-1">Sin límite de presupuesto asignado para esta categoría.</p>
+              <p class="text-[10px] text-slate-400 mt-1">${mostrarTodos ? 'Suma acumulada de todas las compras y gastos registrados' : 'Periodo activo ' + mesActual}</p>
             `;
           }
         }
@@ -2301,11 +2403,23 @@
         // Lista de movimientos contribuyentes
         if (listEl) {
           if (!detalle.movimientos || detalle.movimientos.length === 0) {
-            listEl.innerHTML = `
-              <div class="p-4 text-center text-xs text-slate-500 bg-slate-950/40 rounded-xl border border-slate-800/80">
-                No hay gastos registrados en ${detalle.categoria} para este periodo (${mesActual}).
-              </div>
-            `;
+            if (!mostrarTodos && detalle.movimientosHistoricoCount > 0) {
+              listEl.innerHTML = `
+                <div class="p-4 text-center text-xs text-slate-300 bg-slate-950/70 rounded-2xl border border-sky-500/30 space-y-2.5">
+                  <p class="font-bold text-slate-100 text-sm">No hay gastos en ${detalle.categoria} para ${mesActual}.</p>
+                  <p class="text-xs text-slate-400">Se encontraron <strong class="text-sky-400">${detalle.movimientosHistoricoCount} gastos</strong> de esta categoría registrados en otros meses.</p>
+                  <button type="button" onclick="window.UIManager.openDetalleCategoriaModal('${detalle.categoria}', 'TODOS')" class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-md shadow-sky-600/30 transition active:scale-95 cursor-pointer inline-flex items-center gap-1.5">
+                    <span>🔍</span> Ver los ${detalle.movimientosHistoricoCount} gastos históricos
+                  </button>
+                </div>
+              `;
+            } else {
+              listEl.innerHTML = `
+                <div class="p-4 text-center text-xs text-slate-500 bg-slate-950/40 rounded-xl border border-slate-800/80">
+                  No hay gastos registrados en ${detalle.categoria} ${mostrarTodos ? 'en ningún mes' : 'para ' + mesActual}.
+                </div>
+              `;
+            }
           } else {
             listEl.innerHTML = detalle.movimientos.map(m => {
               const iconBadge = m.icono || (m.tipo === 'Consumo_TC' ? '💳' : (m.esFijo ? '⚙️' : '📉'));
@@ -2329,7 +2443,7 @@
                         ${m.cuotaInfo ? `<span class="text-[9px] px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-500/30 font-semibold">${m.cuotaInfo}</span>` : ''}
                       </div>
                       <div class="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
-                        <span>📅 ${m.fecha || 'Sin fecha'}</span>
+                        <span class="font-semibold text-slate-300">📅 ${m.fecha || m.mes || 'Sin fecha'}</span>
                         <span>•</span>
                         <span class="truncate">🏦 ${m.origen || 'General'}</span>
                       </div>

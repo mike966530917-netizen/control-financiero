@@ -188,6 +188,7 @@
     AppState.recurrentes = recurrentes || ApiService.getLocalRecurrentes();
     AppState.closedMonths = closedMonths || ApiService.getLocalClosedMonths() || [];
     window.cachedCards = cards;
+    window.cachedTransactions = transactions;
     window.cachedBudgets = AppState.budgets;
     window.cachedRecurrentes = AppState.recurrentes;
 
@@ -221,6 +222,16 @@
       }).catch(e => console.warn('[AutoConsolidate] Error silencioso:', e));
     }
   }
+
+  // Exponer globalmente para botones de recarga/refresco interactivo
+  window.loadAppData = loadAppData;
+  window.refreshAllData = async () => {
+    await loadAppData();
+    const modalDetalle = document.getElementById('modal-detalle-categoria');
+    if (modalDetalle && !modalDetalle.classList.contains('hidden') && window.UIManager && window.UIManager.currentDetalleCategoria) {
+      window.UIManager.openDetalleCategoriaModal(window.UIManager.currentDetalleCategoria, window.UIManager.currentDetallePeriodo || 'ACTUAL');
+    }
+  };
 
   /**
    * Recalcula el modelo financiero y actualiza todos los componentes de la vista
