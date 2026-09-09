@@ -1029,6 +1029,13 @@
                     label: (ctx) => ` S/ ${ctx.parsed.toLocaleString('es-PE', { minimumFractionDigits: 2 })}`
                   }
                 }
+              },
+              onClick: (evt, elements) => {
+                if (elements && elements.length > 0) {
+                  const idx = elements[0].index;
+                  const cat = labels[idx];
+                  if (cat) this.openDetalleCategoriaModal(cat);
+                }
               }
             }
           });
@@ -1296,9 +1303,11 @@
         return `
           <div class="btn-inspect-category p-3 bg-slate-900/60 hover:bg-slate-800/80 rounded-2xl border border-slate-800 hover:border-sky-500/40 space-y-1.5 cursor-pointer transition" data-categoria="${p.categoria}" title="Toca para ver qué gastos suman este monto">
             <div class="flex items-center justify-between text-xs">
-              <div class="flex items-center gap-1.5 font-bold text-slate-200">
+              <div class="flex items-center gap-2 font-bold text-slate-200">
                 <span>${p.categoria}</span>
-                <span class="text-[10px] text-sky-400 font-normal">🔍 Ver detalle</span>
+                <button type="button" class="btn-inspect-category-btn text-[10px] text-sky-300 hover:text-sky-200 font-semibold px-2 py-0.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/25 border border-sky-500/30 cursor-pointer active:scale-95 transition flex items-center gap-1" data-categoria="${p.categoria}" title="Ver detalle de gastos en ${p.categoria}">
+                  🔍 Ver detalle
+                </button>
               </div>
               <span class="text-[10px] font-bold px-2 py-0.5 rounded-md border ${badgeBg}">
                 ${statusBadge}
@@ -1323,9 +1332,10 @@
       }).join('');
 
       container.querySelectorAll('.btn-inspect-category').forEach(el => {
-        el.addEventListener('click', () => {
-          const cat = el.getAttribute('data-categoria');
-          this.openDetalleCategoriaModal(cat);
+        el.addEventListener('click', (e) => {
+          const target = e.target.closest('[data-categoria]');
+          const cat = target ? target.getAttribute('data-categoria') : el.getAttribute('data-categoria');
+          if (cat) this.openDetalleCategoriaModal(cat);
         });
       });
     }
@@ -2140,14 +2150,20 @@
       const footerTotalEl = document.getElementById('detalle-cat-total-footer');
 
       const summary = window.lastSummary || {};
-      const mesActual = summary.mesActual || (window.AppState?.selectedMonth) || '';
-      const txs = summary.transaccionesConsolidadas || window.cachedTransactions || [];
+      const mesActual = summary.mesActual || (window.AppState?.selectedMonth) || new Date().toISOString().slice(0, 7);
+      const txs = summary.transaccionesConsolidadas || window.cachedTransactions || (window.AppState?.transactions) || [];
 
       // Obtener desglose desde el motor financiero
       const detalle = FinancialEngine.obtenerDetalleGastosPorCategoria(txs, categoria, mesActual);
 
-      // Buscar si tiene presupuesto configurado
-      const presupuesto = (summary.presupuestos || []).find(p => p.categoria.toLowerCase() === (categoria || '').toLowerCase()) || null;
+      // Buscar si tiene presupuesto configurado (con normalización robusta)
+      const catNorm = (categoria || '').trim().toLowerCase();
+      const presupuesto = (summary.presupuestos || []).find(p => {
+        if (!p || !p.categoria) return false;
+        const pNorm = p.categoria.trim().toLowerCase();
+        return pNorm === catNorm || 
+               FinancialEngine.normalizarCategoria(p.categoria, 'Gasto_Directo') === detalle.categoria;
+      }) || null;
 
       if (titleEl) titleEl.textContent = detalle.categoria;
       if (subtitleEl) subtitleEl.textContent = `Periodo: ${mesActual || 'Mes en curso'}`;
@@ -2156,13 +2172,17 @@
       const iconos = {
         'Supermercado': '🛒',
         'Restaurantes': '🍽️',
+        'Alimentación': '🍲',
         'Servicios': '💡',
         'Transporte': '🚗',
         'Hogar': '🏠',
         'Educación': '📚',
         'Salud': '💊',
+        'Compras': '🛍️',
+        'Tecnología': '💻',
+        'Suscripciones': '📺',
         'Entretenimiento': '🎬',
-        'Otros': '📦'
+        'Otros Gastos': '📦'
       };
       if (iconEl) iconEl.textContent = iconos[detalle.categoria] || '📊';
 
@@ -2170,7 +2190,7 @@
       if (summaryEl) {
         if (presupuesto) {
           const limiteVal = (presupuesto.limite != null ? presupuesto.limite : (presupuesto.presupuesto != null ? presupuesto.presupuesto : 0)) || 0;
-          const porcentajeVal = presupuesto.porcentaje != null ? presupuesto.porcentaje : 0;
+          const porcentajeVal = presupuesto.porcentaje != null ? presupuesto.porcentaje : (limiteVal > 0 ? Math.round((detalle.totalGastado / limiteVal) * 100) : 0);
           const restanteVal = presupuesto.restante != null ? presupuesto.restante : (limiteVal - detalle.totalGastado);
 
           const isDanger = (presupuesto.estado === 'PELIGRO' || presupuesto.estado === 'exceeded' || presupuesto.estado === 'danger' || restanteVal < 0 || porcentajeVal >= 90);
@@ -2271,6 +2291,15 @@
       if (footerTotalEl) {
         footerTotalEl.textContent = `Total en ${detalle.categoria}: S/ ${detalle.totalGastado.toFixed(2)}`;
       }
+
+      // Handler para cerrar al hacer clic en el backdrop
+      const onBackdropClick = (e) => {
+        if (e.target === modal) {
+          this.closeDetalleCategoriaModal();
+          modal.removeEventListener('click', onBackdropClick);
+        }
+      };
+      modal.addEventListener('click', onBackdropClick);
 
       modal.classList.remove('hidden');
     }

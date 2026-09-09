@@ -1003,6 +1003,23 @@
       `Total ingresos: S/ ${totalIngresosEsperado.toFixed(2)} (esperado 3,528.90), Estado Sueldo: ${estadoRecPequena ? estadoRecPequena.estadoMes : 'n/a'}, Monto Sueldo: ${estadoRecPequena ? estadoRecPequena.montoMes : 0}`
     );
 
+    // Prueba 45: DETALLE DE GASTOS POR CATEGORÍA CON TIPOS Y FORMATOS FLEXIBLES
+    const txsDetalleTest = [
+      { id: 'TX-D1', fecha: '2026-09-02', tipo: 'Gasto', categoria: 'supermercado', monto: 120.00 }, // sin mesImpactoEfectivo y en minúsculas
+      { id: 'TX-D2', fecha: '2026-09-10', tipo: 'Consumo', tarjetaAfectada: 'TC_BCP', categoria: 'Supermercado', monto: 250.00 }, // tipo Consumo con TC
+      { id: 'TX-D3', fecha: '2026-09-15', tipo: 'Gasto_Directo', categoria: 'Restaurantes', monto: 80.00, mesImpactoEfectivo: '2026-09' }
+    ];
+    const detalleSuper = window.FinancialEngine.obtenerDetalleGastosPorCategoria(txsDetalleTest, 'Supermercado', '2026-09');
+    const okDetalle = detalleSuper.movimientosCount === 2 &&
+                      Math.abs(detalleSuper.totalGastado - 370.00) < 0.01 &&
+                      detalleSuper.movimientos.some(m => m.id === 'TX-D1') &&
+                      detalleSuper.movimientos.some(m => m.id === 'TX-D2');
+
+    report('Detalle de Gastos por Categoría: Reúne gastos directos y consumos TC incluso con formatos flexibles y sin mesImpactoEfectivo previo (Total: S/ 370.00)',
+      okDetalle,
+      `Movimientos: ${detalleSuper.movimientosCount} (esperado 2), Total: S/ ${detalleSuper.totalGastado} (esperado 370.00)`
+    );
+
     summaryBox.innerHTML = `
       <div class="flex items-center justify-between">
         <span class="font-bold ${failedCount === 0 ? 'text-emerald-400' : 'text-rose-400'} text-base">

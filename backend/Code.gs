@@ -900,9 +900,11 @@ function getTransactions_() {
       for (let i = 1; i < data.length; i++) {
         const row = data[i];
         if (row[0] || row[1]) {
+          const fStr = formatDate_(row[1]);
+          const mEfStr = formatMes_(row[8]) || (fStr ? fStr.slice(0, 7) : '');
           txs.push({
             id: String(row[0] || ('TX-ING-' + i)).trim(),
-            fecha: formatDate_(row[1]),
+            fecha: fStr,
             hora: String(row[2] || '12:00:00').trim(),
             tipo: 'Ingreso',
             metodoPago: String(row[4] || 'Transferencia').trim(),
@@ -910,7 +912,7 @@ function getTransactions_() {
             categoria: String(row[5] || 'Otros Ingresos').trim(),
             monto: parseNum_(row[6]),
             moneda: String(row[7] || 'PEN').trim(),
-            mesImpactoEfectivo: formatMes_(row[8]),
+            mesImpactoEfectivo: mEfStr,
             mesImpactoTC: '',
             notas: String(row[9] || '').trim()
           });
@@ -924,17 +926,22 @@ function getTransactions_() {
       for (let i = 1; i < data.length; i++) {
         const row = data[i];
         if (row[0] || row[1]) {
+          const fStr = formatDate_(row[1]);
+          const mEfStr = formatMes_(row[8]) || (fStr ? fStr.slice(0, 7) : '');
+          const rawTipo = String(row[3] || '').trim();
+          const tipoFinal = (rawTipo.toLowerCase() === 'gasto' || !rawTipo) ? 'Gasto_Directo' : rawTipo;
+
           txs.push({
             id: String(row[0] || ('TX-EF-' + i)).trim(),
-            fecha: formatDate_(row[1]),
+            fecha: fStr,
             hora: String(row[2] || '12:00:00').trim(),
-            tipo: String(row[3] || 'Gasto_Directo').trim(),
+            tipo: tipoFinal,
             metodoPago: String(row[4] || 'Efectivo').trim(),
             tarjetaAfectada: '',
             categoria: String(row[5] || 'Varios').trim(),
             monto: parseNum_(row[6]),
             moneda: String(row[7] || 'PEN').trim(),
-            mesImpactoEfectivo: formatMes_(row[8]),
+            mesImpactoEfectivo: mEfStr,
             mesImpactoTC: '',
             notas: String(row[9] || '').trim()
           });
@@ -948,11 +955,18 @@ function getTransactions_() {
       for (let i = 1; i < data.length; i++) {
         const row = data[i];
         if (row[0] || row[1]) {
+          const fStr = formatDate_(row[1]);
+          const rawTipo = String(row[3] || '').trim();
+          let tipoFinal = rawTipo;
+          if (!rawTipo || rawTipo.toLowerCase() === 'consumo' || rawTipo.toLowerCase() === 'gasto' || rawTipo.toLowerCase() === 'tc') {
+            tipoFinal = 'Consumo_TC';
+          }
+
           txs.push({
             id: String(row[0] || ('TX-TC-' + i)).trim(),
-            fecha: formatDate_(row[1]),
+            fecha: fStr,
             hora: String(row[2] || '12:00:00').trim(),
-            tipo: String(row[3] || 'Consumo_TC').trim(),
+            tipo: tipoFinal,
             tarjetaAfectada: String(row[4] || '').trim(),
             metodoPago: String(row[5] || 'Tarjeta').trim(),
             categoria: String(row[6] || 'Varios').trim(),
