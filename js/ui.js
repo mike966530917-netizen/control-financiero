@@ -1691,9 +1691,14 @@
     // RENDERIZADO DE MOVIMIENTOS RECURRENTES / FIJOS
     // ==========================================================================
     renderRecurrentesList(recurrentes = [], mesActual = null, estadoMesList = []) {
+      const mesStr = mesActual || (window.AppState && window.AppState.selectedMonth) || (window.FinancialEngine && window.FinancialEngine.obtenerMesImpacto(new Date()));
       window.cachedRecurrentes = recurrentes;
-      window.cachedRecurrentesMes = mesActual;
+      window.cachedRecurrentesMes = mesStr;
       window.cachedRecurrentesEstadoMes = estadoMesList;
+
+      const fijosDelMes = (window.FinancialEngine && window.FinancialEngine.getRecurrentesParaMes)
+        ? window.FinancialEngine.getRecurrentesParaMes(recurrentes, mesStr)
+        : recurrentes;
 
       const incomeListEl = document.getElementById('recurrentes-ingresos-list');
       const expenseListEl = document.getElementById('recurrentes-gastos-list');
@@ -1702,11 +1707,16 @@
       const netBalanceEl = document.getElementById('rec-net-balance');
       const countIncomeEl = document.getElementById('rec-income-count');
       const countExpenseEl = document.getElementById('rec-expense-count');
+      const monthTitleEl = document.getElementById('rec-view-month-title');
+      const monthSubEl = document.getElementById('rec-view-month-subtitle');
 
-      const ingresos = recurrentes.filter(r => r.tipo === 'Ingreso_Fijo');
-      const gastos = recurrentes.filter(r => r.tipo === 'Gasto_Fijo');
+      if (monthTitleEl) monthTitleEl.textContent = `Movimientos Fijos (${mesStr})`;
+      if (monthSubEl) monthSubEl.textContent = `Ingresos y gastos configurados para ${mesStr}. Los cambios solo afectan este mes.`;
 
-      // Calcular totales considerando el monto del mes (confirmado o proyectado)
+      const ingresos = fijosDelMes.filter(r => r.tipo === 'Ingreso_Fijo');
+      const gastos = fijosDelMes.filter(r => r.tipo === 'Gasto_Fijo');
+
+      // Calcular totales considerando el monto del mes
       let sumIngresos = 0;
       ingresos.filter(r => r.activo).forEach(r => {
         const est = (estadoMesList || []).find(e => String(e.id) === String(r.id));
@@ -1742,22 +1752,22 @@
         const esConfirmado = estadoMes === 'confirmado';
 
         const badgeHtml = !item.activo
-          ? `<span class="text-[10px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-500 font-semibold">Inactivo</span>`
+          ? `<span class="text-[10px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-500 font-semibold">Inactivo en ${mesStr}</span>`
           : (esConfirmado
-            ? `<span class="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-semibold border border-emerald-500/30 flex items-center gap-1">✓ Confirmado este mes: S/ ${montoMes.toFixed(2)}</span>`
-            : `<span class="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/30 flex items-center gap-1">⏳ Proyectado: S/ ${montoMes.toFixed(2)}</span>`
+            ? `<span class="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-semibold border border-emerald-500/30 flex items-center gap-1">✓ Confirmado en ${mesStr}: S/ ${montoMes.toFixed(2)}</span>`
+            : `<span class="text-[10px] px-2 py-0.5 rounded-md bg-sky-500/20 text-sky-300 font-semibold border border-sky-500/30 flex items-center gap-1">📅 ${mesStr}: S/ ${montoMes.toFixed(2)}</span>`
           );
 
         const confirmBtnHtml = item.activo
-          ? `<button class="btn-confirm-rec text-[11px] font-bold py-1 px-2.5 rounded-xl border active:scale-95 transition ${esConfirmado ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30' : 'bg-sky-500/20 text-sky-300 border-sky-500/40 hover:bg-sky-500/30'}" data-rec-id="${item.id}" title="${esConfirmado ? 'Ajustar importe real para este mes' : 'Confirmar recibo/monto de este mes'}">
-              ${esConfirmado ? '✏️ Ajustar' : '✓ Confirmar'}
+          ? `<button class="btn-confirm-rec text-[11px] font-bold py-1 px-2.5 rounded-xl border active:scale-95 transition ${esConfirmado ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30' : 'bg-sky-500/20 text-sky-300 border-sky-500/40 hover:bg-sky-500/30'}" data-rec-id="${item.id}" data-rec-mes="${mesStr}" title="${esConfirmado ? 'Ajustar importe real para este mes' : 'Confirmar recibo/monto de este mes'}">
+              ${esConfirmado ? '✏️ Ajustar' : '✓ Asentar'}
              </button>`
           : '';
 
         return `
           <div class="p-3.5 rounded-2xl glass-panel border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${opacityClass} transition">
             <div class="flex items-center gap-3 flex-1 min-w-0">
-              <button class="btn-toggle-rec text-lg p-1.5 rounded-xl flex-shrink-0 ${item.activo ? 'bg-sky-500/20 text-sky-300' : 'bg-slate-800 text-slate-500'}" data-rec-id="${item.id}" title="${item.activo ? 'Desactivar' : 'Activar'}">
+              <button class="btn-toggle-rec text-lg p-1.5 rounded-xl flex-shrink-0 ${item.activo ? 'bg-sky-500/20 text-sky-300' : 'bg-slate-800 text-slate-500'}" data-rec-id="${item.id}" data-rec-mes="${mesStr}" title="${item.activo ? 'Desactivar en este mes' : 'Activar en este mes'}">
                 ${item.activo ? '✓' : '○'}
               </button>
               <div class="truncate flex-1">
@@ -1767,23 +1777,23 @@
                   ${badgeHtml}
                 </div>
                 <p class="text-[11px] text-slate-400 truncate mt-0.5">
-                  Base: S/ ${montoBase.toFixed(2)}/mes • Día ${item.diaMes || 1} • ${item.metodoPago || 'Efectivo'} ${item.notas ? `• ${item.notas}` : ''}
+                  Día ${item.diaMes || 1} • ${item.metodoPago || 'Efectivo'} ${item.notas ? `• ${item.notas}` : ''}
                 </p>
               </div>
             </div>
 
             <div class="flex items-center justify-between sm:justify-end gap-2 flex-shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-800/50">
               <div class="text-right mr-1">
-                <span class="text-xs text-slate-400 block">Este mes</span>
+                <span class="text-xs text-slate-400 block">${mesStr}</span>
                 <span class="text-sm font-black ${colorClass}">
                   ${sign}S/ ${montoMes.toFixed(2)}
                 </span>
               </div>
               ${confirmBtnHtml}
-              <button class="btn-edit-rec text-slate-400 hover:text-sky-400 p-1.5 rounded-lg active:scale-90 transition" data-rec-id="${item.id}" title="Editar configuración base">
-                ⚙️
+              <button class="btn-edit-rec text-slate-400 hover:text-sky-400 p-1.5 rounded-lg active:scale-90 transition" data-rec-id="${item.id}" data-rec-mes="${mesStr}" title="Editar monto/datos para ${mesStr}">
+                ✏️
               </button>
-              <button class="btn-delete-rec text-slate-500 hover:text-rose-400 p-1.5 rounded-lg active:scale-90 transition" data-rec-id="${item.id}" title="Eliminar">
+              <button class="btn-delete-rec text-slate-500 hover:text-rose-400 p-1.5 rounded-lg active:scale-90 transition" data-rec-id="${item.id}" data-rec-mes="${mesStr}" title="Eliminar de ${mesStr}">
                 ✕
               </button>
             </div>
@@ -1793,13 +1803,13 @@
 
       if (incomeListEl) {
         incomeListEl.innerHTML = ingresos.length === 0
-          ? `<p class="text-xs text-slate-500 p-3 text-center">No hay ingresos fijos configurados.</p>`
+          ? `<p class="text-xs text-slate-500 p-3 text-center">No hay ingresos fijos para ${mesStr}.</p>`
           : ingresos.map(r => renderItem(r, true)).join('');
       }
 
       if (expenseListEl) {
         expenseListEl.innerHTML = gastos.length === 0
-          ? `<p class="text-xs text-slate-500 p-3 text-center">No hay gastos fijos configurados.</p>`
+          ? `<p class="text-xs text-slate-500 p-3 text-center">No hay gastos fijos para ${mesStr}.</p>`
           : gastos.map(r => renderItem(r, false)).join('');
       }
 
@@ -1807,7 +1817,8 @@
       document.querySelectorAll('.btn-toggle-rec').forEach(btn => {
         btn.addEventListener('click', () => {
           const id = btn.getAttribute('data-rec-id');
-          if (window.onToggleRecurrente) window.onToggleRecurrente(id);
+          const mes = btn.getAttribute('data-rec-mes') || mesStr;
+          if (window.onToggleRecurrente) window.onToggleRecurrente(id, mes);
         });
       });
 
@@ -1821,22 +1832,23 @@
       document.querySelectorAll('.btn-edit-rec').forEach(btn => {
         btn.addEventListener('click', () => {
           const id = btn.getAttribute('data-rec-id');
-          const found = recurrentes.find(r => r.id === id);
-          if (found) this.openRecurrenteModal(found);
+          const found = fijosDelMes.find(r => r.id === id);
+          if (found) this.openRecurrenteModal(found, mesStr);
         });
       });
 
       document.querySelectorAll('.btn-delete-rec').forEach(btn => {
         btn.addEventListener('click', () => {
           const id = btn.getAttribute('data-rec-id');
-          if (confirm('¿Eliminar este movimiento fijo?')) {
-            if (window.onDeleteRecurrente) window.onDeleteRecurrente(id);
+          const mes = btn.getAttribute('data-rec-mes') || mesStr;
+          if (confirm(`¿Eliminar este movimiento fijo de ${mes}?`)) {
+            if (window.onDeleteRecurrente) window.onDeleteRecurrente(id, mes);
           }
         });
       });
     }
 
-    openRecurrenteModal(item = null) {
+    openRecurrenteModal(item = null, mes = null) {
       const modal = document.getElementById('recurrente-modal');
       const title = document.getElementById('recurrente-modal-title');
       const idInput = document.getElementById('rec-id-input');
@@ -1850,6 +1862,9 @@
       const activoInput = document.getElementById('rec-activo-input');
 
       if (!modal) return;
+
+      const mesTarget = mes || (item && item.mes) || (window.AppState && window.AppState.selectedMonth) || '';
+      this.currentRecurrenteMes = mesTarget;
 
       const updateCategoryOptions = (tipo) => {
         const cats = (tipo === 'Ingreso_Fijo')
@@ -1871,8 +1886,10 @@
       }
       metodoSelect.innerHTML = paymentOpts.map(m => `<option value="${m}">${m}</option>`).join('');
 
+      const mesLabel = mesTarget ? ` (${mesTarget})` : '';
+
       if (item) {
-        title.innerHTML = '<span>⚙️</span> Editar Configuración Base';
+        title.innerHTML = `<span>✏️</span> Editar Movimiento Fijo${mesLabel}`;
         idInput.value = item.id || '';
         nombreInput.value = item.nombre || '';
         tipoSelect.value = item.tipo || 'Gasto_Fijo';
@@ -1884,7 +1901,7 @@
         notasInput.value = item.notas || '';
         activoInput.checked = item.activo !== false;
       } else {
-        title.innerHTML = '<span>➕</span> Nuevo Movimiento Fijo';
+        title.innerHTML = `<span>➕</span> Nuevo Movimiento Fijo${mesLabel}`;
         idInput.value = '';
         nombreInput.value = '';
         tipoSelect.value = 'Gasto_Fijo';
@@ -1928,8 +1945,11 @@
         return null;
       }
 
+      const mesTarget = this.currentRecurrenteMes || (window.AppState && window.AppState.selectedMonth) || '';
+
       return {
         id: idInput.value || ('REC-' + Date.now()),
+        mes: mesTarget,
         nombre: nombre,
         tipo: tipoSelect.value,
         monto: monto,

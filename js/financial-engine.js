@@ -620,24 +620,20 @@
       if (mFe) mesesSet.add(mFe);
     });
 
-    // Fijos recurrentes activos
-    const ingresosFijosActivos = (recurrentesConfig || []).filter(r => 
-      r && (r.activo !== false && String(r.activo) !== 'false' && String(r.activo) !== 'NO') &&
-      r.tipo === 'Ingreso_Fijo'
-    );
-    const sumaIngresosFijos = ingresosFijosActivos.reduce((acc, r) => acc + (parseFloat(r.monto) || 0), 0);
-
-    const gastosFijosActivos = (recurrentesConfig || []).filter(r => 
-      r && (r.activo !== false && String(r.activo) !== 'false' && String(r.activo) !== 'NO') &&
-      r.tipo !== 'Ingreso_Fijo'
-    );
-    const sumaGastosFijos = gastosFijosActivos.reduce((acc, r) => acc + (parseFloat(r.monto) || 0), 0);
-
+    // Fijos recurrentes: obtener los fijos específicos para cada mes en el recorrido
     const listaMeses = Array.from(mesesSet).sort().reverse().map(mesKey => {
       const cierreOficial = cierresMap[mesKey];
       const esFuturo = mesKey > mesActualStr;
       const esMesEnCurso = mesKey === mesActualStr;
       const esCerrado = !!cierreOficial || (mesKey < mesActualStr && !esFuturo);
+
+      const fijosDelMes = getRecurrentesParaMes(recurrentesConfig, mesKey);
+      const sumaIngresosFijosMes = fijosDelMes
+        .filter(r => r && (r.activo !== false && String(r.activo) !== 'false' && String(r.activo) !== 'NO') && r.tipo === 'Ingreso_Fijo')
+        .reduce((acc, r) => acc + (parseFloat(r.monto) || 0), 0);
+      const sumaGastosFijosMes = fijosDelMes
+        .filter(r => r && (r.activo !== false && String(r.activo) !== 'false' && String(r.activo) !== 'NO') && r.tipo !== 'Ingreso_Fijo')
+        .reduce((acc, r) => acc + (parseFloat(r.monto) || 0), 0);
 
       let finalIngresos = 0;
       let finalSalidas = 0;
@@ -680,8 +676,8 @@
         esProyectado = true;
         estadoTexto = '🔮 Proyectado';
 
-        let ingresosFuturos = sumaIngresosFijos;
-        let gastosDirectosFuturos = sumaGastosFijos;
+        let ingresosFuturos = sumaIngresosFijosMes;
+        let gastosDirectosFuturos = sumaGastosFijosMes;
         let cuotasTCFuturas = 0;
         let prepagosTCFuturos = 0;
 
@@ -698,21 +694,18 @@
           }
 
           if (txMesTC === mesKey) {
-            if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC && !tx.esLiquidado && tx.estado !== 'LIQUIDADO' && tx.estado !== 'LIQUIDADA') {
-              cuotasTCFuturas += monto;
-            } else if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC) {
-              prepagosTCFuturos += monto;
-            }
+            if (tx.tipo === TIPOS_TRANSACCION.CONSUMO_TC) cuotasTCFuturas += monto;
+            else if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC) prepagosTCFuturos += monto;
           }
         });
 
-        const deudaTCFutura = Math.max(0, cuotasTCFuturas - prepagosTCFuturos);
+        const deudaTCFacturada = Math.max(0, cuotasTCFuturas - prepagosTCFuturos);
+        finalSalidas = Number((gastosDirectosFuturos + deudaTCFacturada).toFixed(2));
         finalIngresos = Number(ingresosFuturos.toFixed(2));
-        finalSalidas = Number((gastosDirectosFuturos + deudaTCFutura).toFixed(2));
         ahorroNeto = Number((finalIngresos - finalSalidas).toFixed(2));
         tasaAhorro = finalIngresos > 0 ? Math.round((ahorroNeto / finalIngresos) * 100) : 0;
       } else {
-        // 3. Mes en curso o mes pasado sin cierre oficial
+        // 3. Mes abierto / mes en curso
         let ingresos = 0;
         let gastosDirectos = 0;
         let prepagos = 0;
@@ -720,14 +713,17 @@
         let consumosTCFacturados = 0;
         let prepagosTCFacturados = 0;
 
+        let hasIngresoTx = false;
+        let hasGastoTx = false;
+
         transacciones.forEach(tx => {
           const monto = parseFloat(tx.monto) || 0;
           const txMesEf = normalizarMes(tx.mesImpactoEfectivo);
           const txMesTC = normalizarMes(tx.mesImpactoTC);
 
           if (txMesEf === mesKey) {
-            if (tx.tipo === TIPOS_TRANSACCION.INGRESO) ingresos += monto;
-            else if (tx.tipo === TIPOS_TRANSACCION.GASTO_DIRECTO) gastosDirectos += monto;
+            if (tx.tipo === TIPOS_TRANSACCION.INGRESO) { ingresos += monto; hasIngresoTx = true; }
+            else if (tx.tipo === TIPOS_TRANSACCION.GASTO_DIRECTO) { gastosDirectos += monto; hasGastoTx = true; }
             else if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC) prepagos += monto;
             else if (tx.tipo === TIPOS_TRANSACCION.PAGO_TC_VENCIDA) pagosTC += monto;
           }
@@ -737,6 +733,10 @@
             else if (tx.tipo === TIPOS_TRANSACCION.PREPAGO_TC) prepagosTCFacturados += monto;
           }
         });
+
+        // Si no hubo transacciones explícitas cargadas para ingresos o gastos, aplicar los fijos recurrentes de este mes
+        if (!hasIngresoTx && sumaIngresosFijosMes > 0) ingresos += sumaIngresosFijosMes;
+        if (!hasGastoTx && sumaGastosFijosMes > 0) gastosDirectos += sumaGastosFijosMes;
 
         const deudaFacturadaMes = Math.max(0, consumosTCFacturados - prepagosTCFacturados);
         const salidaTCMes = Math.max(deudaFacturadaMes, pagosTC);
@@ -832,6 +832,56 @@
   }
 
   /**
+   * Obtiene la lista de movimientos fijos aplicables a un mes específico.
+   * Si existen fijos configurados explícitamente con r.mes === mesActualStr, devuelve esos.
+   * Si no, busca la configuración del mes previo más cercano o fijos base/legacy.
+   */
+  function getRecurrentesParaMes(recurrentesConfig = [], mesActualStr = null) {
+    if (!mesActualStr) {
+      mesActualStr = obtenerMesImpacto(new Date());
+    } else {
+      mesActualStr = normalizarMes(mesActualStr);
+    }
+
+    const items = (recurrentesConfig || []).filter(r => r && (r.id || r.nombre));
+    if (items.length === 0) return [];
+
+    // 1. Si hay fijos guardados explícitamente para este mes exacto
+    const delMes = items.filter(r => r.mes && normalizarMes(r.mes) === mesActualStr);
+    if (delMes.length > 0) {
+      return delMes.map(r => ({ ...r, mes: mesActualStr }));
+    }
+
+    // 2. Si no hay para este mes específico, buscar el mes previo más cercano con fijos
+    const mesesConFijos = Array.from(new Set(
+      items.filter(r => r.mes).map(r => normalizarMes(r.mes))
+    )).sort();
+
+    const mesesAnteriores = mesesConFijos.filter(m => m < mesActualStr);
+    if (mesesAnteriores.length > 0) {
+      const ultimoMesPrevio = mesesAnteriores[mesesAnteriores.length - 1];
+      return items
+        .filter(r => normalizarMes(r.mes) === ultimoMesPrevio)
+        .map(r => ({ ...r, mes: mesActualStr }));
+    }
+
+    // 3. Fallback a fijos sin mes (plantilla base/legacy)
+    const sinMes = items.filter(r => !r.mes);
+    if (sinMes.length > 0) {
+      return sinMes.map(r => ({ ...r, mes: mesActualStr }));
+    }
+
+    // 4. Si solo hay meses posteriores, tomar el primero
+    if (mesesConFijos.length > 0) {
+      return items
+        .filter(r => normalizarMes(r.mes) === mesesConFijos[0])
+        .map(r => ({ ...r, mes: mesActualStr }));
+    }
+
+    return [];
+  }
+
+  /**
    * Combina transacciones efectivas asentadas con los movimientos recurrentes fijos.
    * Si un recurrente ya tiene una transacción registrada/confirmada en ese mes,
    * se respeta la transacción asentada (con su monto confirmado real).
@@ -859,7 +909,9 @@
       return mEf === mesActualStr || mFecha === mesActualStr || mTC === mesActualStr;
     });
 
-    (recurrentesConfig || []).forEach(rec => {
+    const recurrentesDelMes = getRecurrentesParaMes(recurrentesConfig, mesActualStr);
+
+    recurrentesDelMes.forEach(rec => {
       if (!rec || !rec.id) return;
       const esActivo = (rec.activo !== false && String(rec.activo) !== 'false' && String(rec.activo) !== 'NO');
       if (!esActivo) {
@@ -882,7 +934,7 @@
         if (notas.includes(`[fijo: ${recId.toLowerCase()}]`)) return true;
         if (nomLower && (notas.includes(`[fijo: ${nomLower}]`) || notas.startsWith(`[fijo] ${nomLower}`) || notas === `[fijo] ${nomLower}`)) return true;
 
-        // Coincidencia inteligente por tipo, categoría y monto para evitar duplicar Sueldos o gastos fijos
+        // Coincidencia exacta por tipo, categoría y monto idéntico (protege sueldos y evita duplicidad sin sustituir montos diferentes)
         const tipoMatch = (rec.tipo === 'Ingreso_Fijo' && t.tipo === TIPOS_TRANSACCION.INGRESO) ||
                           (rec.tipo !== 'Ingreso_Fijo' && t.tipo === TIPOS_TRANSACCION.GASTO_DIRECTO);
         if (tipoMatch) {
@@ -891,16 +943,7 @@
           if (catTx && catRec && catTx === catRec) {
             const mTx = parseFloat(t.monto) || 0;
             const mRec = parseFloat(rec.monto) || 0;
-
-            // Coincidencia exacta de monto
             if (mRec > 0 && Math.abs(mTx - mRec) < 0.01) return true;
-
-            // Para sueldo, solo concilia automáticamente si el monto es del mismo orden de magnitud
-            // (ej. dentro del 15% por descuentos de ley o pequeñas variaciones),
-            // pero NUNCA permite que un monto pequeño (ej. S/ 28.90 de cashback o transferencias) suplante el sueldo
-            if (catTx === 'Sueldo' && mRec > 0 && mTx >= mRec * 0.85 && mTx <= mRec * 1.15) {
-              return true;
-            }
           }
         }
         return false;
@@ -1118,6 +1161,7 @@
       const monto = parseFloat(tx.monto) || 0;
       let txMesEfectivo = normalizarMes(tx.mesImpactoEfectivo);
       let txMesFecha = normalizarMes(tx.fecha);
+      let txMesTC = normalizarMes(tx.mesImpactoTC);
       if (!txMesEfectivo && txMesFecha) txMesEfectivo = txMesFecha;
       if (!txMesFecha && txMesEfectivo) txMesFecha = txMesEfectivo;
       const esFijo = tx.esFijoProyectado || tx.recurrenteId || (tx.notas && String(tx.notas).includes('[Fijo'));
@@ -1549,13 +1593,13 @@
         totalGastadoHistorico += monto;
         todosMovimientos.push(itemGasto);
 
-        if (txMesEfectivo === mesActualStr || txMesFecha === mesActualStr) {
+        if (txMesEfectivo === mesActualStr) {
           totalGastado += monto;
           movimientos.push(itemGasto);
         }
       }
 
-      // 2. Consumos con Tarjeta de Crédito realizados en este mes
+      // 2. Consumos con Tarjeta de Crédito realizados/vencidos en este mes
       if (tipoNorm === TIPOS_TRANSACCION.CONSUMO_TC) {
         const cuotaStr = (tx.cuotaActual && tx.totalCuotas)
           ? `Cuota ${tx.cuotaActual}/${tx.totalCuotas}`
@@ -1577,7 +1621,7 @@
         totalGastadoHistorico += monto;
         todosMovimientos.push(itemTC);
 
-        if (txMesFecha === mesActualStr || txMesEfectivo === mesActualStr || txMesTC === mesActualStr) {
+        if (txMesFecha === mesActualStr) {
           totalGastado += monto;
           movimientos.push(itemTC);
         }
@@ -1614,6 +1658,7 @@
     normalizarCategoria,
     sonCategoriasEquivalentes,
     combinarTransaccionesConRecurrentes,
+    getRecurrentesParaMes,
     calcularCicloTarjeta,
     normalizarMes,
     obtenerMesImpacto,
