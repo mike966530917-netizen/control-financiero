@@ -10,7 +10,7 @@
   
   <title>Control Financiero, Tarjetas & Prepagos</title>
   
-  <!-- Invalidación y Purga de Caché de Service Worker v5.2 -->
+  <!-- Invalidación y Purga de Caché de Service Worker v6.0 -->
   <script>
     window.forcePurgeAndReload = function() {
       if ('caches' in window) {
@@ -35,7 +35,7 @@
     };
 
     (function() {
-      const APP_BUILD_ID = 'finanzas-pwa-v5.2-force';
+      const APP_BUILD_ID = 'finanzas-pwa-v6.0-force';
       const prevBuild = localStorage.getItem('finanzas_build_id');
       if (prevBuild !== APP_BUILD_ID) {
         localStorage.setItem('finanzas_build_id', APP_BUILD_ID);
@@ -91,7 +91,7 @@
         <div>
           <h1 class="font-extrabold text-base tracking-tight text-white flex items-center gap-1.5">
             Finanzas Pro
-            <span class="text-[9px] px-1.5 py-0.5 rounded-md bg-sky-950 text-sky-400 font-extrabold border border-sky-500/30">v5.2</span>
+            <span class="text-[9px] px-1.5 py-0.5 rounded-md bg-sky-950 text-sky-400 font-extrabold border border-sky-500/30">v6.0</span>
             <span id="sync-status-badge" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
               Cargando...
             </span>
@@ -514,9 +514,9 @@
         <div class="flex items-center justify-between mb-2">
           <div>
             <h3 class="text-base font-extrabold text-white flex items-center gap-2">
-              <span>🔄</span> Movimientos Fijos Mensuales
+              <span>🔄</span> <span id="rec-view-month-title">Movimientos Fijos Mensuales</span>
             </h3>
-            <p class="text-xs text-slate-400">Ingresos y gastos que se repiten cada mes automáticamente.</p>
+            <p id="rec-view-month-subtitle" class="text-xs text-slate-400">Ingresos y gastos organizados y editables por cada mes.</p>
           </div>
         </div>
 
@@ -787,7 +787,7 @@
         </div>
         <div class="pt-2">
           <button type="button" onclick="window.forcePurgeAndReload()" class="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-400 font-bold text-xs border border-sky-500/30 flex items-center justify-center gap-1.5 active:scale-95 transition cursor-pointer">
-            <span>🔄</span> Limpiar Toda la Caché y Forzar Recarga (v5.2)
+            <span>🔄</span> Limpiar Toda la Caché y Forzar Recarga (v6.0)
           </button>
         </div>
       </div>
@@ -1157,7 +1157,7 @@
   <!-- Contenedor flotante de notificaciones Toast -->
   <div id="toast-container" class="fixed top-5 left-4 right-4 flex flex-col gap-2 pointer-events-none max-w-sm mx-auto" style="z-index:10000;"></div>
 
-  <!-- Scripts en orden de dependencia con cache-busting v5.2 -->
+  <!-- Scripts en orden de dependencia con cache-busting v6.0 -->
   <script src="js/financial-engine.js?v=5.2"></script>
   <script src="js/api.js?v=5.2"></script>
   <script src="js/ui.js?v=5.2"></script>

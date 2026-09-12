@@ -154,7 +154,8 @@
 
     async saveRecurrente(item) {
       const list = this.getLocalRecurrentes();
-      const idx = list.findIndex(r => r.id === item.id);
+      const itemMes = item.mes || '';
+      const idx = list.findIndex(r => r.id === item.id && (r.mes || '') === itemMes);
       if (idx >= 0) {
         list[idx] = { ...list[idx], ...item };
       } else {
@@ -181,8 +182,35 @@
       }
     }
 
-    async deleteRecurrente(id) {
-      const list = this.getLocalRecurrentes().filter(r => r.id !== id);
+    async saveAllRecurrentes(items) {
+      if (!Array.isArray(items)) return { success: false };
+      this.saveLocalRecurrentes(items);
+
+      if (!this.apiUrl || !this.isOnline) {
+        return { success: true, offline: true };
+      }
+
+      try {
+        await fetch(this.apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'saveAllRecurrentes', recurrentes: items }),
+          redirect: 'follow'
+        });
+        return { success: true };
+      } catch (err) {
+        console.warn('[API] Error al guardar lista de recurrentes en Sheets:', err);
+        return { success: true, offline: true };
+      }
+    }
+
+    async deleteRecurrente(id, mes = null) {
+      let list = this.getLocalRecurrentes();
+      if (mes) {
+        list = list.filter(r => !(r.id === id && (r.mes || '') === mes));
+      } else {
+        list = list.filter(r => r.id !== id);
+      }
       this.saveLocalRecurrentes(list);
 
       if (!this.apiUrl || !this.isOnline) {
@@ -193,7 +221,7 @@
         await fetch(this.apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action: 'deleteRecurrente', id: id }),
+          body: JSON.stringify({ action: 'deleteRecurrente', id: id, mes: mes }),
           redirect: 'follow'
         });
         return { success: true };

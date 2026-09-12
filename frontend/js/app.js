@@ -479,7 +479,7 @@
 
     if (btnAdd) {
       btnAdd.addEventListener('click', () => {
-        UIManager.openRecurrenteModal();
+        UIManager.openRecurrenteModal(null, AppState.selectedMonth);
       });
     }
 
@@ -491,7 +491,10 @@
         const item = UIManager.getRecurrenteFromModal();
         if (!item) return;
 
-        const idx = AppState.recurrentes.findIndex(r => r.id === item.id);
+        const targetMes = item.mes || AppState.selectedMonth;
+        item.mes = targetMes;
+
+        const idx = AppState.recurrentes.findIndex(r => r.id === item.id && (r.mes || '') === targetMes);
         if (idx >= 0) {
           AppState.recurrentes[idx] = item;
         } else {
@@ -500,32 +503,44 @@
 
         UIManager.closeRecurrenteModal();
         recalculateAndRender();
-        UIManager.showToast(`Movimiento fijo "${item.nombre}" guardado`, 'success');
+        UIManager.showToast(`Fijo "${item.nombre}" guardado para ${targetMes}`, 'success');
         await ApiService.saveRecurrente(item);
       });
     }
 
-    // Toggle activo/inactivo
-    window.onToggleRecurrente = async (id) => {
-      const item = AppState.recurrentes.find(r => r.id === id);
-      if (!item) return;
-      item.activo = !item.activo;
+    // Toggle activo/inactivo por mes
+    window.onToggleRecurrente = async (id, mes = null) => {
+      const targetMes = mes || AppState.selectedMonth;
+      let item = AppState.recurrentes.find(r => r.id === id && (r.mes || '') === targetMes);
+      
+      // Si no existe explícitamente para este mes (ej. era heredado de plantilla), crearlo para este mes
+      if (!item) {
+        const template = (FinancialEngine.getRecurrentesParaMes ? FinancialEngine.getRecurrentesParaMes(AppState.recurrentes, targetMes) : AppState.recurrentes).find(r => r.id === id);
+        if (!template) return;
+        item = { ...template, mes: targetMes, activo: !template.activo };
+        AppState.recurrentes.push(item);
+      } else {
+        item.activo = !item.activo;
+      }
+
       recalculateAndRender();
       await ApiService.saveRecurrente(item);
-      UIManager.showToast(`"${item.nombre}" ${item.activo ? 'activado' : 'desactivado'}`, 'info');
+      UIManager.showToast(`"${item.nombre}" ${item.activo ? 'activado' : 'desactivado'} en ${targetMes}`, 'info');
     };
 
-    // Eliminar recurrente
-    window.onDeleteRecurrente = async (id) => {
-      AppState.recurrentes = AppState.recurrentes.filter(r => r.id !== id);
+    // Eliminar recurrente de este mes
+    window.onDeleteRecurrente = async (id, mes = null) => {
+      const targetMes = mes || AppState.selectedMonth;
+      AppState.recurrentes = AppState.recurrentes.filter(r => !(r.id === id && (r.mes || '') === targetMes));
       recalculateAndRender();
-      await ApiService.deleteRecurrente(id);
-      UIManager.showToast('Movimiento fijo eliminado', 'warning');
+      await ApiService.deleteRecurrente(id, targetMes);
+      UIManager.showToast(`Movimiento fijo eliminado de ${targetMes}`, 'warning');
     };
 
-    // Clic en Confirmar / Ajustar recibo específico del mes
+    // Clic en Confirmar / Asentar recibo específico del mes
     window.onConfirmRecurrenteClick = (id) => {
-      const item = AppState.recurrentes.find(r => r.id === id);
+      const fijosMes = FinancialEngine.getRecurrentesParaMes ? FinancialEngine.getRecurrentesParaMes(AppState.recurrentes, AppState.selectedMonth) : AppState.recurrentes;
+      const item = fijosMes.find(r => r.id === id) || AppState.recurrentes.find(r => r.id === id);
       if (!item) return;
       const statusInfo = (window.cachedRecurrentesEstadoMes || []).find(e => String(e.id) === String(id));
       UIManager.openConfirmRecurrenteModal(item, AppState.selectedMonth, statusInfo);
@@ -606,13 +621,13 @@
     // Botón Registrar todos los fijos activos en este Mes
     if (btnApplyMonth) {
       btnApplyMonth.addEventListener('click', async () => {
-        const activos = AppState.recurrentes.filter(r => r.activo);
+        const mes = AppState.selectedMonth; // 'YYYY-MM'
+        const fijosMes = FinancialEngine.getRecurrentesParaMes ? FinancialEngine.getRecurrentesParaMes(AppState.recurrentes, mes) : AppState.recurrentes;
+        const activos = fijosMes.filter(r => r && (r.activo !== false && String(r.activo) !== 'false' && String(r.activo) !== 'NO'));
         if (activos.length === 0) {
-          UIManager.showToast('No hay movimientos fijos activos para registrar', 'warning');
+          UIManager.showToast(`No hay movimientos fijos activos para registrar en ${mes}`, 'warning');
           return;
         }
-
-        const mes = AppState.selectedMonth; // 'YYYY-MM'
         const [anio, mesNum] = mes.split('-').map(Number);
         const maxDiasMes = new Date(anio, mesNum, 0).getDate();
         const pad = (n) => String(n).padStart(2, '0');

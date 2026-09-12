@@ -65,6 +65,7 @@
       sumarMesesAFecha 
     } = window.FinancialEngine;
 
+    try {
     const tarjetasConfig = [
       { id: 'TC_BCP', nombre: 'BCP Visa Signature', diaCorte: 20, diaVencimiento: 10, limiteCredito: 10000, colorHex: '#0033a0' },
       { id: 'TC_BBVA', nombre: 'BBVA Mastercard Black', diaCorte: 5, diaVencimiento: 25, limiteCredito: 8000, colorHex: '#004481' }
@@ -1021,6 +1022,46 @@
       `Movimientos: ${detalleSuper.movimientosCount} (esperado 2), Total: S/ ${detalleSuper.totalGastado} (esperado 370.00)`
     );
 
+    // Prueba 46: FIJOS POR CADA MES
+    const recurrentesPorMesTest = [
+      { id: 'REC-SUELDO', nombre: 'Sueldo', tipo: 'Ingreso_Fijo', monto: 3000, mes: '2026-08', activo: true },
+      { id: 'REC-LUZ', nombre: 'Luz', tipo: 'Gasto_Fijo', monto: 75, mes: '2026-08', activo: true },
+      { id: 'REC-SUELDO', nombre: 'Sueldo', tipo: 'Ingreso_Fijo', monto: 4000, mes: '2026-09', activo: true },
+      { id: 'REC-LUZ', nombre: 'Luz', tipo: 'Gasto_Fijo', monto: 110, mes: '2026-09', activo: true }
+    ];
+    const fijosAgo = window.FinancialEngine.getRecurrentesParaMes(recurrentesPorMesTest, '2026-08');
+    const fijosSep = window.FinancialEngine.getRecurrentesParaMes(recurrentesPorMesTest, '2026-09');
+    const fijosOct = window.FinancialEngine.getRecurrentesParaMes(recurrentesPorMesTest, '2026-10'); // hereda del mes previo más cercano
+
+    const okFijosPorMes = (fijosAgo.find(r => r.id === 'REC-SUELDO')?.monto === 3000) &&
+                          (fijosAgo.find(r => r.id === 'REC-LUZ')?.monto === 75) &&
+                          (fijosSep.find(r => r.id === 'REC-SUELDO')?.monto === 4000) &&
+                          (fijosSep.find(r => r.id === 'REC-LUZ')?.monto === 110) &&
+                          (fijosOct.find(r => r.id === 'REC-SUELDO')?.monto === 4000) &&
+                          (fijosOct.find(r => r.id === 'REC-SUELDO')?.mes === '2026-10');
+
+    report('Fijos divididos por cada mes: Los montos editados en un mes solo aplican a ese mes y nuevos meses heredan sin sobreescribir',
+      okFijosPorMes,
+      `Agosto Sueldo: ${fijosAgo.find(r => r.id === 'REC-SUELDO')?.monto} (esp 3000), Septiembre Sueldo: ${fijosSep.find(r => r.id === 'REC-SUELDO')?.monto} (esp 4000), Octubre heredado: ${fijosOct.find(r => r.id === 'REC-SUELDO')?.monto} (esp 4000)`
+    );
+
+    // Prueba 47: CUADRATURA EXACTA DE TOTALES POR CATEGORÍA ENTRE CONSOLIDADO Y LUPA
+    const txsCuadratura = [
+      { id: 'C1', tipo: 'Gasto_Directo', categoria: 'Alimentación', monto: 125.50, mesImpactoEfectivo: '2026-09', fecha: '2026-09-03' },
+      { id: 'C2', tipo: 'Consumo_TC', categoria: 'Alimentación', monto: 84.50, mesImpactoTC: '2026-10', fecha: '2026-09-15', tarjetaAfectada: 'TC_BBVA' }
+    ];
+    const consolidadoCuad = window.FinancialEngine.calcularConsolidadoFinanciero(txsCuadratura, [{ id: 'tc_bbva', nombre: 'TC_BBVA', diaCorte: 25, diaVencimiento: 15 }], '2026-09', [], []);
+    const detalleLupaCuad = window.FinancialEngine.obtenerDetalleGastosPorCategoria(txsCuadratura, 'Alimentación', '2026-09');
+
+    const totalConsolidadoCat = consolidadoCuad.categorias.gastos['Alimentación'] || 0;
+    const totalLupaCat = detalleLupaCuad.totalGastado;
+    const okCuadratura = (totalConsolidadoCat === 210.00) && (totalLupaCat === 210.00) && (totalConsolidadoCat === totalLupaCat);
+
+    report('Cuadratura de Totales por Categoría: El total en la barra de categoría coincide exactamente con la suma en la lupa (S/ 210.00)',
+      okCuadratura,
+      `Consolidado: S/ ${totalConsolidadoCat}, Lupa: S/ ${totalLupaCat}, Coinciden: ${okCuadratura}`
+    );
+
     summaryBox.innerHTML = `
       <div class="flex items-center justify-between">
         <span class="font-bold ${failedCount === 0 ? 'text-emerald-400' : 'text-rose-400'} text-base">
@@ -1029,6 +1070,10 @@
         <span class="text-xs text-slate-400">${passedCount} pasadas, ${failedCount} falladas</span>
       </div>
     `;
+    } catch (err) {
+      report('ERROR GENERAL DE EJECUCIÓN', false, err.stack || err.toString());
+      summaryBox.innerHTML = `<p style="color:red">Error: ${err.message}</p>`;
+    }
   </script>
 </body>
 </html>

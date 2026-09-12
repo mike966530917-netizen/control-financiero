@@ -154,17 +154,16 @@ function setupSheets() {
     sheetBudgets.setFrozenRows(1);
   }
 
-  // 6. Pestaña RECURRENTES (Preserva movimientos fijos del usuario)
+  // 6. Pestaña RECURRENTES (Movimientos fijos organizados por mes)
   let sheetRec = ss.getSheetByName(SHEETS.RECURRENTES);
+  const recHeaders = ['Mes', 'ID', 'Nombre', 'Tipo', 'Monto', 'Categoria', 'Metodo_Pago', 'Dia_Mes', 'Activo', 'Notas'];
   if (!sheetRec) {
     sheetRec = ss.insertSheet(SHEETS.RECURRENTES);
-    const recHeaders = ['ID', 'Nombre', 'Tipo', 'Monto', 'Categoria', 'Metodo_Pago', 'Dia_Mes', 'Activo', 'Notas'];
     sheetRec.appendRow(recHeaders);
     formatHeaderRow(sheetRec, '#6366f1', '#ffffff');
     sheetRec.setFrozenRows(1);
-    sheetRec.getRange(2, 4, 100, 1).setNumberFormat('#,##0.00');
+    sheetRec.getRange(2, 5, 100, 1).setNumberFormat('#,##0.00');
   } else if (sheetRec.getLastRow() === 0) {
-    const recHeaders = ['ID', 'Nombre', 'Tipo', 'Monto', 'Categoria', 'Metodo_Pago', 'Dia_Mes', 'Activo', 'Notas'];
     sheetRec.appendRow(recHeaders);
     formatHeaderRow(sheetRec, '#6366f1', '#ffffff');
     sheetRec.setFrozenRows(1);
@@ -293,7 +292,7 @@ function doPost(e) {
     } else if (action === 'saveAllRecurrentes') {
       result = saveAllRecurrentes_(payload.recurrentes);
     } else if (action === 'deleteRecurrente') {
-      result = deleteRecurrente_(payload.id);
+      result = deleteRecurrente_(payload.id, payload.mes);
     } else if (action === 'saveClosedMonth') {
       result = saveClosedMonth_(payload.monthData);
     } else if (action === 'reopenMonth') {
@@ -426,11 +425,11 @@ function getRecurrentesConfig_() {
   let sheet = ss.getSheetByName(SHEETS.RECURRENTES);
   if (!sheet) {
     sheet = ss.insertSheet(SHEETS.RECURRENTES);
-    const headers = ['ID', 'Nombre', 'Tipo', 'Monto', 'Categoria', 'Metodo_Pago', 'Dia_Mes', 'Activo', 'Notas'];
+    const headers = ['Mes', 'ID', 'Nombre', 'Tipo', 'Monto', 'Categoria', 'Metodo_Pago', 'Dia_Mes', 'Activo', 'Notas'];
     sheet.appendRow(headers);
     formatHeaderRow(sheet, '#6366f1', '#ffffff');
     sheet.setFrozenRows(1);
-    sheet.getRange(2, 4, 100, 1).setNumberFormat('#,##0.00');
+    sheet.getRange(2, 5, 100, 1).setNumberFormat('#,##0.00');
     SpreadsheetApp.flush();
     return [];
   }
@@ -438,30 +437,66 @@ function getRecurrentesConfig_() {
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) return [];
 
+  // Detección dinámica de columnas según encabezados
+  const headerRow = data[0].map(h => String(h || '').trim().toLowerCase());
+  const colMes = headerRow.findIndex(h => h === 'mes' || h.includes('periodo'));
+  const colId = headerRow.findIndex(h => h === 'id');
+  const colNombre = headerRow.findIndex(h => h.includes('nombre') || h.includes('concepto'));
+  const colTipo = headerRow.findIndex(h => h.includes('tipo'));
+  const colMonto = headerRow.findIndex(h => h.includes('monto') || h.includes('importe'));
+  const colCat = headerRow.findIndex(h => h.includes('cat'));
+  const colMetodo = headerRow.findIndex(h => h.includes('metodo') || h.includes('pago'));
+  const colDia = headerRow.findIndex(h => h.includes('dia'));
+  const colActivo = headerRow.findIndex(h => h.includes('activo') || h.includes('estado'));
+  const colNotas = headerRow.findIndex(h => h.includes('nota'));
+
   const items = [];
   for (let i = 1; i < data.length; i++) {
     const row = data[i];
-    const idStr = String(row[0] || '').trim();
-    const nomStr = String(row[1] || '').trim();
+    
+    // Si tiene columna Mes explícita
+    let mesVal = '';
+    if (colMes >= 0 && row[colMes]) {
+      const rawM = row[colMes];
+      if (rawM instanceof Date) {
+        mesVal = Utilities.formatDate(rawM, Session.getScriptTimeZone(), 'yyyy-MM');
+      } else {
+        mesVal = String(rawM).trim().replace(/^'+/, '');
+        const matchM = mesVal.match(/^(\d{4})[-/](\d{1,2})/);
+        if (matchM) mesVal = `${matchM[1]}-${matchM[2].padStart(2, '0')}`;
+      }
+    }
+
+    const idStr = String((colId >= 0 ? row[colId] : (colMes === 0 ? row[1] : row[0])) || '').trim();
+    const nomStr = String((colNombre >= 0 ? row[colNombre] : (colMes === 0 ? row[2] : row[1])) || '').trim();
 
     if (idStr || nomStr) {
-      const activoVal = String(row[7] !== undefined ? row[7] : '').trim().toUpperCase();
+      const rawActivo = colActivo >= 0 ? row[colActivo] : (colMes === 0 ? row[8] : row[7]);
+      const activoVal = String(rawActivo !== undefined ? rawActivo : '').trim().toUpperCase();
       const esActivo = (activoVal === 'SI' || activoVal === 'TRUE' || activoVal === '1' || activoVal === '');
-      const rawMonto = row[3];
+      
+      const rawMonto = colMonto >= 0 ? row[colMonto] : (colMes === 0 ? row[4] : row[3]);
       const parsedMonto = typeof rawMonto === 'number'
         ? rawMonto
         : parseFloat(String(rawMonto || '').replace(/[^0-9.-]/g, '')) || 0;
 
+      const tipoVal = String((colTipo >= 0 ? row[colTipo] : (colMes === 0 ? row[3] : row[2])) || 'Gasto_Fijo').trim();
+      const catVal = String((colCat >= 0 ? row[colCat] : (colMes === 0 ? row[5] : row[4])) || 'Varios').trim();
+      const metodoVal = String((colMetodo >= 0 ? row[colMetodo] : (colMes === 0 ? row[6] : row[5])) || 'Efectivo').trim();
+      const diaVal = parseInt(colDia >= 0 ? row[colDia] : (colMes === 0 ? row[7] : row[6]), 10) || 1;
+      const notasVal = String((colNotas >= 0 ? row[colNotas] : (colMes === 0 ? row[9] : row[8])) || '').trim();
+
       items.push({
+        mes: mesVal, // 'YYYY-MM' o '' si es general/legacy
         id: idStr || ('REC-' + i),
         nombre: nomStr || ('Recurrente ' + i),
-        tipo: String(row[2] || 'Gasto_Fijo').trim(),
+        tipo: tipoVal,
         monto: parsedMonto,
-        categoria: String(row[4] || 'Varios').trim(),
-        metodoPago: String(row[5] || 'Efectivo').trim(),
-        diaMes: parseInt(row[6], 10) || 1,
+        categoria: catVal,
+        metodoPago: metodoVal,
+        diaMes: diaVal,
         activo: esActivo,
-        notas: String(row[8] || '').trim()
+        notas: notasVal
       });
     }
   }
@@ -801,37 +836,71 @@ function saveRecurrente_(item) {
   }
 
   const data = sheet.getDataRange().getValues();
-  let foundRow = -1;
-  const id = item.id || ('REC-' + new Date().getTime());
+  const headerRow = data[0].map(h => String(h || '').trim().toLowerCase());
+  const colMes = headerRow.findIndex(h => h === 'mes' || h.includes('periodo'));
+  const hasMesCol = (colMes >= 0);
 
+  const id = String(item.id || ('REC-' + new Date().getTime())).trim();
+  const itemMes = String(item.mes || '').trim().replace(/^'+/, '');
+  
+  let foundRow = -1;
   for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]).trim() === String(id).trim()) {
-      foundRow = i + 1;
-      break;
+    const rowId = String(hasMesCol && colMes === 0 ? data[i][1] : data[i][0]).trim();
+    const rowMes = hasMesCol ? String(data[i][colMes] || '').trim().replace(/^'+/, '') : '';
+    
+    // Si ambos tienen mes, deben coincidir en mes e id. Si no, solo id.
+    if (hasMesCol && itemMes) {
+      if (rowId === id && rowMes === itemMes) {
+        foundRow = i + 1;
+        break;
+      }
+    } else {
+      if (rowId === id) {
+        foundRow = i + 1;
+        break;
+      }
     }
   }
 
   const activoStr = (item.activo === false || String(item.activo) === 'false') ? 'NO' : 'SI';
-  const rowData = [
-    id,
-    String(item.nombre || '').trim(),
-    String(item.tipo || 'Gasto_Fijo').trim(),
-    parseFloat(item.monto) || 0,
-    String(item.categoria || 'Varios').trim(),
-    String(item.metodoPago || 'Efectivo').trim(),
-    parseInt(item.diaMes, 10) || 1,
-    activoStr,
-    String(item.notas || '').trim()
-  ];
+  
+  let rowData;
+  if (hasMesCol) {
+    rowData = [
+      itemMes ? "'" + itemMes : '',
+      id,
+      String(item.nombre || '').trim(),
+      String(item.tipo || 'Gasto_Fijo').trim(),
+      parseFloat(item.monto) || 0,
+      String(item.categoria || 'Varios').trim(),
+      String(item.metodoPago || 'Efectivo').trim(),
+      parseInt(item.diaMes, 10) || 1,
+      activoStr,
+      String(item.notas || '').trim()
+    ];
+  } else {
+    // Legacy 9 columnas
+    rowData = [
+      id,
+      String(item.nombre || '').trim(),
+      String(item.tipo || 'Gasto_Fijo').trim(),
+      parseFloat(item.monto) || 0,
+      String(item.categoria || 'Varios').trim(),
+      String(item.metodoPago || 'Efectivo').trim(),
+      parseInt(item.diaMes, 10) || 1,
+      activoStr,
+      String(item.notas || '').trim()
+    ];
+  }
 
   if (foundRow > 0) {
-    sheet.getRange(foundRow, 1, 1, 9).setValues([rowData]);
+    sheet.getRange(foundRow, 1, 1, rowData.length).setValues([rowData]);
   } else {
     sheet.appendRow(rowData);
   }
 
   SpreadsheetApp.flush();
-  return { success: true, recurrente: { ...item, id: id, activo: activoStr === 'SI' } };
+  return { success: true, recurrente: { ...item, id: id, mes: itemMes, activo: activoStr === 'SI' } };
 }
 
 function saveAllRecurrentes_(lista) {
@@ -840,17 +909,31 @@ function saveAllRecurrentes_(lista) {
   return { success: true, count: lista.length };
 }
 
-function deleteRecurrente_(id) {
+function deleteRecurrente_(id, mes = null) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(SHEETS.RECURRENTES);
   if (!sheet) return { success: false, error: 'Hoja RECURRENTES no encontrada' };
 
   const data = sheet.getDataRange().getValues();
+  const headerRow = data[0].map(h => String(h || '').trim().toLowerCase());
+  const colMes = headerRow.findIndex(h => h === 'mes' || h.includes('periodo'));
+  const hasMesCol = (colMes >= 0);
+  const targetId = String(id || '').trim();
+  const targetMes = mes ? String(mes).trim().replace(/^'+/, '') : '';
+
   for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]).trim() === String(id).trim()) {
+    const rowId = String(hasMesCol && colMes === 0 ? data[i][1] : data[i][0]).trim();
+    const rowMes = hasMesCol ? String(data[i][colMes] || '').trim().replace(/^'+/, '') : '';
+
+    let match = (rowId === targetId);
+    if (match && targetMes && hasMesCol) {
+      match = (rowMes === targetMes);
+    }
+
+    if (match) {
       sheet.deleteRow(i + 1);
       SpreadsheetApp.flush();
-      return { success: true, deletedId: id };
+      return { success: true, deletedId: targetId, deletedMes: targetMes };
     }
   }
   return { success: false, error: 'Item recurrente no encontrado' };
