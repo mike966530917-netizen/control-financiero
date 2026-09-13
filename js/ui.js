@@ -73,7 +73,10 @@
       if (okDetalleCatBtn) okDetalleCatBtn.addEventListener('click', () => this.closeDetalleCategoriaModal());
       if (modalDetalle) {
         modalDetalle.addEventListener('click', (e) => {
-          if (e.target === modalDetalle) this.closeDetalleCategoriaModal();
+          if (e.target === modalDetalle && (Date.now() - (this.modalDetalleOpenedAt || 0)) > 500) {
+            console.log('[LUPA v6.1] Cerrando modal por clic deliberado en backdrop');
+            this.closeDetalleCategoriaModal();
+          }
         });
       }
 
@@ -1143,7 +1146,7 @@
               const pct = totalGastado > 0 ? Math.round((val / totalGastado) * 100) : 0;
               const color = colors[idx % colors.length];
               return `
-                <button type="button" class="btn-inspect-category w-full flex items-center justify-between p-2 bg-slate-900/60 hover:bg-slate-800/80 rounded-xl border border-slate-800 hover:border-sky-500/40 cursor-pointer transition select-none text-left" data-inspect-cat="${label}" title="Toca para ver los gastos de ${label}">
+                <button type="button" onclick="event.stopPropagation(); window.UIManager.openDetalleCategoriaModal('${label}')" class="btn-inspect-category w-full flex items-center justify-between p-2 bg-slate-900/60 hover:bg-slate-800/80 rounded-xl border border-slate-800 hover:border-sky-500/40 cursor-pointer transition select-none text-left" data-inspect-cat="${label}" title="Toca para ver los gastos de ${label}">
                   <div class="flex items-center gap-2 truncate pointer-events-none">
                     <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: ${color}"></span>
                     <span class="text-slate-300 font-medium truncate text-xs">${label}</span>
@@ -1324,7 +1327,7 @@
               </div>
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1.5 flex-wrap">
-                  <button type="button" class="btn-inspect-category-btn font-bold text-sm text-slate-100 hover:text-sky-300 active:scale-95 transition flex items-center gap-1.5 cursor-pointer bg-transparent border-0 p-0 text-left" data-inspect-cat="${tx.categoria || tx.tipo}" title="Ver todos los gastos en ${tx.categoria || tx.tipo}">
+                  <button type="button" onclick="event.stopPropagation(); window.UIManager.openDetalleCategoriaModal('${tx.categoria || tx.tipo}')" class="btn-inspect-category-btn font-bold text-sm text-slate-100 hover:text-sky-300 active:scale-95 transition flex items-center gap-1.5 cursor-pointer bg-transparent border-0 p-0 text-left" data-inspect-cat="${tx.categoria || tx.tipo}" title="Ver todos los gastos en ${tx.categoria || tx.tipo}">
                     <span class="pointer-events-none">${tx.categoria || tx.tipo}</span>
                     <span class="text-[10px] text-sky-400/80 bg-sky-950/60 px-1 py-0.2 rounded border border-sky-500/20 pointer-events-none">🔍</span>
                   </button>
@@ -1403,7 +1406,7 @@
         const widthPercent = Math.min(100, Math.max(3, p.porcentaje));
 
         return `
-          <button type="button" class="btn-inspect-category w-full text-left p-3 bg-slate-900/60 hover:bg-slate-800/80 active:scale-[0.99] rounded-2xl border border-slate-800 hover:border-sky-500/40 space-y-1.5 cursor-pointer transition select-none" data-inspect-cat="${p.categoria}" title="Toca para ver qué gastos suman este monto">
+          <button type="button" onclick="event.stopPropagation(); window.UIManager.openDetalleCategoriaModal('${p.categoria}')" class="btn-inspect-category w-full text-left p-3 bg-slate-900/60 hover:bg-slate-800/80 active:scale-[0.99] rounded-2xl border border-slate-800 hover:border-sky-500/40 space-y-1.5 cursor-pointer transition select-none" data-inspect-cat="${p.categoria}" title="Toca para ver qué gastos suman este monto">
             <div class="flex items-center justify-between text-xs pointer-events-none">
               <div class="flex items-center gap-2 font-bold text-slate-200">
                 <span>${p.categoria}</span>
@@ -2262,14 +2265,16 @@
     }
 
     openDetalleCategoriaModal(categoria, periodo = 'ACTUAL') {
-      console.log('[LUPA v5.2] openDetalleCategoriaModal llamada con:', categoria, '| periodo:', periodo);
+      console.log('[LUPA v6.1] openDetalleCategoriaModal llamada con:', categoria, '| periodo:', periodo);
       const modal = document.getElementById('modal-detalle-categoria');
       if (!modal) {
         console.warn('[UI] Modal de detalle de categoría no encontrado en el DOM.');
         return;
       }
 
-      // Mostrar modal inmediatamente para que el usuario vea respuesta visual
+      // Registrar timestamp para evitar cierre inmediato por clic en backdrop y mostrar
+      this.modalDetalleOpenedAt = Date.now();
+      modal.classList.remove('hidden');
       modal.style.display = 'flex';
 
       if (!categoria) {
@@ -2489,17 +2494,21 @@
         }
 
         // Mostrar modal infaliblemente
+        modal.classList.remove('hidden');
         modal.style.display = 'flex';
       } catch (err) {
         console.error('[UI] Error al desplegar detalle de categoría:', err);
         this.showToast(`Error al abrir detalle: ${err.message}`, 'error');
+        modal.classList.remove('hidden');
         modal.style.display = 'flex';
       }
     }
 
     closeDetalleCategoriaModal() {
+      console.log('[LUPA v6.1] closeDetalleCategoriaModal ejecutada');
       const modal = document.getElementById('modal-detalle-categoria');
       if (modal) {
+        modal.classList.add('hidden');
         modal.style.display = 'none';
       }
     }

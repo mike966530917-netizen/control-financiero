@@ -477,9 +477,37 @@
     const btnApplyMonth = document.getElementById('btn-apply-recurrentes-month');
     const btnSaveConfirmRec = document.getElementById('btn-save-confirm-rec');
 
+    const btnSyncSheet = document.getElementById('btn-sync-recurrentes-sheet');
+
     if (btnAdd) {
       btnAdd.addEventListener('click', () => {
         UIManager.openRecurrenteModal(null, AppState.selectedMonth);
+      });
+    }
+
+    if (btnSyncSheet) {
+      btnSyncSheet.addEventListener('click', async () => {
+        const mes = AppState.selectedMonth;
+        const fijosMes = (FinancialEngine.getRecurrentesParaMes ? FinancialEngine.getRecurrentesParaMes(AppState.recurrentes, mes) : AppState.recurrentes);
+        
+        btnSyncSheet.disabled = true;
+        btnSyncSheet.innerHTML = '<span>⏳</span> <span>Sincronizando...</span>';
+
+        try {
+          const fijosConMes = fijosMes.map(r => ({ ...r, mes: mes }));
+          await ApiService.saveAllRecurrentes(fijosConMes);
+
+          if (ApiService.organizarRecurrentesPorMes) {
+            await ApiService.organizarRecurrentesPorMes();
+          }
+
+          UIManager.showToast(`✅ Fijos de ${mes} sincronizados con columna Mes en Google Sheets`, 'success');
+        } catch (e) {
+          UIManager.showToast('Error al sincronizar con Sheet: ' + e.message, 'error');
+        } finally {
+          btnSyncSheet.disabled = false;
+          btnSyncSheet.innerHTML = '<span>📊</span> <span>Sincronizar en Sheet</span>';
+        }
       });
     }
 
