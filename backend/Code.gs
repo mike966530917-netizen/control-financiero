@@ -27,6 +27,7 @@ function onOpen() {
   try {
     const ui = SpreadsheetApp.getUi();
     ui.createMenu('💰 Control Financiero')
+      .addItem('🔄 Organizar Fijos por Mes (Añadir columna Mes)', 'organizarRecurrentesPorMes')
       .addItem('📂 Organizar Transacciones en 3 Pestañas (Ingresos / Efectivo / TC)', 'migrarTransaccionesATresHojas')
       .addItem('📊 Consolidar Meses Pasados en este Sheet', 'consolidarMesesPasados')
       .addItem('⚙️ Inicializar / Reparar Pestañas', 'setupSheets')
@@ -293,6 +294,8 @@ function doPost(e) {
       result = saveAllRecurrentes_(payload.recurrentes);
     } else if (action === 'deleteRecurrente') {
       result = deleteRecurrente_(payload.id, payload.mes);
+    } else if (action === 'organizarRecurrentesPorMes') {
+      result = organizarRecurrentesPorMes(false);
     } else if (action === 'saveClosedMonth') {
       result = saveClosedMonth_(payload.monthData);
     } else if (action === 'reopenMonth') {
@@ -434,6 +437,7 @@ function getRecurrentesConfig_() {
     return [];
   }
 
+  ensureRecurrentesMesColumn_(sheet);
   const data = sheet.getDataRange().getValues();
   if (data.length <= 1) return [];
 
@@ -827,6 +831,64 @@ function consolidarMesesPasados(mostrarAlerta = true) {
   return { success: true, count: consolidadosCount };
 }
 
+/**
+ * Garantiza que la pestaña RECURRENTES cuente con la columna 'Mes' al inicio (Columna A).
+ * Si no la tiene, la inserta sin afectar las demás columnas ni perder datos existentes.
+ */
+function ensureRecurrentesMesColumn_(sheet) {
+  if (!sheet) return false;
+  if (sheet.getLastRow() === 0) return false;
+  const lastCol = sheet.getLastColumn();
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h || '').trim().toLowerCase());
+  const colMes = headers.findIndex(h => h === 'mes' || h.includes('periodo'));
+  if (colMes === -1) {
+    sheet.insertColumnBefore(1);
+    sheet.getRange(1, 1).setValue('Mes');
+    formatHeaderRow(sheet, '#6366f1', '#ffffff');
+    SpreadsheetApp.flush();
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Organiza los movimientos fijos en Google Sheets asignando el mes correspondiente en la Columna A.
+ */
+function organizarRecurrentesPorMes(mostrarAlerta = true) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEETS.RECURRENTES);
+  if (!sheet) {
+    setupSheets();
+    sheet = ss.getSheetByName(SHEETS.RECURRENTES);
+  }
+  ensureRecurrentesMesColumn_(sheet);
+
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) {
+    if (mostrarAlerta) {
+      SpreadsheetApp.getUi().alert('La hoja RECURRENTES está vacía. Agrega fijos desde la PWA o ingresa filas.');
+    }
+    return { success: true, count: 0 };
+  }
+
+  const hoyStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM');
+  let updatedCount = 0;
+
+  for (let i = 1; i < data.length; i++) {
+    const rawMes = String(data[i][0] || '').trim();
+    if (!rawMes) {
+      sheet.getRange(i + 1, 1).setValue("'" + hoyStr);
+      updatedCount++;
+    }
+  }
+  SpreadsheetApp.flush();
+
+  if (mostrarAlerta) {
+    SpreadsheetApp.getUi().alert(`✅ Se organizaron los fijos por mes. ${updatedCount} registros actualizados con el mes (${hoyStr}).`);
+  }
+  return { success: true, updatedCount: updatedCount };
+}
+
 function saveRecurrente_(item) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(SHEETS.RECURRENTES);
@@ -835,13 +897,16 @@ function saveRecurrente_(item) {
     sheet = ss.getSheetByName(SHEETS.RECURRENTES);
   }
 
+  ensureRecurrentesMesColumn_(sheet);
+
   const data = sheet.getDataRange().getValues();
   const headerRow = data[0].map(h => String(h || '').trim().toLowerCase());
   const colMes = headerRow.findIndex(h => h === 'mes' || h.includes('periodo'));
   const hasMesCol = (colMes >= 0);
 
+  const hoyStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM');
   const id = String(item.id || ('REC-' + new Date().getTime())).trim();
-  const itemMes = String(item.mes || '').trim().replace(/^'+/, '');
+  const itemMes = String(item.mes || hoyStr).trim().replace(/^'+/, '');
   
   let foundRow = -1;
   for (let i = 1; i < data.length; i++) {
@@ -867,7 +932,7 @@ function saveRecurrente_(item) {
   let rowData;
   if (hasMesCol) {
     rowData = [
-      itemMes ? "'" + itemMes : '',
+      itemMes ? "'" + itemMes : "'" + hoyStr,
       id,
       String(item.nombre || '').trim(),
       String(item.tipo || 'Gasto_Fijo').trim(),
@@ -913,6 +978,8 @@ function deleteRecurrente_(id, mes = null) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(SHEETS.RECURRENTES);
   if (!sheet) return { success: false, error: 'Hoja RECURRENTES no encontrada' };
+
+  ensureRecurrentesMesColumn_(sheet);
 
   const data = sheet.getDataRange().getValues();
   const headerRow = data[0].map(h => String(h || '').trim().toLowerCase());
