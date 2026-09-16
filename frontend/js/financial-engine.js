@@ -651,10 +651,10 @@
 
       const fijosDelMes = getRecurrentesParaMes(recurrentesConfig, mesKey);
       const sumaIngresosFijosMes = fijosDelMes
-        .filter(r => r && (r.activo !== false && String(r.activo) !== 'false' && String(r.activo) !== 'NO') && r.tipo === 'Ingreso_Fijo')
+        .filter(r => r && esFijoActivo(r) && esIngresoFijo(r.tipo))
         .reduce((acc, r) => acc + (parseFloat(r.monto) || 0), 0);
       const sumaGastosFijosMes = fijosDelMes
-        .filter(r => r && (r.activo !== false && String(r.activo) !== 'false' && String(r.activo) !== 'NO') && r.tipo !== 'Ingreso_Fijo')
+        .filter(r => r && esFijoActivo(r) && !esIngresoFijo(r.tipo))
         .reduce((acc, r) => acc + (parseFloat(r.monto) || 0), 0);
 
       let finalIngresos = 0;
@@ -854,6 +854,25 @@
   }
 
   /**
+   * Determina de forma flexible e insensible a mayúsculas si un tipo corresponde a ingreso fijo.
+   */
+  function esIngresoFijo(tipo) {
+    const t = String(tipo || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    return t.includes('ingreso') || t.includes('sueldo') || t.includes('renta') || t.includes('cobro');
+  }
+
+  /**
+   * Valida si un registro recurrente está activo, soportando booleanos y cadenas ('SI', 'TRUE', '1', etc.).
+   */
+  function esFijoActivo(rec) {
+    if (!rec) return false;
+    if (rec.activo === undefined || rec.activo === null) return true;
+    if (typeof rec.activo === 'boolean') return rec.activo;
+    const s = String(rec.activo).trim().toLowerCase();
+    return s === 'si' || s === 'true' || s === '1' || s === 'vigente' || s === 'activo' || s === '';
+  }
+
+  /**
    * Obtiene la lista de movimientos fijos aplicables a un mes específico.
    * Resuelve CADA recurrente de forma individual y continua:
    * 1. Si existe configuración explícita para este mes exacto, usa esa (con sus montos/estado de ese mes).
@@ -877,11 +896,14 @@
     const recurrentesMap = new Map();
 
     items.forEach(r => {
-      // Clave única estable: id del recurrente (o combinación de nombre, tipo y categoría si no tiene id)
-      const rawKey = (r.id && String(r.id).trim()) 
-        ? String(r.id).trim() 
-        : `${String(r.nombre || '').trim().toLowerCase()}_${String(r.tipo || '').trim().toLowerCase()}_${String(r.categoria || '').trim().toLowerCase()}`;
-      const key = rawKey.toLowerCase();
+      // Clave única estable: id del recurrente (o combinación semántica de nombre, tipo y categoría si no tiene id o tiene id efímero)
+      let key = (r.id && String(r.id).trim()) ? String(r.id).trim().toLowerCase() : '';
+      if (!key || /^rec-.*-\d+$/.test(key)) {
+        const nom = String(r.nombre || '').trim().toLowerCase();
+        const tipo = esIngresoFijo(r.tipo) ? 'ingreso' : 'gasto';
+        const cat = String(r.categoria || '').trim().toLowerCase();
+        key = `${nom}_${tipo}_${cat}`;
+      }
 
       if (!recurrentesMap.has(key)) {
         recurrentesMap.set(key, []);
@@ -969,7 +991,7 @@
 
     recurrentesDelMes.forEach(rec => {
       if (!rec || !rec.id) return;
-      const esActivo = (rec.activo !== false && String(rec.activo) !== 'false' && String(rec.activo) !== 'NO');
+      const esActivo = esFijoActivo(rec);
       if (!esActivo) {
         recurrentesEstadoMes.push({
           ...rec,
@@ -981,6 +1003,7 @@
 
       const recId = String(rec.id).trim();
       const recNom = String(rec.nombre || '').trim();
+      const esIngreso = esIngresoFijo(rec.tipo);
 
       // Buscar si ya existe una transacción confirmada/asentada para este fijo en el mes
       const txExistente = txsMes.find(t => {
@@ -991,8 +1014,8 @@
         if (nomLower && (notas.includes(`[fijo: ${nomLower}]`) || notas.startsWith(`[fijo] ${nomLower}`) || notas === `[fijo] ${nomLower}`)) return true;
 
         // Coincidencia exacta por tipo, categoría y monto idéntico (protege sueldos y evita duplicidad sin sustituir montos diferentes)
-        const tipoMatch = (rec.tipo === 'Ingreso_Fijo' && t.tipo === TIPOS_TRANSACCION.INGRESO) ||
-                          (rec.tipo !== 'Ingreso_Fijo' && t.tipo === TIPOS_TRANSACCION.GASTO_DIRECTO);
+        const tipoMatch = (esIngreso && t.tipo === TIPOS_TRANSACCION.INGRESO) ||
+                          (!esIngreso && t.tipo === TIPOS_TRANSACCION.GASTO_DIRECTO);
         if (tipoMatch) {
           const catTx = normalizarCategoria(t.categoria, t.tipo);
           const catRec = normalizarCategoria(rec.categoria, t.tipo);
@@ -1031,7 +1054,7 @@
         });
 
         let virtualTx;
-        if (rec.tipo === 'Ingreso_Fijo') {
+        if (esIngreso) {
           virtualTx = {
             id: `VIRT-REC-${recId}-${mesActualStr}`,
             recurrenteId: recId,
@@ -1729,7 +1752,9 @@
     calcularEstadoPresupuestos,
     calcularHistoricoAhorro,
     calcularResumenAnual,
-    generarAlertasFinancieras
+    generarAlertasFinancieras,
+    esIngresoFijo,
+    esFijoActivo
   };
 
   if (typeof module !== 'undefined' && module.exports) {

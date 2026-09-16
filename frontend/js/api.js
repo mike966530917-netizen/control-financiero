@@ -511,7 +511,7 @@
           const cards = data.cards && data.cards.length > 0 ? data.cards : localCards;
           const transactions = data.transactions || [];
           const budgets = data.budgets && data.budgets.length > 0 ? data.budgets : localBudgets;
-          const recurrentes = data.recurrentes !== undefined ? data.recurrentes : localRecurrentes;
+          const recurrentes = (data.recurrentes && data.recurrentes.length > 0) ? data.recurrentes : localRecurrentes;
           const closedMonths = data.closedMonths !== undefined ? data.closedMonths : localClosedMonths;
 
           // Actualizar caché local

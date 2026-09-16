@@ -1093,6 +1093,59 @@
       `Sep fijos count: ${fijosSepRes.length}/3 (Luz S/ ${fijosSepRes.find(r => r.id === 'REC-LUZ')?.monto}), Oct fijos count: ${fijosOctRes.length}/3, normalizar '09/2026': ${okNormMes1}`
     );
 
+    // Prueba 49: NORMALIZACIÓN TOLERANTE DE TIPOS Y ESTADO ACTIVO (v6.4)
+    const engine = window.FinancialEngine;
+    const okTiposIngreso = engine.esIngresoFijo('Ingreso') && 
+                           engine.esIngresoFijo('Ingreso_Fijo') && 
+                           engine.esIngresoFijo('Sueldo Principal') && 
+                           engine.esIngresoFijo('Renta Departamento');
+    const okTiposGasto = !engine.esIngresoFijo('Gasto') && 
+                         !engine.esIngresoFijo('Gasto Fijo') && 
+                         !engine.esIngresoFijo('Gasto_Fijo') && 
+                         !engine.esIngresoFijo('Servicios') && 
+                         !engine.esIngresoFijo('');
+
+    const okActivos = engine.esFijoActivo({ activo: true }) &&
+                      engine.esFijoActivo({ activo: 'SI' }) &&
+                      engine.esFijoActivo({ activo: 'si' }) &&
+                      engine.esFijoActivo({ activo: 'TRUE' }) &&
+                      engine.esFijoActivo({ activo: '1' }) &&
+                      engine.esFijoActivo({ activo: undefined }) &&
+                      engine.esFijoActivo({}) &&
+                      !engine.esFijoActivo({ activo: false }) &&
+                      !engine.esFijoActivo({ activo: 'NO' }) &&
+                      !engine.esFijoActivo({ activo: 'false' }) &&
+                      !engine.esFijoActivo({ activo: '0' }) &&
+                      !engine.esFijoActivo({ activo: 'inactivo' });
+
+    report('Normalización Tolerante de Tipos y Estados de Fijos (v6.4): Reconoce cualquier sinónimo de Sheets',
+      okTiposIngreso && okTiposGasto && okActivos,
+      `Ingresos: ${okTiposIngreso}, Gastos: ${okTiposGasto}, Activos: ${okActivos}`
+    );
+
+    // Prueba 50: UNIFICACIÓN Y PROYECCIÓN DE FIJOS PROVENIENTES DE SHEETS SIN DUPLICADOS (v6.4)
+    const fijosSheetsSimulados = [
+      { id: 'REC-alquiler-2', nombre: 'Alquiler', tipo: 'Gasto', monto: 1200, mes: '2026-08', categoria: 'Vivienda', activo: 'SI' },
+      { id: 'REC-alquiler-5', nombre: 'Alquiler', tipo: 'Gasto', monto: 1200, mes: '2026-09', categoria: 'Vivienda', activo: 'SI' },
+      { id: 'REC-sueldo-1', nombre: 'Sueldo', tipo: 'Ingreso', monto: 4500, mes: '2026-08', categoria: 'Principal', activo: 'SI' }
+    ];
+
+    const fijosSepSheets = engine.getRecurrentesParaMes(fijosSheetsSimulados, '2026-09');
+    const combSepSheets = engine.combinarTransaccionesConRecurrentes([], fijosSheetsSimulados, '2026-09', []);
+
+    // Solo debe haber 1 Alquiler en Sep (no 2), y el Sueldo debe heredarse de Agosto
+    const countAlquilerSep = fijosSepSheets.filter(r => r.nombre === 'Alquiler').length;
+    const sueldoHeredadoSep = fijosSepSheets.find(r => r.nombre === 'Sueldo');
+    const okVirtualIngreso = combSepSheets.transaccionesConsolidadas.some(t => t.tipo === engine.TIPOS_TRANSACCION.INGRESO && t.monto === 4500);
+    const okVirtualGasto = combSepSheets.transaccionesConsolidadas.some(t => t.tipo === engine.TIPOS_TRANSACCION.GASTO_DIRECTO && t.monto === 1200);
+
+    const okPrueba50 = (countAlquilerSep === 1) && (sueldoHeredadoSep !== undefined) && okVirtualIngreso && okVirtualGasto;
+
+    report('Sincronización Fijos Google Sheets (v6.4): Desduplica IDs efímeros y proyecta ingresos/gastos fijos correctamente',
+      okPrueba50,
+      `Alquiler count: ${countAlquilerSep}/1, Sueldo heredado: ${!!sueldoHeredadoSep}, Tx Ingreso Virtual: ${okVirtualIngreso}, Tx Gasto Virtual: ${okVirtualGasto}`
+    );
+
     summaryBox.innerHTML = `
       <div class="flex items-center justify-between">
         <span class="font-bold ${failedCount === 0 ? 'text-emerald-400' : 'text-rose-400'} text-base">
