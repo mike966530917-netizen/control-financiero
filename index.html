@@ -35,7 +35,7 @@
     };
 
     (function() {
-      const APP_BUILD_ID = 'finanzas-pwa-v6.3-force';
+      const APP_BUILD_ID = 'finanzas-pwa-v6.4-force';
       const prevBuild = localStorage.getItem('finanzas_build_id');
       if (prevBuild !== APP_BUILD_ID) {
         localStorage.setItem('finanzas_build_id', APP_BUILD_ID);
@@ -91,7 +91,7 @@
         <div>
           <h1 class="font-extrabold text-base tracking-tight text-white flex items-center gap-1.5">
             Finanzas Pro
-            <span class="text-[9px] px-1.5 py-0.5 rounded-md bg-sky-950 text-sky-400 font-extrabold border border-sky-500/30">v6.3</span>
+            <span class="text-[9px] px-1.5 py-0.5 rounded-md bg-sky-950 text-sky-400 font-extrabold border border-sky-500/30">v6.4</span>
             <span id="sync-status-badge" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
               Cargando...
             </span>
@@ -1224,11 +1224,11 @@
   <!-- Contenedor flotante de notificaciones Toast -->
   <div id="toast-container" class="fixed top-5 left-4 right-4 flex flex-col gap-2 pointer-events-none max-w-sm mx-auto" style="z-index:10000;"></div>
 
-  <!-- Scripts en orden de dependencia con cache-busting v6.3 -->
-  <script src="js/financial-engine.js?v=6.3"></script>
-  <script src="js/api.js?v=6.3"></script>
-  <script src="js/ui.js?v=6.3"></script>
-  <script src="js/app.js?v=6.3"></script>
+  <!-- Scripts en orden de dependencia con cache-busting v6.4 -->
+  <script src="js/financial-engine.js?v=6.4"></script>
+  <script src="js/api.js?v=6.4"></script>
+  <script src="js/ui.js?v=6.4"></script>
+  <script src="js/app.js?v=6.4"></script>
 
 </body>
 </html>

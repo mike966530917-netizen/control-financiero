@@ -1745,18 +1745,32 @@
       if (monthTitleEl) monthTitleEl.textContent = `Movimientos Fijos (${mesStr})`;
       if (monthSubEl) monthSubEl.textContent = `Ingresos y gastos configurados para ${mesStr}. Los cambios solo afectan este mes.`;
 
-      const ingresos = fijosDelMes.filter(r => r.tipo === 'Ingreso_Fijo');
-      const gastos = fijosDelMes.filter(r => r.tipo === 'Gasto_Fijo');
+      const normalizarTipoFijo = (tipo) => {
+        const t = String(tipo || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        if (t.includes('ingreso') || t.includes('sueldo') || t.includes('renta') || t.includes('cobro')) return 'Ingreso_Fijo';
+        return 'Gasto_Fijo';
+      };
+
+      const esActivo = (r) => {
+        if (!r) return false;
+        if (r.activo === undefined || r.activo === null) return true;
+        if (typeof r.activo === 'boolean') return r.activo;
+        const s = String(r.activo).trim().toLowerCase();
+        return s === 'si' || s === 'true' || s === '1' || s === 'vigente' || s === 'activo' || s === '';
+      };
+
+      const ingresos = fijosDelMes.filter(r => normalizarTipoFijo(r.tipo) === 'Ingreso_Fijo');
+      const gastos = fijosDelMes.filter(r => normalizarTipoFijo(r.tipo) === 'Gasto_Fijo');
 
       // Calcular totales considerando el monto del mes
       let sumIngresos = 0;
-      ingresos.filter(r => r.activo).forEach(r => {
+      ingresos.filter(esActivo).forEach(r => {
         const est = (estadoMesList || []).find(e => String(e.id) === String(r.id));
         sumIngresos += est ? (parseFloat(est.montoMes) || 0) : (parseFloat(r.monto) || 0);
       });
 
       let sumGastos = 0;
-      gastos.filter(r => r.activo).forEach(r => {
+      gastos.filter(esActivo).forEach(r => {
         const est = (estadoMesList || []).find(e => String(e.id) === String(r.id));
         sumGastos += est ? (parseFloat(est.montoMes) || 0) : (parseFloat(r.monto) || 0);
       });
@@ -1769,28 +1783,29 @@
         netBalanceEl.textContent = `${balanceFijo >= 0 ? '+' : ''}S/ ${balanceFijo.toFixed(2)}`;
         netBalanceEl.className = `font-extrabold text-sm ${balanceFijo >= 0 ? 'text-sky-300' : 'text-rose-400'}`;
       }
-      if (countIncomeEl) countIncomeEl.textContent = `${ingresos.length} items (${ingresos.filter(r => r.activo).length} activos)`;
-      if (countExpenseEl) countExpenseEl.textContent = `${gastos.length} items (${gastos.filter(r => r.activo).length} activos)`;
+      if (countIncomeEl) countIncomeEl.textContent = `${ingresos.length} items (${ingresos.filter(esActivo).length} activos)`;
+      if (countExpenseEl) countExpenseEl.textContent = `${gastos.length} items (${gastos.filter(esActivo).length} activos)`;
 
       const renderItem = (item, isIncome) => {
+        const itemActivo = esActivo(item);
         const montoBase = parseFloat(item.monto) || 0;
         const colorClass = isIncome ? 'text-emerald-400' : 'text-rose-400';
         const sign = isIncome ? '+' : '-';
-        const opacityClass = item.activo ? 'opacity-100' : 'opacity-50 grayscale';
+        const opacityClass = itemActivo ? 'opacity-100' : 'opacity-50 grayscale';
 
         const est = (estadoMesList || []).find(e => String(e.id) === String(item.id));
         const estadoMes = est ? est.estadoMes : 'proyectado';
         const montoMes = est ? (parseFloat(est.montoMes) || montoBase) : montoBase;
         const esConfirmado = estadoMes === 'confirmado';
 
-        const badgeHtml = !item.activo
+        const badgeHtml = !itemActivo
           ? `<span class="text-[10px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-500 font-semibold">Inactivo en ${mesStr}</span>`
           : (esConfirmado
             ? `<span class="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-semibold border border-emerald-500/30 flex items-center gap-1">✓ Confirmado en ${mesStr}: S/ ${montoMes.toFixed(2)}</span>`
             : `<span class="text-[10px] px-2 py-0.5 rounded-md bg-sky-500/20 text-sky-300 font-semibold border border-sky-500/30 flex items-center gap-1">📅 ${mesStr}: S/ ${montoMes.toFixed(2)}</span>`
           );
 
-        const confirmBtnHtml = item.activo
+        const confirmBtnHtml = itemActivo
           ? `<button class="btn-confirm-rec text-[11px] font-bold py-1 px-2.5 rounded-xl border active:scale-95 transition ${esConfirmado ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30' : 'bg-sky-500/20 text-sky-300 border-sky-500/40 hover:bg-sky-500/30'}" data-rec-id="${item.id}" data-rec-mes="${mesStr}" title="${esConfirmado ? 'Ajustar importe real para este mes' : 'Confirmar recibo/monto de este mes'}">
               ${esConfirmado ? '✏️ Ajustar' : '✓ Asentar'}
              </button>`
@@ -1799,8 +1814,8 @@
         return `
           <div class="p-3.5 rounded-2xl glass-panel border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${opacityClass} transition">
             <div class="flex items-center gap-3 flex-1 min-w-0">
-              <button class="btn-toggle-rec text-lg p-1.5 rounded-xl flex-shrink-0 ${item.activo ? 'bg-sky-500/20 text-sky-300' : 'bg-slate-800 text-slate-500'}" data-rec-id="${item.id}" data-rec-mes="${mesStr}" title="${item.activo ? 'Desactivar en este mes' : 'Activar en este mes'}">
-                ${item.activo ? '✓' : '○'}
+              <button class="btn-toggle-rec text-lg p-1.5 rounded-xl flex-shrink-0 ${itemActivo ? 'bg-sky-500/20 text-sky-300' : 'bg-slate-800 text-slate-500'}" data-rec-id="${item.id}" data-rec-mes="${mesStr}" title="${itemActivo ? 'Desactivar en este mes' : 'Activar en este mes'}">
+                ${itemActivo ? '✓' : '○'}
               </button>
               <div class="truncate flex-1">
                 <div class="flex items-center gap-2 flex-wrap">
