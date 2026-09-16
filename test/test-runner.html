@@ -1062,6 +1062,37 @@
       `Consolidado: S/ ${totalConsolidadoCat}, Lupa: S/ ${totalLupaCat}, Coinciden: ${okCuadratura}`
     );
 
+    // Prueba 48: RESOLUCIÓN INDIVIDUAL DE RECURRENTES Y CONTINUIDAD ENTRE MESES
+    const poolRecurrentes = [
+      { id: 'REC-ALQUILER', nombre: 'Alquiler', tipo: 'Gasto_Fijo', monto: 1200, mes: '2026-08', activo: true },
+      { id: 'REC-INTERNET', nombre: 'Internet', tipo: 'Gasto_Fijo', monto: 100, mes: '', activo: true }, // base/legacy sin mes
+      { id: 'REC-LUZ', nombre: 'Luz', tipo: 'Gasto_Fijo', monto: 80, mes: '2026-08', activo: true },
+      { id: 'REC-LUZ', nombre: 'Luz', tipo: 'Gasto_Fijo', monto: 95, mes: '2026-09', activo: true } // solo Luz cambió en Sep
+    ];
+
+    const fijosSepRes = window.FinancialEngine.getRecurrentesParaMes(poolRecurrentes, '2026-09');
+    const fijosOctRes = window.FinancialEngine.getRecurrentesParaMes(poolRecurrentes, '2026-10');
+
+    const okNormMes1 = window.FinancialEngine.normalizarMes('09/2026') === '2026-09';
+    const okNormMes2 = window.FinancialEngine.normalizarMes('Septiembre 2026') === '2026-09';
+
+    const okResSep = (fijosSepRes.length === 3) &&
+                     (fijosSepRes.find(r => r.id === 'REC-ALQUILER')?.monto === 1200) &&
+                     (fijosSepRes.find(r => r.id === 'REC-INTERNET')?.monto === 100) &&
+                     (fijosSepRes.find(r => r.id === 'REC-LUZ')?.monto === 95);
+
+    const okResOct = (fijosOctRes.length === 3) &&
+                     (fijosOctRes.find(r => r.id === 'REC-ALQUILER')?.monto === 1200) &&
+                     (fijosOctRes.find(r => r.id === 'REC-INTERNET')?.monto === 100) &&
+                     (fijosOctRes.find(r => r.id === 'REC-LUZ')?.monto === 95);
+
+    const okPrueba48 = okNormMes1 && okNormMes2 && okResSep && okResOct;
+
+    report('Continuidad de Fijos entre Meses: Al cambiar de mes NINGÚN fijo desaparece (herencia individual + soporte de formatos MM/YYYY)',
+      okPrueba48,
+      `Sep fijos count: ${fijosSepRes.length}/3 (Luz S/ ${fijosSepRes.find(r => r.id === 'REC-LUZ')?.monto}), Oct fijos count: ${fijosOctRes.length}/3, normalizar '09/2026': ${okNormMes1}`
+    );
+
     summaryBox.innerHTML = `
       <div class="flex items-center justify-between">
         <span class="font-bold ${failedCount === 0 ? 'text-emerald-400' : 'text-rose-400'} text-base">

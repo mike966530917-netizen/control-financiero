@@ -475,12 +475,25 @@ function getRecurrentesConfig_() {
       } else {
         mesVal = String(rawM).trim().replace(/^'+/, '');
         const matchM = mesVal.match(/^(\d{4})[-/](\d{1,2})/);
-        if (matchM) mesVal = `${matchM[1]}-${matchM[2].padStart(2, '0')}`;
+        if (matchM) {
+          mesVal = `${matchM[1]}-${matchM[2].padStart(2, '0')}`;
+        } else {
+          const matchDM = mesVal.match(/^(\d{1,2})[-/](\d{4})/);
+          if (matchDM) {
+            mesVal = `${matchDM[2]}-${matchDM[1].padStart(2, '0')}`;
+          } else {
+            const matchDMY = mesVal.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+            if (matchDMY) mesVal = `${matchDMY[3]}-${matchDMY[2].padStart(2, '0')}`;
+          }
+        }
       }
     }
 
-    const idStr = String((colId >= 0 ? row[colId] : (colMes === 0 ? row[1] : row[0])) || '').trim();
+    let idStr = String((colId >= 0 ? row[colId] : (colMes === 0 ? row[1] : row[0])) || '').trim();
     const nomStr = String((colNombre >= 0 ? row[colNombre] : (colMes === 0 ? row[2] : row[1])) || '').trim();
+    if (!idStr && nomStr) {
+      idStr = 'REC-' + nomStr.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 20) + '-' + i;
+    }
 
     if (idStr || nomStr) {
       const rawActivo = colActivo >= 0 ? row[colActivo] : (colMes === 0 ? row[8] : row[7]);
@@ -1016,6 +1029,7 @@ function saveRecurrente_(item) {
   const data = sheet.getDataRange().getValues();
   const headerRow = data[0].map(h => String(h || '').trim().toLowerCase());
   const colMes = headerRow.findIndex(h => h === 'mes' || h.includes('periodo'));
+  const colId = headerRow.findIndex(h => h === 'id');
   const hasMesCol = (colMes >= 0);
 
   const hoyStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM');
@@ -1024,7 +1038,7 @@ function saveRecurrente_(item) {
   
   let foundRow = -1;
   for (let i = 1; i < data.length; i++) {
-    const rowId = String(hasMesCol && colMes === 0 ? data[i][1] : data[i][0]).trim();
+    const rowId = String(colId >= 0 ? data[i][colId] : (hasMesCol && colMes === 0 ? data[i][1] : data[i][0])).trim();
     const rowMes = hasMesCol ? String(data[i][colMes] || '').trim().replace(/^'+/, '') : '';
     
     // Si ambos tienen mes, deben coincidir en mes e id. Si no, solo id.
@@ -1098,12 +1112,13 @@ function deleteRecurrente_(id, mes = null) {
   const data = sheet.getDataRange().getValues();
   const headerRow = data[0].map(h => String(h || '').trim().toLowerCase());
   const colMes = headerRow.findIndex(h => h === 'mes' || h.includes('periodo'));
+  const colId = headerRow.findIndex(h => h === 'id');
   const hasMesCol = (colMes >= 0);
   const targetId = String(id || '').trim();
   const targetMes = mes ? String(mes).trim().replace(/^'+/, '') : '';
 
   for (let i = 1; i < data.length; i++) {
-    const rowId = String(hasMesCol && colMes === 0 ? data[i][1] : data[i][0]).trim();
+    const rowId = String(colId >= 0 ? data[i][colId] : (hasMesCol && colMes === 0 ? data[i][1] : data[i][0])).trim();
     const rowMes = hasMesCol ? String(data[i][colMes] || '').trim().replace(/^'+/, '') : '';
 
     let match = (rowId === targetId);
