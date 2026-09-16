@@ -249,6 +249,30 @@
       }
     }
 
+    async generarExtractoSheet(categoria, mes) {
+      if (!this.apiUrl || !this.isOnline) {
+        const fallbackUrl = localStorage.getItem('spreadsheet_url') || '';
+        return { success: !!fallbackUrl, sheetUrl: fallbackUrl, offline: true };
+      }
+      try {
+        const res = await fetch(this.apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'generarExtractoCategoria', categoria, mes }),
+          redirect: 'follow'
+        });
+        const json = await res.json();
+        if (json.sheetUrl) {
+          localStorage.setItem('spreadsheet_url', json.sheetUrl.split('#')[0]);
+        }
+        return json;
+      } catch (err) {
+        console.warn('[API] Error al generar extracto en Sheets:', err);
+        const fallbackUrl = localStorage.getItem('spreadsheet_url') || '';
+        return { success: !!fallbackUrl, sheetUrl: fallbackUrl, error: err.message };
+      }
+    }
+
     // ========================================================================
     // GESTIÓN DE MESES CERRADOS (HISTORIAL DE AHORRO)
     // ========================================================================
@@ -496,6 +520,7 @@
           this.setLocalBudgets(budgets);
           this.saveLocalRecurrentes(recurrentes);
           this.saveLocalClosedMonths(closedMonths);
+          if (data.spreadsheetUrl) localStorage.setItem('spreadsheet_url', data.spreadsheetUrl);
 
           return {
             cards: cards,

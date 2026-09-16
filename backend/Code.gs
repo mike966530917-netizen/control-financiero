@@ -27,6 +27,7 @@ function onOpen() {
   try {
     const ui = SpreadsheetApp.getUi();
     ui.createMenu('💰 Control Financiero')
+      .addItem('📋 Generar Extracto de Categoría en este Sheet', 'menuGenerarExtracto')
       .addItem('🔄 Organizar Fijos por Mes (Añadir columna Mes)', 'organizarRecurrentesPorMes')
       .addItem('📂 Organizar Transacciones en 3 Pestañas (Ingresos / Efectivo / TC)', 'migrarTransaccionesATresHojas')
       .addItem('📊 Consolidar Meses Pasados en este Sheet', 'consolidarMesesPasados')
@@ -235,8 +236,13 @@ function doGet(e) {
         transactions: transactions,
         budgets: budgets,
         recurrentes: recurrentes,
-        closedMonths: closedMonths
+        closedMonths: closedMonths,
+        spreadsheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl()
       };
+    } else if (action === 'getExtractoSheet') {
+      const cat = (e && e.parameter && e.parameter.categoria) || '';
+      const mes = (e && e.parameter && e.parameter.mes) || '';
+      responseData = generarExtractoCategoria_(cat, mes);
     } else if (action === 'getBudgets') {
       responseData = {
         success: true,
@@ -296,6 +302,8 @@ function doPost(e) {
       result = deleteRecurrente_(payload.id, payload.mes);
     } else if (action === 'organizarRecurrentesPorMes') {
       result = organizarRecurrentesPorMes(false);
+    } else if (action === 'generarExtractoCategoria') {
+      result = generarExtractoCategoria_(payload.categoria, payload.mes);
     } else if (action === 'saveClosedMonth') {
       result = saveClosedMonth_(payload.monthData);
     } else if (action === 'reopenMonth') {
@@ -887,6 +895,112 @@ function organizarRecurrentesPorMes(mostrarAlerta = true) {
     SpreadsheetApp.getUi().alert(`✅ Se organizaron los fijos por mes. ${updatedCount} registros actualizados con el mes (${hoyStr}).`);
   }
   return { success: true, updatedCount: updatedCount };
+}
+
+/**
+ * Menú interactivo en Google Sheets para generar extracto
+ */
+function menuGenerarExtracto() {
+  const ui = SpreadsheetApp.getUi();
+  const resCat = ui.prompt('Generar Extracto de Categoría', 'Ingresa la categoría a consultar (ej. Servicios, Alimentación, Supermercado):', ui.ButtonSet.OK_CANCEL);
+  if (resCat.getSelectedButton() !== ui.Button.OK) return;
+  const categoria = resCat.getResponseText().trim();
+  if (!categoria) return;
+
+  const hoyStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM');
+  const resMes = ui.prompt('Mes a consultar', `Ingresa el mes en formato YYYY-MM (predeterminado: ${hoyStr}):`, ui.ButtonSet.OK_CANCEL);
+  const mes = (resMes.getSelectedButton() === ui.Button.OK && resMes.getResponseText().trim()) ? resMes.getResponseText().trim() : hoyStr;
+
+  const resultado = generarExtractoCategoria_(categoria, mes);
+  ui.alert(`✅ Extracto generado exitosamente en la pestaña EXTRACTO_CATEGORIA.\n\nTotal de gastos: S/ ${resultado.total.toFixed(2)}\nMovimientos encontrados: ${resultado.count}`);
+}
+
+/**
+ * Genera la pestaña EXTRACTO_CATEGORIA con la consulta exacta de gastos de una categoría y mes
+ */
+function generarExtractoCategoria_(categoria, mes) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const catBuscada = String(categoria || '').trim().toLowerCase();
+  const hoy = new Date();
+  const mesBuscado = String(mes || Utilities.formatDate(hoy, Session.getScriptTimeZone(), 'yyyy-MM')).trim().replace(/^'+/, '');
+
+  let sheetExtracto = ss.getSheetByName('EXTRACTO_CATEGORIA');
+  if (!sheetExtracto) {
+    sheetExtracto = ss.insertSheet('EXTRACTO_CATEGORIA');
+  } else {
+    sheetExtracto.clear();
+  }
+
+  // Encabezado llamativo
+  sheetExtracto.getRange('A1:G1').merge();
+  sheetExtracto.getRange('A1').setValue(`📋 EXTRACTO DE GASTOS: ${categoria.toUpperCase()} (${mesBuscado})`);
+  sheetExtracto.getRange('A1').setBackground('#0369a1').setFontColor('#ffffff').setFontWeight('bold').setFontSize(12).setHorizontalAlignment('center');
+
+  sheetExtracto.getRange('A2:G2').setValues([[
+    'ID', 'Fecha', 'Tipo', 'Concepto / Notas', 'Monto (S/)', 'Método / Tarjeta', 'Mes Impacto'
+  ]]);
+  formatHeaderRow(sheetExtracto, '#1e293b', '#ffffff');
+
+  // Buscar movimientos en TRANSACCIONES
+  const txs = getTransactions_();
+  const rows = [];
+  let totalMonto = 0;
+
+  txs.forEach(t => {
+    const cNorm = String(t.categoria || '').trim().toLowerCase();
+    if (cNorm !== catBuscada && !cNorm.includes(catBuscada)) return;
+
+    const fStr = String(t.fecha || '').trim();
+    let mTx = '';
+    const matchM = fStr.match(/^(\d{4})[-/](\d{1,2})/);
+    if (matchM) mTx = `${matchM[1]}-${matchM[2].padStart(2, '0')}`;
+    const mEf = String(t.mesImpactoEfectivo || '').trim();
+    const mTC = String(t.mesImpactoTC || '').trim();
+
+    if (mTx === mesBuscado || mEf === mesBuscado || mTC === mesBuscado) {
+      const monto = parseFloat(t.monto) || 0;
+      totalMonto += monto;
+      rows.push([
+        String(t.id || ''),
+        String(t.fecha || ''),
+        String(t.tipo || ''),
+        String(t.notas || t.categoria || ''),
+        monto,
+        String(t.tarjetaAfectada || t.metodoPago || 'Efectivo'),
+        mTC || mEf || mTx
+      ]);
+    }
+  });
+
+  if (rows.length > 0) {
+    sheetExtracto.getRange(3, 1, rows.length, 7).setValues(rows);
+    sheetExtracto.getRange(3, 5, rows.length, 1).setNumberFormat('S/ #,##0.00');
+
+    // Fila de total sumatorio
+    const totalRow = 3 + rows.length;
+    sheetExtracto.getRange(totalRow, 1, 1, 4).merge().setValue('TOTAL GASTADO EN ESTA CATEGORÍA:');
+    sheetExtracto.getRange(totalRow, 1).setFontWeight('bold').setHorizontalAlignment('right');
+    sheetExtracto.getRange(totalRow, 5).setFormula(`=SUM(E3:E${totalRow - 1})`).setFontWeight('bold').setNumberFormat('S/ #,##0.00');
+    sheetExtracto.getRange(totalRow, 1, 1, 7).setBackground('#f1f5f9');
+  } else {
+    sheetExtracto.getRange(3, 1, 1, 7).merge().setValue(`No se encontraron gastos registrados en "${categoria}" para el periodo ${mesBuscado}.`);
+    sheetExtracto.getRange(3, 1).setFontStyle('italic').setFontColor('#64748b').setHorizontalAlignment('center');
+  }
+
+  for (let c = 1; c <= 7; c++) {
+    sheetExtracto.autoResizeColumn(c);
+  }
+  SpreadsheetApp.flush();
+
+  const sheetUrl = ss.getUrl() + '#gid=' + sheetExtracto.getSheetId();
+  return {
+    success: true,
+    categoria: categoria,
+    mes: mesBuscado,
+    total: totalMonto,
+    count: rows.length,
+    sheetUrl: sheetUrl
+  };
 }
 
 function saveRecurrente_(item) {
