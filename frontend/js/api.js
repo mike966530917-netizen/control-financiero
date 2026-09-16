@@ -520,7 +520,10 @@
           this.setLocalBudgets(budgets);
           this.saveLocalRecurrentes(recurrentes);
           this.saveLocalClosedMonths(closedMonths);
-          if (data.spreadsheetUrl) localStorage.setItem('spreadsheet_url', data.spreadsheetUrl);
+          if (data.debug) {
+            window.lastApiDebug = data.debug;
+            try { localStorage.setItem('finanzas_last_debug', JSON.stringify(data.debug)); } catch (e) {}
+          }
 
           return {
             cards: cards,
@@ -528,14 +531,17 @@
             budgets: budgets,
             recurrentes: recurrentes,
             closedMonths: closedMonths,
+            debug: data.debug,
             source: 'remote'
           };
         } else {
-          return { cards: localCards, transactions: localTxs, budgets: localBudgets, recurrentes: localRecurrentes, closedMonths: localClosedMonths, source: 'local_fallback' };
+          window.lastApiError = data.error || 'Respuesta no exitosa';
+          return { cards: localCards, transactions: localTxs, budgets: localBudgets, recurrentes: localRecurrentes, closedMonths: localClosedMonths, source: 'local_fallback', error: data.error };
         }
       } catch (err) {
         console.warn('[API] Error al consultar Google Sheets, usando datos locales:', err);
-        return { cards: localCards, transactions: localTxs, budgets: localBudgets, recurrentes: localRecurrentes, closedMonths: localClosedMonths, source: 'local_fallback' };
+        window.lastApiError = err.message;
+        return { cards: localCards, transactions: localTxs, budgets: localBudgets, recurrentes: localRecurrentes, closedMonths: localClosedMonths, source: 'local_fallback', error: err.message };
       }
     }
 

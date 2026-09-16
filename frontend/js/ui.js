@@ -1855,10 +1855,53 @@
       }
 
       if (expenseListEl) {
-        expenseListEl.innerHTML = gastos.length === 0
-          ? `<p class="text-xs text-slate-500 p-3 text-center">No hay gastos fijos para ${mesStr}.</p>`
-          : gastos.map(r => renderItem(r, false)).join('');
+        if (gastos.length === 0 && ingresos.length === 0) {
+          const debug = window.lastApiDebug;
+          const detectedInfo = debug && debug.detectedSheets && debug.detectedSheets.length > 0
+            ? debug.detectedSheets.map(s => `${s.name} (${s.rows} filas)`).join(', ')
+            : 'Ninguna';
+          const allInfo = debug && debug.allSheets ? debug.allSheets.map(s => `${s.name} (${s.rows}f)`).join(', ') : '';
+          
+          expenseListEl.innerHTML = `
+            <div class="p-4 rounded-2xl glass-panel border border-slate-800 text-center space-y-2.5">
+              <p class="text-xs text-slate-300 font-bold">No se encontraron movimientos fijos para ${mesStr}.</p>
+              ${debug ? `
+                <div class="text-[11px] text-slate-400 bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 text-left space-y-1">
+                  <p><strong class="text-sky-400">Hoja detectada en Sheets:</strong> ${detectedInfo}</p>
+                  ${allInfo ? `<p><strong class="text-slate-300">Pestañas en tu Google Sheet:</strong> ${allInfo}</p>` : ''}
+                  <p><strong class="text-slate-300">Fijos totales leídos:</strong> ${debug.recurrentesCount || 0}</p>
+                </div>
+              ` : (window.lastApiError ? `
+                <div class="text-[11px] text-rose-300 bg-rose-950/40 p-2.5 rounded-xl border border-rose-900/40 text-left">
+                  <p><strong>Estado de Conexión:</strong> ${window.lastApiError}</p>
+                </div>
+              ` : `
+                <p class="text-[11px] text-slate-500">Si están en Google Sheets, asegúrate de haber implementado la Nueva Versión en Apps Script y pulsa Recargar.</p>
+              `)}
+              <div class="pt-1 flex justify-center gap-2">
+                <button type="button" class="btn-recargar-fijos-manual py-2 px-4 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs flex items-center gap-1.5 active:scale-95 transition shadow-lg shadow-sky-600/20">
+                  <span>🔄</span> <span>Recargar desde Google Sheets</span>
+                </button>
+              </div>
+            </div>
+          `;
+        } else if (gastos.length === 0) {
+          expenseListEl.innerHTML = `<p class="text-xs text-slate-500 p-3 text-center">No hay gastos fijos para ${mesStr}.</p>`;
+        } else {
+          expenseListEl.innerHTML = gastos.map(r => renderItem(r, false)).join('');
+        }
       }
+
+      // Evento de botón de recarga manual en fijos vacíos
+      document.querySelectorAll('.btn-recargar-fijos-manual').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          btn.innerHTML = '<span>⏳</span> <span>Consultando Google Sheets...</span>';
+          if (window.loadAppData) await window.loadAppData();
+          btn.disabled = false;
+          btn.innerHTML = '<span>🔄</span> <span>Recargar desde Google Sheets</span>';
+        });
+      });
 
       // Eventos de botones
       document.querySelectorAll('.btn-toggle-rec').forEach(btn => {

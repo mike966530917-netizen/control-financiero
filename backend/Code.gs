@@ -225,19 +225,39 @@ function doGet(e) {
     if (action === 'ping') {
       responseData = { success: true, message: 'PWA Financial API en línea', timestamp: new Date() };
     } else if (action === 'getAll') {
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
       const cards = getCardsConfig_();
       const transactions = getTransactions_();
       const budgets = getBudgetsConfig_();
       const recurrentes = getRecurrentesConfig_();
       const closedMonths = getClosedMonths_();
+      const candidateSheets = getCandidateRecurrentesSheets_(ss);
+      
       responseData = {
         success: true,
+        version: '6.4.1',
         cards: cards,
         transactions: transactions,
         budgets: budgets,
         recurrentes: recurrentes,
         closedMonths: closedMonths,
-        spreadsheetUrl: SpreadsheetApp.getActiveSpreadsheet().getUrl()
+        debug: {
+          detectedSheets: candidateSheets.map(s => ({ name: s.getName(), rows: s.getLastRow() })),
+          allSheets: ss.getSheets().map(s => ({ name: s.getName(), rows: s.getLastRow() })),
+          recurrentesCount: recurrentes.length
+        },
+        spreadsheetUrl: ss.getUrl()
+      };
+    } else if (action === 'getSheetsInfo') {
+      const allS = SpreadsheetApp.getActiveSpreadsheet().getSheets();
+      responseData = {
+        success: true,
+        version: '6.4.1',
+        sheets: allS.map(s => ({
+          name: s.getName(),
+          rows: s.getLastRow(),
+          cols: s.getLastColumn()
+        }))
       };
     } else if (action === 'getExtractoSheet') {
       const cat = (e && e.parameter && e.parameter.categoria) || '';
@@ -249,9 +269,18 @@ function doGet(e) {
         budgets: getBudgetsConfig_()
       };
     } else if (action === 'getRecurrentes') {
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      const recs = getRecurrentesConfig_();
+      const candidateSheets = getCandidateRecurrentesSheets_(ss);
       responseData = {
         success: true,
-        recurrentes: getRecurrentesConfig_()
+        version: '6.4.1',
+        recurrentes: recs,
+        debug: {
+          detectedSheets: candidateSheets.map(s => ({ name: s.getName(), rows: s.getLastRow() })),
+          allSheets: ss.getSheets().map(s => ({ name: s.getName(), rows: s.getLastRow() })),
+          recurrentesCount: recs.length
+        }
       };
     } else if (action === 'getClosedMonths') {
       responseData = {
@@ -432,49 +461,87 @@ function saveBudgets_(budgetsList) {
 }
 
 /**
- * Busca de forma flexible la hoja de movimientos recurrentes/fijos en el libro.
- * Soporta diferencias de mayúsculas/minúsculas, acentos, espacios y nombres comunes
- * como 'RECURRENTES', 'Recurrentes', 'Fijos', 'Gastos Fijos', 'Movimientos Fijos', etc.
+ * Busca de forma inteligente todas las hojas que puedan contener fijos/recurrentes.
+ * Prioriza aquellas hojas que efectivamente tengan datos (más de 1 fila).
  */
-function getRecurrentesSheet_(ss, autoCreate = false) {
+function getCandidateRecurrentesSheets_(ss) {
   if (!ss) ss = SpreadsheetApp.getActiveSpreadsheet();
-  
-  // 1. Coincidencia exacta con constante
-  let sheet = ss.getSheetByName(SHEETS.RECURRENTES);
-  if (sheet) return sheet;
-  
-  // 2. Búsqueda insensible a mayúsculas, espacios y acentos
   const allSheets = ss.getSheets();
   const cleanStr = (s) => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  
+
   const exactSynonyms = [
     'recurrentes', 'recurrente', 'fijos', 'fijo',
     'gastos fijos', 'gastos_fijos', 'gastosfijos',
     'movimientos fijos', 'movimientos_fijos', 'movimientosfijos',
-    'ingresos y gastos fijos', 'fijos mensuales'
+    'ingresos y gastos fijos', 'fijos mensuales', 'gastos recurrentes',
+    'pagos fijos', 'cuentas fijas', 'servicios fijos'
   ];
-  
-  // 2a. Coincidencia exacta con sinónimos
+
+  const candidateSheets = [];
+
+  // 1. Hojas que coinciden con los sinónimos y tienen datos reales (> 1 fila)
   for (let s of allSheets) {
     const sName = cleanStr(s.getName());
-    if (exactSynonyms.indexOf(sName) !== -1) {
-      return s;
+    if (exactSynonyms.indexOf(sName) !== -1 && s.getLastRow() > 1) {
+      if (candidateSheets.indexOf(s) === -1) candidateSheets.push(s);
     }
   }
-  
-  // 2b. Coincidencia parcial (contiene 'recurrent' o 'fijo', excluyendo consolidados o transacciones)
+
+  // 2. Hojas que contienen 'recurrent' o 'fijo' y tienen datos (> 1 fila)
   for (let s of allSheets) {
     const sName = cleanStr(s.getName());
     if ((sName.indexOf('recurrent') !== -1 || sName.indexOf('fijo') !== -1) && 
         sName.indexOf('consolid') === -1 && 
-        sName.indexOf('transacc') === -1) {
-      return s;
+        sName.indexOf('transacc') === -1 &&
+        s.getLastRow() > 1) {
+      if (candidateSheets.indexOf(s) === -1) candidateSheets.push(s);
     }
   }
-  
-  // 3. Crear hoja si se solicita explícitamente (ej: al guardar desde la app)
+
+  // 3. Si no se encontró ninguna con datos, buscar en cualquier hoja no-sistema que tenga datos
+  if (candidateSheets.length === 0) {
+    const systemSheets = [
+      SHEETS.TRANSACCIONES, SHEETS.INGRESOS, SHEETS.GASTOS_EFECTIVO, 
+      SHEETS.GASTOS_TC, SHEETS.TARJETAS, SHEETS.CONSOLIDADO, SHEETS.PRESUPUESTOS
+    ];
+    for (let s of allSheets) {
+      if (systemSheets.indexOf(s.getName()) === -1 && s.getLastRow() > 1) {
+        const sampleRows = s.getRange(1, 1, Math.min(3, s.getLastRow()), Math.min(10, s.getLastColumn())).getValues();
+        const sampleTxt = sampleRows.map(r => r.map(c => cleanStr(c)).join(' ')).join(' ');
+        if ((sampleTxt.indexOf('concepto') !== -1 || sampleTxt.indexOf('nombre') !== -1 || sampleTxt.indexOf('descrip') !== -1 || sampleTxt.indexOf('servicio') !== -1) &&
+            (sampleTxt.indexOf('monto') !== -1 || sampleTxt.indexOf('importe') !== -1 || sampleTxt.indexOf('precio') !== -1 || sampleTxt.indexOf('total') !== -1 || sampleTxt.indexOf('s/') !== -1)) {
+          candidateSheets.push(s);
+          break;
+        }
+      }
+    }
+  }
+
+  // 4. Si aún no hay ninguna con datos, buscar al menos la hoja estándar existente (aunque esté vacía)
+  if (candidateSheets.length === 0) {
+    let sheet = ss.getSheetByName(SHEETS.RECURRENTES);
+    if (!sheet) {
+      for (let s of allSheets) {
+        const sName = cleanStr(s.getName());
+        if (exactSynonyms.indexOf(sName) !== -1) {
+          sheet = s;
+          break;
+        }
+      }
+    }
+    if (sheet) candidateSheets.push(sheet);
+  }
+
+  return candidateSheets;
+}
+
+function getRecurrentesSheet_(ss, autoCreate = false) {
+  if (!ss) ss = SpreadsheetApp.getActiveSpreadsheet();
+  const candidates = getCandidateRecurrentesSheets_(ss);
+  if (candidates.length > 0) return candidates[0];
+
   if (autoCreate) {
-    sheet = ss.insertSheet(SHEETS.RECURRENTES);
+    let sheet = ss.insertSheet(SHEETS.RECURRENTES);
     const headers = ['Mes', 'ID', 'Nombre', 'Tipo', 'Monto', 'Categoria', 'Metodo_Pago', 'Dia_Mes', 'Activo', 'Notas'];
     sheet.appendRow(headers);
     formatHeaderRow(sheet, '#6366f1', '#ffffff');
@@ -483,106 +550,110 @@ function getRecurrentesSheet_(ss, autoCreate = false) {
     SpreadsheetApp.flush();
     return sheet;
   }
-  
   return null;
 }
 
 function getRecurrentesConfig_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = getRecurrentesSheet_(ss, false);
-  if (!sheet) return [];
-
-  const data = sheet.getDataRange().getValues();
-  if (!data || data.length <= 1) return [];
+  const sheets = getCandidateRecurrentesSheets_(ss);
+  if (!sheets || sheets.length === 0) return [];
 
   const cleanStr = (s) => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const allItems = [];
+  const seenKeys = new Set();
 
-  // Detección dinámica de la fila de encabezados en las primeras 5 filas
-  let headerIdx = 0;
-  for (let r = 0; r < Math.min(5, data.length); r++) {
-    const rowStr = data[r].map(c => cleanStr(c)).join(' ');
-    if (rowStr.indexOf('nombre') !== -1 || rowStr.indexOf('concepto') !== -1 || rowStr.indexOf('descrip') !== -1 || 
-        rowStr.indexOf('monto') !== -1 || rowStr.indexOf('importe') !== -1 || rowStr.indexOf('categoria') !== -1 || 
-        rowStr.indexOf('tipo') !== -1 || rowStr.indexOf('rubro') !== -1) {
-      headerIdx = r;
-      break;
+  sheets.forEach((sheet, sheetIdx) => {
+    const data = sheet.getDataRange().getValues();
+    if (!data || data.length <= 1) return;
+
+    // Detección dinámica de la fila de encabezados en las primeras 5 filas
+    let headerIdx = 0;
+    for (let r = 0; r < Math.min(5, data.length); r++) {
+      const rowStr = data[r].map(c => cleanStr(c)).join(' ');
+      if (rowStr.indexOf('nombre') !== -1 || rowStr.indexOf('concepto') !== -1 || rowStr.indexOf('descrip') !== -1 || 
+          rowStr.indexOf('monto') !== -1 || rowStr.indexOf('importe') !== -1 || rowStr.indexOf('categoria') !== -1 || 
+          rowStr.indexOf('tipo') !== -1 || rowStr.indexOf('rubro') !== -1 || rowStr.indexOf('servicio') !== -1 || rowStr.indexOf('detalle') !== -1) {
+        headerIdx = r;
+        break;
+      }
     }
-  }
 
-  const headerRow = data[headerIdx].map(h => cleanStr(h));
-  const colMes = headerRow.findIndex(h => h === 'mes' || h.indexOf('periodo') !== -1);
-  const colId = headerRow.findIndex(h => h === 'id' || h === 'codigo');
-  const colNombre = headerRow.findIndex(h => h.indexOf('nombre') !== -1 || h.indexOf('concepto') !== -1 || h.indexOf('descrip') !== -1 || h.indexOf('detalle') !== -1 || h.indexOf('servicio') !== -1);
-  const colTipo = headerRow.findIndex(h => h.indexOf('tipo') !== -1 || h.indexOf('clase') !== -1 || h.indexOf('flujo') !== -1);
-  const colMonto = headerRow.findIndex(h => h.indexOf('monto') !== -1 || h.indexOf('importe') !== -1 || h.indexOf('total') !== -1 || h.indexOf('valor') !== -1 || h.indexOf('precio') !== -1 || h.indexOf('costo') !== -1 || h.indexOf('s/') !== -1);
-  const colCat = headerRow.findIndex(h => h.indexOf('cat') !== -1 || h.indexOf('rubro') !== -1);
-  const colMetodo = headerRow.findIndex(h => h.indexOf('metodo') !== -1 || h.indexOf('pago') !== -1 || h.indexOf('medio') !== -1 || h.indexOf('cuenta') !== -1 || h.indexOf('tarjeta') !== -1);
-  const colDia = headerRow.findIndex(h => h.indexOf('dia') !== -1 || h.indexOf('fecha') !== -1);
-  const colActivo = headerRow.findIndex(h => h.indexOf('activo') !== -1 || h.indexOf('estado') !== -1 || h.indexOf('vigente') !== -1 || h.indexOf('habilitado') !== -1);
-  const colNotas = headerRow.findIndex(h => h.indexOf('nota') !== -1 || h.indexOf('obs') !== -1 || h.indexOf('coment') !== -1);
+    const headerRow = data[headerIdx].map(h => cleanStr(h));
+    const colMes = headerRow.findIndex(h => h === 'mes' || h.indexOf('periodo') !== -1);
+    const colId = headerRow.findIndex(h => h === 'id' || h === 'codigo');
+    const colNombre = headerRow.findIndex(h => h.indexOf('nombre') !== -1 || h.indexOf('concepto') !== -1 || h.indexOf('descrip') !== -1 || h.indexOf('detalle') !== -1 || h.indexOf('servicio') !== -1);
+    const colTipo = headerRow.findIndex(h => h.indexOf('tipo') !== -1 || h.indexOf('clase') !== -1 || h.indexOf('flujo') !== -1);
+    const colMonto = headerRow.findIndex(h => h.indexOf('monto') !== -1 || h.indexOf('importe') !== -1 || h.indexOf('total') !== -1 || h.indexOf('valor') !== -1 || h.indexOf('precio') !== -1 || h.indexOf('costo') !== -1 || h.indexOf('s/') !== -1);
+    const colCat = headerRow.findIndex(h => h.indexOf('cat') !== -1 || h.indexOf('rubro') !== -1);
+    const colMetodo = headerRow.findIndex(h => h.indexOf('metodo') !== -1 || h.indexOf('pago') !== -1 || h.indexOf('medio') !== -1 || h.indexOf('cuenta') !== -1 || h.indexOf('tarjeta') !== -1);
+    const colDia = headerRow.findIndex(h => h.indexOf('dia') !== -1 || h.indexOf('fecha') !== -1);
+    const colActivo = headerRow.findIndex(h => h.indexOf('activo') !== -1 || h.indexOf('estado') !== -1 || h.indexOf('vigente') !== -1 || h.indexOf('habilitado') !== -1);
+    const colNotas = headerRow.findIndex(h => h.indexOf('nota') !== -1 || h.indexOf('obs') !== -1 || h.indexOf('coment') !== -1);
 
-  const items = [];
-  for (let i = headerIdx + 1; i < data.length; i++) {
-    const row = data[i];
-    if (!row || row.every(cell => cell === '' || cell === null || cell === undefined)) continue;
+    for (let i = headerIdx + 1; i < data.length; i++) {
+      const row = data[i];
+      if (!row || row.every(cell => cell === '' || cell === null || cell === undefined)) continue;
 
-    // 1. Extraer o inferir Mes
-    let mesVal = '';
-    if (colMes >= 0 && row[colMes]) {
-      const rawM = row[colMes];
-      if (rawM instanceof Date) {
-        mesVal = Utilities.formatDate(rawM, Session.getScriptTimeZone(), 'yyyy-MM');
-      } else {
-        mesVal = String(rawM).trim().replace(/^'+/, '');
-        const matchM = mesVal.match(/^(\d{4})[-/](\d{1,2})/);
-        if (matchM) {
-          mesVal = `${matchM[1]}-${matchM[2].padStart(2, '0')}`;
+      // 1. Extraer o inferir Mes
+      let mesVal = '';
+      if (colMes >= 0 && row[colMes]) {
+        const rawM = row[colMes];
+        if (rawM instanceof Date) {
+          mesVal = Utilities.formatDate(rawM, Session.getScriptTimeZone(), 'yyyy-MM');
         } else {
-          const matchDM = mesVal.match(/^(\d{1,2})[-/](\d{4})/);
-          if (matchDM) {
-            mesVal = `${matchDM[2]}-${matchDM[1].padStart(2, '0')}`;
+          mesVal = String(rawM).trim().replace(/^'+/, '');
+          const matchM = mesVal.match(/^(\d{4})[-/](\d{1,2})/);
+          if (matchM) {
+            mesVal = `${matchM[1]}-${matchM[2].padStart(2, '0')}`;
           } else {
-            const matchDMY = mesVal.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
-            if (matchDMY) mesVal = `${matchDMY[3]}-${matchDMY[2].padStart(2, '0')}`;
+            const matchDM = mesVal.match(/^(\d{1,2})[-/](\d{4})/);
+            if (matchDM) {
+              mesVal = `${matchDM[2]}-${matchDM[1].padStart(2, '0')}`;
+            } else {
+              const matchDMY = mesVal.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+              if (matchDMY) mesVal = `${matchDMY[3]}-${matchDMY[2].padStart(2, '0')}`;
+            }
           }
         }
       }
-    }
 
-    // 2. Extraer o inferir Nombre / Concepto
-    let nomStr = '';
-    if (colNombre >= 0 && row[colNombre] !== undefined && row[colNombre] !== null) {
-      nomStr = String(row[colNombre]).trim();
-    } else {
-      const fallbackCol = (colMes === 0) ? 2 : 1;
-      if (row[fallbackCol] && isNaN(Number(row[fallbackCol]))) {
-        nomStr = String(row[fallbackCol]).trim();
+      // 2. Extraer o inferir Nombre / Concepto
+      let nomStr = '';
+      if (colNombre >= 0 && row[colNombre] !== undefined && row[colNombre] !== null) {
+        nomStr = String(row[colNombre]).trim();
       } else {
-        for (let c = 0; c < row.length; c++) {
-          if (c === colMes || c === colId || c === colTipo) continue;
-          const val = String(row[c] || '').trim();
-          if (val && isNaN(Number(val)) && !/^\d{4}[-/]\d{2}$/.test(val) && val.length > 1) {
-            nomStr = val;
-            break;
+        const fallbackCol = (colMes === 0) ? 2 : 1;
+        if (row[fallbackCol] && isNaN(Number(row[fallbackCol]))) {
+          nomStr = String(row[fallbackCol]).trim();
+        } else {
+          for (let c = 0; c < row.length; c++) {
+            if (c === colMes || c === colId || c === colTipo) continue;
+            const val = String(row[c] || '').trim();
+            if (val && isNaN(Number(val)) && !/^\d{4}[-/]\d{2}$/.test(val) && val.length > 1) {
+              nomStr = val;
+              break;
+            }
           }
         }
       }
-    }
 
-    // 3. Extraer o inferir Monto
-    let parsedMonto = 0;
-    if (colMonto >= 0 && row[colMonto] !== undefined && row[colMonto] !== null) {
-      const rawMonto = row[colMonto];
-      parsedMonto = typeof rawMonto === 'number'
-        ? Math.abs(rawMonto)
-        : Math.abs(parseFloat(String(rawMonto || '').replace(/[^0-9.,-]/g, '').replace(',', '.'))) || 0;
-    } else {
-      const fallbackMontoCol = (colMes === 0) ? 4 : 3;
-      if (row[fallbackMontoCol] !== undefined && row[fallbackMontoCol] !== '') {
-        const raw = row[fallbackMontoCol];
-        parsedMonto = typeof raw === 'number' ? Math.abs(raw) : (parseFloat(String(raw).replace(/[^0-9.,-]/g, '').replace(',', '.')) || 0);
-      }
-      if (parsedMonto === 0) {
+      // 3. Extraer o inferir Monto
+      let parsedMonto = 0;
+      if (colMonto >= 0 && row[colMonto] !== undefined && row[colMonto] !== null) {
+        const rawMonto = row[colMonto];
+        if (typeof rawMonto === 'number') {
+          parsedMonto = Math.abs(rawMonto);
+        } else {
+          let s = String(rawMonto || '').trim().replace(/[^0-9.,-]/g, '');
+          if (s.indexOf(',') !== -1 && s.indexOf('.') !== -1) {
+            if (s.indexOf('.') < s.indexOf(',')) s = s.replace(/\./g, '').replace(',', '.');
+            else s = s.replace(/,/g, '');
+          } else if (s.indexOf(',') !== -1) {
+            s = s.replace(',', '.');
+          }
+          parsedMonto = Math.abs(parseFloat(s)) || 0;
+        }
+      } else {
         for (let c = 0; c < row.length; c++) {
           if (c === colMes || c === colDia) continue;
           const raw = row[c];
@@ -599,100 +670,105 @@ function getRecurrentesConfig_() {
           }
         }
       }
-    }
 
-    // Si la fila carece tanto de nombre como de monto, ignorar
-    if (!nomStr && parsedMonto === 0) continue;
+      // Si la fila carece tanto de nombre como de monto, omitir
+      if (!nomStr && parsedMonto === 0) continue;
 
-    // 4. Extraer o generar ID
-    let idStr = String((colId >= 0 ? row[colId] : '') || '').trim();
-    if (!idStr && nomStr) {
-      const slug = cleanStr(nomStr).replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 30);
-      idStr = 'REC-' + (slug || ('item-' + i));
-    }
-    if (!idStr) idStr = 'REC-' + i;
+      // 4. Extraer o generar ID
+      let idStr = String((colId >= 0 ? row[colId] : '') || '').trim();
+      if (!idStr && nomStr) {
+        const slug = cleanStr(nomStr).replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 30);
+        idStr = 'REC-' + (slug || ('item-' + sheetIdx + '-' + i));
+      }
+      if (!idStr) idStr = 'REC-' + sheetIdx + '-' + i;
 
-    // 5. Extraer y normalizar Tipo (Ingreso vs Gasto)
-    let rawTipo = '';
-    if (colTipo >= 0 && row[colTipo] !== undefined) {
-      rawTipo = cleanStr(row[colTipo]);
-    } else {
-      const fallbackTipoCol = (colMes === 0) ? 3 : 2;
-      rawTipo = cleanStr(row[fallbackTipoCol]);
-    }
-    let tipoVal = 'Gasto_Fijo';
-    if (rawTipo.indexOf('ingreso') !== -1 || rawTipo.indexOf('sueldo') !== -1 || rawTipo.indexOf('renta') !== -1 || rawTipo.indexOf('cobro') !== -1) {
-      tipoVal = 'Ingreso_Fijo';
-    } else {
-      tipoVal = 'Gasto_Fijo';
-    }
+      // 5. Extraer y normalizar Tipo
+      let rawTipo = '';
+      if (colTipo >= 0 && row[colTipo] !== undefined) {
+        rawTipo = cleanStr(row[colTipo]);
+      } else {
+        const fallbackTipoCol = (colMes === 0) ? 3 : 2;
+        rawTipo = cleanStr(row[fallbackTipoCol]);
+      }
+      let tipoVal = 'Gasto_Fijo';
+      if (rawTipo.indexOf('ingreso') !== -1 || rawTipo.indexOf('sueldo') !== -1 || rawTipo.indexOf('renta') !== -1 || rawTipo.indexOf('cobro') !== -1) {
+        tipoVal = 'Ingreso_Fijo';
+      } else {
+        tipoVal = 'Gasto_Fijo';
+      }
 
-    // 6. Categoria
-    let catVal = String((colCat >= 0 ? row[colCat] : '') || '').trim();
-    if (!catVal) {
-      const fallbackCatCol = (colMes === 0) ? 5 : 4;
-      catVal = String(row[fallbackCatCol] || '').trim();
-    }
-    if (!catVal) {
-      catVal = (tipoVal === 'Ingreso_Fijo') ? 'Ingreso Principal' : 'Servicios';
-    }
+      // 6. Categoria
+      let catVal = String((colCat >= 0 ? row[colCat] : '') || '').trim();
+      if (!catVal) {
+        const fallbackCatCol = (colMes === 0) ? 5 : 4;
+        catVal = String(row[fallbackCatCol] || '').trim();
+      }
+      if (!catVal) {
+        catVal = (tipoVal === 'Ingreso_Fijo') ? 'Ingreso Principal' : 'Servicios';
+      }
 
-    // 7. Metodo de Pago
-    let metodoVal = String((colMetodo >= 0 ? row[colMetodo] : '') || '').trim();
-    if (!metodoVal) {
-      const fallbackMetodoCol = (colMes === 0) ? 6 : 5;
-      metodoVal = String(row[fallbackMetodoCol] || '').trim();
-    }
-    if (!metodoVal) metodoVal = 'Efectivo';
+      // 7. Metodo de Pago
+      let metodoVal = String((colMetodo >= 0 ? row[colMetodo] : '') || '').trim();
+      if (!metodoVal) {
+        const fallbackMetodoCol = (colMes === 0) ? 6 : 5;
+        metodoVal = String(row[fallbackMetodoCol] || '').trim();
+      }
+      if (!metodoVal) metodoVal = 'Efectivo';
 
-    // 8. Dia del Mes
-    let diaVal = 1;
-    let rawDia = (colDia >= 0 ? row[colDia] : undefined);
-    if (rawDia === undefined) {
-      const fallbackDiaCol = (colMes === 0) ? 7 : 6;
-      rawDia = row[fallbackDiaCol];
-    }
-    if (rawDia !== undefined && rawDia !== '') {
-      const d = parseInt(rawDia, 10);
-      if (!isNaN(d) && d >= 1 && d <= 31) diaVal = d;
-    }
+      // 8. Dia del Mes
+      let diaVal = 1;
+      let rawDia = (colDia >= 0 ? row[colDia] : undefined);
+      if (rawDia === undefined) {
+        const fallbackDiaCol = (colMes === 0) ? 7 : 6;
+        rawDia = row[fallbackDiaCol];
+      }
+      if (rawDia !== undefined && rawDia !== '') {
+        const d = parseInt(rawDia, 10);
+        if (!isNaN(d) && d >= 1 && d <= 31) diaVal = d;
+      }
 
-    // 9. Activo / Inactivo
-    let esActivo = true;
-    let rawActivo = (colActivo >= 0 ? row[colActivo] : undefined);
-    if (rawActivo === undefined) {
-      const fallbackActivoCol = (colMes === 0) ? 8 : 7;
-      rawActivo = row[fallbackActivoCol];
-    }
-    if (rawActivo !== undefined && rawActivo !== null && rawActivo !== '') {
-      const actStr = cleanStr(rawActivo);
-      if (actStr === 'no' || actStr === 'false' || actStr === '0' || actStr === 'inactivo' || actStr === 'desactivado') {
-        esActivo = false;
+      // 9. Activo / Inactivo
+      let esActivo = true;
+      let rawActivo = (colActivo >= 0 ? row[colActivo] : undefined);
+      if (rawActivo === undefined) {
+        const fallbackActivoCol = (colMes === 0) ? 8 : 7;
+        rawActivo = row[fallbackActivoCol];
+      }
+      if (rawActivo !== undefined && rawActivo !== null && rawActivo !== '') {
+        const actStr = cleanStr(rawActivo);
+        if (actStr === 'no' || actStr === 'false' || actStr === '0' || actStr === 'inactivo' || actStr === 'desactivado') {
+          esActivo = false;
+        }
+      }
+
+      // 10. Notas
+      let notasVal = String((colNotas >= 0 ? row[colNotas] : '') || '').trim();
+      if (!notasVal) {
+        const fallbackNotasCol = (colMes === 0) ? 9 : 8;
+        notasVal = String(row[fallbackNotasCol] || '').trim();
+      }
+
+      // Evitar duplicar exactamente el mismo ID y mes si se leyeron varias hojas
+      const dedupeKey = `${idStr}_${mesVal}`;
+      if (!seenKeys.has(dedupeKey)) {
+        seenKeys.add(dedupeKey);
+        allItems.push({
+          mes: mesVal,
+          id: idStr,
+          nombre: nomStr || ('Recurrente ' + i),
+          tipo: tipoVal,
+          monto: parsedMonto,
+          categoria: catVal,
+          metodoPago: metodoVal,
+          diaMes: diaVal,
+          activo: esActivo,
+          notas: notasVal
+        });
       }
     }
+  });
 
-    // 10. Notas
-    let notasVal = String((colNotas >= 0 ? row[colNotas] : '') || '').trim();
-    if (!notasVal) {
-      const fallbackNotasCol = (colMes === 0) ? 9 : 8;
-      notasVal = String(row[fallbackNotasCol] || '').trim();
-    }
-
-    items.push({
-      mes: mesVal,
-      id: idStr,
-      nombre: nomStr || ('Recurrente ' + i),
-      tipo: tipoVal,
-      monto: parsedMonto,
-      categoria: catVal,
-      metodoPago: metodoVal,
-      diaMes: diaVal,
-      activo: esActivo,
-      notas: notasVal
-    });
-  }
-
-  return items;
+  return allItems;
 }
 
 // ==============================================================================
