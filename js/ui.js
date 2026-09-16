@@ -147,6 +147,30 @@
         });
       }
 
+      // Listeners para el Panel de Extracto Detallado Integrado (en pantalla)
+      const closeExtractoBtn = document.getElementById('btn-close-extracto-panel');
+      if (closeExtractoBtn) {
+        closeExtractoBtn.addEventListener('click', () => this.cerrarExtractoCategoria());
+      }
+
+      const openSheetsExtractoBtn = document.getElementById('btn-extracto-open-sheets');
+      if (openSheetsExtractoBtn) {
+        openSheetsExtractoBtn.addEventListener('click', () => this.abrirExtractoEnSheets());
+      }
+
+      const btnExtractoActual = document.getElementById('btn-extracto-periodo-actual');
+      const btnExtractoTodos = document.getElementById('btn-extracto-periodo-todos');
+      if (btnExtractoActual) {
+        btnExtractoActual.addEventListener('click', () => {
+          this.mostrarExtractoCategoria(this.currentExtractoCategoria || this.currentDetalleCategoria || '', 'ACTUAL');
+        });
+      }
+      if (btnExtractoTodos) {
+        btnExtractoTodos.addEventListener('click', () => {
+          this.mostrarExtractoCategoria(this.currentExtractoCategoria || this.currentDetalleCategoria || '', 'TODOS');
+        });
+      }
+
       // Escuchador global delegado e infalible para ver detalle de categorías
       document.addEventListener('click', (e) => {
         let el = e.target;
@@ -156,12 +180,13 @@
         const trigger = el.closest('.btn-inspect-category, .btn-inspect-category-btn, [data-inspect-cat]');
         if (trigger) {
           const cat = trigger.getAttribute('data-inspect-cat') || trigger.getAttribute('data-categoria');
-          console.log('[LUPA v5.2] Click delegado detectado — trigger:', trigger.tagName, '| cat:', cat);
+          console.log('[LUPA v6.2] Click delegado detectado — trigger:', trigger.tagName, '| cat:', cat);
           if (cat) {
             e.preventDefault();
-            this.openDetalleCategoriaModal(cat);
+            this.mostrarExtractoCategoria(cat, 'ACTUAL');
+            this.openDetalleCategoriaModal(cat, 'ACTUAL');
           } else {
-            console.warn('[LUPA v5.2] El trigger no tiene data-inspect-cat ni data-categoria:', trigger.outerHTML.slice(0, 200));
+            console.warn('[LUPA v6.2] El trigger no tiene data-inspect-cat ni data-categoria:', trigger.outerHTML.slice(0, 200));
           }
         }
       });
@@ -1406,7 +1431,7 @@
         const widthPercent = Math.min(100, Math.max(3, p.porcentaje));
 
         return `
-          <button type="button" onclick="event.stopPropagation(); window.UIManager.openDetalleCategoriaModal('${p.categoria}')" class="btn-inspect-category w-full text-left p-3 bg-slate-900/60 hover:bg-slate-800/80 active:scale-[0.99] rounded-2xl border border-slate-800 hover:border-sky-500/40 space-y-1.5 cursor-pointer transition select-none" data-inspect-cat="${p.categoria}" title="Toca para ver qué gastos suman este monto">
+          <button type="button" onclick="event.stopPropagation(); window.UIManager.mostrarExtractoCategoria('${p.categoria}'); window.UIManager.openDetalleCategoriaModal('${p.categoria}')" class="btn-inspect-category w-full text-left p-3 bg-slate-900/60 hover:bg-slate-800/80 active:scale-[0.99] rounded-2xl border border-slate-800 hover:border-sky-500/40 space-y-1.5 cursor-pointer transition select-none" data-inspect-cat="${p.categoria}" title="Toca para ver qué gastos suman este monto">
             <div class="flex items-center justify-between text-xs pointer-events-none">
               <div class="flex items-center gap-2 font-bold text-slate-200">
                 <span>${p.categoria}</span>
@@ -1442,7 +1467,10 @@
           if (target && target.nodeType === 3) target = target.parentElement;
           const catEl = (target && typeof target.closest === 'function') ? target.closest('[data-categoria], [data-inspect-cat]') : el;
           const cat = (catEl ? (catEl.getAttribute('data-categoria') || catEl.getAttribute('data-inspect-cat')) : null) || el.getAttribute('data-categoria');
-          if (cat) this.openDetalleCategoriaModal(cat);
+          if (cat) {
+            this.mostrarExtractoCategoria(cat);
+            this.openDetalleCategoriaModal(cat);
+          }
         });
       });
     }
@@ -2265,7 +2293,10 @@
     }
 
     openDetalleCategoriaModal(categoria, periodo = 'ACTUAL') {
-      console.log('[LUPA v6.1] openDetalleCategoriaModal llamada con:', categoria, '| periodo:', periodo);
+      console.log('[LUPA v6.2] openDetalleCategoriaModal llamada con:', categoria, '| periodo:', periodo);
+      if (categoria) {
+        this.mostrarExtractoCategoria(categoria, periodo);
+      }
       const modal = document.getElementById('modal-detalle-categoria');
       if (!modal) {
         console.warn('[UI] Modal de detalle de categoría no encontrado en el DOM.');
@@ -2278,7 +2309,7 @@
       modal.style.display = 'flex';
 
       if (!categoria) {
-        console.warn('[LUPA v5.2] categoria es null/undefined — abortando renderizado interno');
+        console.warn('[LUPA v6.2] categoria es null/undefined — abortando renderizado interno');
         return;
       }
 
@@ -2505,11 +2536,266 @@
     }
 
     closeDetalleCategoriaModal() {
-      console.log('[LUPA v6.1] closeDetalleCategoriaModal ejecutada');
+      console.log('[LUPA v6.2] closeDetalleCategoriaModal ejecutada');
       const modal = document.getElementById('modal-detalle-categoria');
       if (modal) {
         modal.classList.add('hidden');
         modal.style.display = 'none';
+      }
+    }
+
+    // ==========================================================================
+    // EXTRACTO DETALLADO INTEGRADO EN PANTALLA Y GOOGLE SHEETS
+    // ==========================================================================
+    mostrarExtractoCategoria(categoria, periodo = 'ACTUAL') {
+      if (!categoria) return;
+      this.currentExtractoCategoria = categoria;
+      this.currentExtractoPeriodo = periodo;
+      this.currentDetalleCategoria = categoria;
+      this.currentDetallePeriodo = periodo;
+
+      const panel = document.getElementById('panel-extracto-categoria');
+      if (!panel) return;
+
+      try {
+        const safeNum = (v) => {
+          const parsed = parseFloat(v);
+          return isNaN(parsed) ? 0 : parsed;
+        };
+        const safeFixed = (v) => safeNum(v).toFixed(2);
+
+        const summary = window.lastSummary || {};
+        const mesActual = summary.mesActual || (window.AppState && window.AppState.selectedMonth) || new Date().toISOString().slice(0, 7);
+        const txs = summary.transaccionesConsolidadas || window.cachedTransactions || (window.AppState && window.AppState.transactions) || [];
+        const mostrarTodos = (periodo === 'TODOS');
+
+        // Obtener detalle desde el motor financiero
+        let detalle = null;
+        if (window.FinancialEngine && typeof window.FinancialEngine.obtenerDetalleGastosPorCategoria === 'function') {
+          detalle = window.FinancialEngine.obtenerDetalleGastosPorCategoria(txs, categoria, mesActual, mostrarTodos);
+        }
+        if (!detalle) {
+          detalle = {
+            categoria: categoria,
+            mes: mesActual,
+            totalGastado: 0,
+            movimientosCount: 0,
+            movimientosHistoricoCount: 0,
+            movimientos: []
+          };
+        }
+
+        // Iconos por categoría
+        const iconos = {
+          'Supermercado': '🛒',
+          'Restaurantes': '🍽️',
+          'Alimentación': '🍲',
+          'Servicios': '💡',
+          'Transporte': '🚗',
+          'Hogar': '🏠',
+          'Educación': '📚',
+          'Salud': '💊',
+          'Compras': '🛍️',
+          'Tecnología': '💻',
+          'Suscripciones': '📺',
+          'Entretenimiento': '🎬',
+          'Otros Gastos': '📦'
+        };
+
+        const iconEl = document.getElementById('extracto-cat-icon');
+        const titleEl = document.getElementById('extracto-cat-title');
+        const subtitleEl = document.getElementById('extracto-cat-subtitle');
+        const spentEl = document.getElementById('extracto-stat-spent');
+        const budgetEl = document.getElementById('extracto-stat-budget');
+        const remainingEl = document.getElementById('extracto-stat-remaining');
+        const mesLabelEl = document.getElementById('extracto-mes-label');
+        const todosCountEl = document.getElementById('extracto-todos-count');
+        const movementsCountEl = document.getElementById('extracto-movements-count');
+        const listEl = document.getElementById('extracto-movements-list');
+        const btnActual = document.getElementById('btn-extracto-periodo-actual');
+        const btnTodos = document.getElementById('btn-extracto-periodo-todos');
+
+        if (iconEl) iconEl.textContent = iconos[detalle.categoria] || '📊';
+        if (titleEl) titleEl.textContent = `Extracto: ${detalle.categoria}`;
+        if (subtitleEl) {
+          subtitleEl.textContent = mostrarTodos
+            ? `Mostrando histórico acumulado de todos los meses (${detalle.movimientosCount} gastos)`
+            : `Movimientos considerados en ${mesActual}`;
+        }
+        if (mesLabelEl) mesLabelEl.textContent = mesActual;
+        if (todosCountEl) todosCountEl.textContent = detalle.movimientosHistoricoCount || 0;
+        if (movementsCountEl) movementsCountEl.textContent = `${detalle.movimientosCount || 0} gastos`;
+
+        // Presupuesto y estadísticas
+        const catNorm = (categoria || '').trim().toLowerCase();
+        const presupuesto = (summary.presupuestos || []).find(p => {
+          if (!p || !p.categoria) return false;
+          const pNorm = p.categoria.trim().toLowerCase();
+          return pNorm === catNorm ||
+                 (window.FinancialEngine && window.FinancialEngine.sonCategoriasEquivalentes &&
+                  window.FinancialEngine.sonCategoriasEquivalentes(p.categoria, categoria));
+        }) || null;
+
+        const totalGastadoVal = safeNum(detalle.totalGastado);
+        const limiteVal = presupuesto ? safeNum(presupuesto.limite != null ? presupuesto.limite : (presupuesto.presupuesto != null ? presupuesto.presupuesto : 0)) : 0;
+        const restanteVal = limiteVal > 0 ? (limiteVal - totalGastadoVal) : 0;
+
+        if (spentEl) spentEl.textContent = `S/ ${safeFixed(totalGastadoVal)}`;
+        if (budgetEl) budgetEl.textContent = limiteVal > 0 ? `S/ ${safeFixed(limiteVal)}` : 'Sin límite';
+        if (remainingEl) {
+          if (limiteVal > 0) {
+            remainingEl.textContent = `S/ ${safeFixed(restanteVal)}`;
+            remainingEl.className = restanteVal < 0 ? 'font-black text-rose-400 text-xs' : 'font-bold text-emerald-400 text-xs';
+          } else {
+            remainingEl.textContent = 'N/A';
+            remainingEl.className = 'font-bold text-slate-400 text-xs';
+          }
+        }
+
+        // Estilos de botones de periodo
+        if (btnActual && btnTodos) {
+          if (mostrarTodos) {
+            btnActual.className = 'flex-1 py-1 rounded-lg font-semibold text-slate-400 hover:text-slate-200 text-center cursor-pointer';
+            btnTodos.className = 'flex-1 py-1 rounded-lg font-bold bg-sky-600 text-white text-center cursor-pointer shadow-sm';
+          } else {
+            btnActual.className = 'flex-1 py-1 rounded-lg font-bold bg-sky-600 text-white text-center cursor-pointer shadow-sm';
+            btnTodos.className = 'flex-1 py-1 rounded-lg font-semibold text-slate-400 hover:text-slate-200 text-center cursor-pointer';
+          }
+        }
+
+        // Renderizar lista de movimientos contribuyentes
+        if (listEl) {
+          if (!detalle.movimientos || detalle.movimientos.length === 0) {
+            if (!mostrarTodos && detalle.movimientosHistoricoCount > 0) {
+              listEl.innerHTML = `
+                <div class="p-3 text-center text-xs text-slate-300 bg-slate-900/60 rounded-xl border border-sky-500/30 space-y-2">
+                  <p class="font-bold text-slate-200">No hay gastos en ${detalle.categoria} para ${mesActual}.</p>
+                  <p class="text-[11px] text-slate-400">Existen <strong class="text-sky-400">${detalle.movimientosHistoricoCount} gastos</strong> de esta categoría en otros meses.</p>
+                  <button type="button" onclick="window.UIManager.mostrarExtractoCategoria('${detalle.categoria}', 'TODOS')" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow transition active:scale-95 cursor-pointer inline-flex items-center gap-1">
+                    <span>🔍</span> Ver los ${detalle.movimientosHistoricoCount} gastos históricos
+                  </button>
+                </div>
+              `;
+            } else {
+              listEl.innerHTML = `
+                <div class="p-3 text-center text-xs text-slate-500 bg-slate-900/40 rounded-xl border border-slate-800">
+                  No hay gastos registrados en ${detalle.categoria} ${mostrarTodos ? 'en ningún mes' : 'para ' + mesActual}.
+                </div>
+              `;
+            }
+          } else {
+            listEl.innerHTML = detalle.movimientos.map(m => {
+              const iconBadge = m.icono || (m.tipo === 'Consumo_TC' ? '💳' : (m.esFijo ? '⚙️' : '📉'));
+              let badgeTipo = `<span class="text-[9px] px-1.5 py-0.5 rounded font-bold bg-slate-800 text-slate-300">${m.tipoLabel || 'Gasto'}</span>`;
+              if (m.tipo === 'Consumo_TC') {
+                badgeTipo = `<span class="text-[9px] px-1.5 py-0.5 rounded font-bold bg-purple-950 text-purple-300 border border-purple-500/30">💳 TC</span>`;
+              } else if (m.esFijo) {
+                badgeTipo = `<span class="text-[9px] px-1.5 py-0.5 rounded font-bold bg-sky-950 text-sky-300 border border-sky-500/30">⚙️ Fijo</span>`;
+              }
+
+              return `
+                <div class="p-2 rounded-xl bg-slate-900/80 hover:bg-slate-850 border border-slate-800 flex items-center justify-between gap-2 transition">
+                  <div class="flex items-center gap-2 min-w-0 flex-1">
+                    <div class="w-7 h-7 rounded-lg bg-slate-800 flex items-center justify-center text-xs flex-shrink-0">
+                      ${iconBadge}
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <div class="flex items-center gap-1 flex-wrap">
+                        <span class="font-bold text-xs text-slate-200 truncate">${m.concepto || detalle.categoria}</span>
+                        ${badgeTipo}
+                        ${m.cuotaInfo ? `<span class="text-[9px] px-1 py-0.2 rounded bg-indigo-950 text-indigo-300 border border-indigo-500/30 font-semibold">${m.cuotaInfo}</span>` : ''}
+                      </div>
+                      <div class="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5">
+                        <span class="font-medium text-slate-300">📅 ${m.fecha || m.mes || 'Sin fecha'}</span>
+                        <span>•</span>
+                        <span class="truncate">🏦 ${m.origen || 'General'}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <span class="text-xs font-black text-rose-400 flex-shrink-0 ml-1">
+                    -S/ ${safeFixed(m.monto)}
+                  </span>
+                </div>
+              `;
+            }).join('');
+          }
+        }
+
+        // Mostrar panel infaliblemente
+        panel.classList.remove('hidden');
+        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+        // Sincronizar el dropdown de filtro de transacciones para que la lista de abajo también se filtre
+        const catFilterSelect = document.getElementById('tx-category-filter-select');
+        if (catFilterSelect) {
+          catFilterSelect.value = categoria;
+          this.selectedCategoryFilter = categoria;
+          const allTxs = window.cachedTransactions || (window.AppState && window.AppState.transactions) || [];
+          this.renderTransactionsList(allTxs, this.currentFilter || 'ALL');
+        }
+      } catch (err) {
+        console.error('[UI] Error al mostrar extracto en pantalla:', err);
+      }
+    }
+
+    cerrarExtractoCategoria() {
+      const panel = document.getElementById('panel-extracto-categoria');
+      if (panel) panel.classList.add('hidden');
+    }
+
+    async abrirExtractoEnSheets() {
+      const categoria = this.currentExtractoCategoria || this.currentDetalleCategoria;
+      if (!categoria) {
+        this.showToast('Selecciona una categoría primero', 'warning');
+        return;
+      }
+      const summary = window.lastSummary || {};
+      const mes = summary.mesActual || (window.AppState && window.AppState.selectedMonth) || new Date().toISOString().slice(0, 7);
+
+      const btn = document.getElementById('btn-extracto-open-sheets');
+      const originalHtml = btn ? btn.innerHTML : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span>⏳</span> <span>Generando...</span>';
+      }
+      this.showToast(`Generando extracto de "${categoria}" en Google Sheets...`, 'success');
+
+      try {
+        const api = window.ApiService || window.api;
+        if (api && typeof api.generarExtractoSheet === 'function') {
+          const res = await api.generarExtractoSheet(categoria, mes);
+          if (res && res.sheetUrl) {
+            this.showToast('Extracto generado. Abriendo Google Sheets...', 'success');
+            window.open(res.sheetUrl, '_blank');
+          } else {
+            const fallback = localStorage.getItem('spreadsheet_url');
+            if (fallback) {
+              window.open(fallback, '_blank');
+            } else {
+              this.showToast('Extracto generado. Abre tu Google Sheet para ver la pestaña EXTRACTO_CATEGORIA', 'success');
+            }
+          }
+        } else {
+          const fallback = localStorage.getItem('spreadsheet_url');
+          if (fallback) {
+            window.open(fallback, '_blank');
+          } else {
+            this.showToast('Abre tu Google Sheet para consultar los datos', 'info');
+          }
+        }
+      } catch (err) {
+        console.error('[UI] Error al abrir extracto en Sheets:', err);
+        const fallback = localStorage.getItem('spreadsheet_url');
+        if (fallback) {
+          window.open(fallback, '_blank');
+        } else {
+          this.showToast('Error al generar extracto: ' + err.message, 'error');
+        }
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = originalHtml;
+        }
       }
     }
 

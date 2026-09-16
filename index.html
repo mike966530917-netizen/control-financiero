@@ -35,7 +35,7 @@
     };
 
     (function() {
-      const APP_BUILD_ID = 'finanzas-pwa-v6.1-force';
+      const APP_BUILD_ID = 'finanzas-pwa-v6.2-force';
       const prevBuild = localStorage.getItem('finanzas_build_id');
       if (prevBuild !== APP_BUILD_ID) {
         localStorage.setItem('finanzas_build_id', APP_BUILD_ID);
@@ -91,7 +91,7 @@
         <div>
           <h1 class="font-extrabold text-base tracking-tight text-white flex items-center gap-1.5">
             Finanzas Pro
-            <span class="text-[9px] px-1.5 py-0.5 rounded-md bg-sky-950 text-sky-400 font-extrabold border border-sky-500/30">v6.1</span>
+            <span class="text-[9px] px-1.5 py-0.5 rounded-md bg-sky-950 text-sky-400 font-extrabold border border-sky-500/30">v6.2</span>
             <span id="sync-status-badge" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
               Cargando...
             </span>
@@ -424,6 +424,64 @@
           <button id="btn-open-budgets-modal" class="text-xs font-semibold px-2.5 py-1 rounded-xl bg-sky-500/20 text-sky-300 border border-sky-500/30 hover:bg-sky-500/30 active:scale-95 transition flex items-center gap-1">
             <span>⚙️</span> Ajustar
           </button>
+        </div>
+
+        <!-- Panel de Extracto Detallado Integrado (Visible directamente en pantalla sin depender de modales) -->
+        <div id="panel-extracto-categoria" class="hidden bg-slate-950/95 border-2 border-sky-500/80 rounded-2xl p-4 space-y-3 shadow-2xl transition-all">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
+            <div class="flex items-center gap-2 min-w-0">
+              <span id="extracto-cat-icon" class="text-2xl flex-shrink-0">💡</span>
+              <div class="min-w-0">
+                <h4 id="extracto-cat-title" class="font-extrabold text-sm text-white truncate">Extracto: Servicios</h4>
+                <p id="extracto-cat-subtitle" class="text-[11px] text-sky-400 font-semibold truncate">Movimientos considerados en Septiembre 2026</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5 flex-shrink-0">
+              <button id="btn-extracto-open-sheets" type="button" class="text-xs px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold flex items-center gap-1 active:scale-95 transition cursor-pointer shadow-md shadow-emerald-600/20" title="Generar y abrir extracto en Google Sheets">
+                <span>📊</span> <span>Google Sheet</span>
+              </button>
+              <button id="btn-close-extracto-panel" type="button" class="text-slate-400 hover:text-white p-1 rounded-lg text-sm cursor-pointer" title="Cerrar extracto">
+                ✕
+              </button>
+            </div>
+          </div>
+
+          <!-- 3 Tarjetas de Resumen en el Extracto -->
+          <div class="grid grid-cols-3 gap-1.5 text-center text-xs">
+            <div class="bg-slate-900/90 p-2 rounded-xl border border-slate-800">
+              <span class="text-[9px] text-slate-400 uppercase tracking-wider block font-medium">Gastado</span>
+              <span id="extracto-stat-spent" class="font-black text-rose-400 text-xs">S/ 0.00</span>
+            </div>
+            <div class="bg-slate-900/90 p-2 rounded-xl border border-slate-800">
+              <span class="text-[9px] text-slate-400 uppercase tracking-wider block font-medium">Límite</span>
+              <span id="extracto-stat-budget" class="font-bold text-slate-200 text-xs">S/ 0.00</span>
+            </div>
+            <div class="bg-slate-900/90 p-2 rounded-xl border border-slate-800">
+              <span class="text-[9px] text-slate-400 uppercase tracking-wider block font-medium">Disponible</span>
+              <span id="extracto-stat-remaining" class="font-bold text-emerald-400 text-xs">S/ 0.00</span>
+            </div>
+          </div>
+
+          <!-- Conmutador de Periodo dentro del Extracto -->
+          <div class="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
+            <button id="btn-extracto-periodo-actual" type="button" class="flex-1 py-1 rounded-lg font-bold bg-sky-600 text-white text-center cursor-pointer">
+              Mes Actual (<span id="extracto-mes-label">...</span>)
+            </button>
+            <button id="btn-extracto-periodo-todos" type="button" class="flex-1 py-1 rounded-lg font-semibold text-slate-400 hover:text-slate-200 text-center cursor-pointer">
+              Histórico (<span id="extracto-todos-count">0</span>)
+            </button>
+          </div>
+
+          <!-- Lista de Movimientos Contribuyentes -->
+          <div class="space-y-1.5">
+            <div class="flex items-center justify-between text-xs text-slate-400 px-0.5">
+              <span class="font-bold text-slate-300">Detalle de movimientos considerados:</span>
+              <span id="extracto-movements-count" class="font-semibold text-sky-400">0 gastos</span>
+            </div>
+            <div id="extracto-movements-list" class="space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
+              <!-- Renderizado dinámico -->
+            </div>
+          </div>
         </div>
 
         <div id="budgets-progress-container" class="space-y-2.5 pt-1">
@@ -1160,11 +1218,11 @@
   <!-- Contenedor flotante de notificaciones Toast -->
   <div id="toast-container" class="fixed top-5 left-4 right-4 flex flex-col gap-2 pointer-events-none max-w-sm mx-auto" style="z-index:10000;"></div>
 
-  <!-- Scripts en orden de dependencia con cache-busting v6.1 -->
-  <script src="js/financial-engine.js?v=6.1"></script>
-  <script src="js/api.js?v=6.1"></script>
-  <script src="js/ui.js?v=6.1"></script>
-  <script src="js/app.js?v=6.1"></script>
+  <!-- Scripts en orden de dependencia con cache-busting v6.2 -->
+  <script src="js/financial-engine.js?v=6.2"></script>
+  <script src="js/api.js?v=6.2"></script>
+  <script src="js/ui.js?v=6.2"></script>
+  <script src="js/app.js?v=6.2"></script>
 
 </body>
 </html>
