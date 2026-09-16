@@ -131,18 +131,7 @@
       try {
         const parsed = JSON.parse(raw);
         if (!Array.isArray(parsed)) return [];
-        // Filtrar y eliminar cualquier semilla de prueba demo ('REC-1' a 'REC-5')
-        const cleaned = parsed.filter(r => {
-          if (!r || !r.id) return false;
-          const idStr = String(r.id);
-          if (['REC-1', 'REC-2', 'REC-3', 'REC-4', 'REC-5'].includes(idStr)) return false;
-          if (r.nombre && (r.nombre === 'Suscripciones Digitales' || r.nombre === 'Alquiler de Vivienda' || r.nombre === 'Servicios Luz y Agua' || r.nombre === 'Internet Hogar' || r.nombre === 'Sueldo Principal')) return false;
-          return true;
-        });
-        if (cleaned.length !== parsed.length) {
-          localStorage.setItem(STORAGE_KEYS.RECURRENTES, JSON.stringify(cleaned));
-        }
-        return cleaned;
+        return parsed.filter(r => r && (r.id || r.nombre));
       } catch (e) {
         return [];
       }
@@ -184,7 +173,18 @@
 
     async saveAllRecurrentes(items) {
       if (!Array.isArray(items)) return { success: false };
-      this.saveLocalRecurrentes(items);
+      const current = this.getLocalRecurrentes();
+      const updated = [...current];
+      items.forEach(newItem => {
+        const itemMes = newItem.mes || '';
+        const idx = updated.findIndex(r => r.id === newItem.id && (r.mes || '') === itemMes);
+        if (idx >= 0) {
+          updated[idx] = { ...updated[idx], ...newItem };
+        } else {
+          updated.push(newItem);
+        }
+      });
+      this.saveLocalRecurrentes(updated);
 
       if (!this.apiUrl || !this.isOnline) {
         return { success: true, offline: true };

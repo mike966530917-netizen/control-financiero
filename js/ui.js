@@ -256,7 +256,8 @@
 
       // Si se abre la pestaña de fijos recurrentes, refrescar lista
       if (viewId === 'view-recurrentes' && window.cachedRecurrentes) {
-        this.renderRecurrentesList(window.cachedRecurrentes, window.cachedRecurrentesMes, window.cachedRecurrentesEstadoMes);
+        const mesActivo = (window.AppState && window.AppState.selectedMonth) || window.cachedRecurrentesMes;
+        this.renderRecurrentesList(window.cachedRecurrentes, mesActivo, window.cachedRecurrentesEstadoMes);
       }
 
       // Redibujar gráficos y presupuestos si se abre la pestaña de gráficos

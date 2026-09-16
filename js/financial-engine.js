@@ -222,10 +222,32 @@
       return `${simpleMatch[1]}-${simpleMatch[2].padStart(2, '0')}`;
     }
 
+    // Si tiene formato MM/YYYY o M/YYYY (ej. "09/2026", "9/2026")
+    const myMatch = val.match(/^(\d{1,2})[-/](\d{4})$/);
+    if (myMatch) {
+      return `${myMatch[2]}-${myMatch[1].padStart(2, '0')}`;
+    }
+
     // Si tiene formato DD/MM/YYYY o DD-MM-YYYY (con o sin hora o texto posterior)
     const dmyMatch = val.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
     if (dmyMatch) {
       return `${dmyMatch[3]}-${dmyMatch[2].padStart(2, '0')}`;
+    }
+
+    // Reconocimiento de nombres de meses en español (ej. "Septiembre 2026", "sep 2026")
+    const mesesNombres = {
+      'enero': '01', 'ene': '01', 'febrero': '02', 'feb': '02', 'marzo': '03', 'mar': '03',
+      'abril': '04', 'abr': '04', 'mayo': '05', 'may': '05', 'junio': '06', 'jun': '06',
+      'julio': '07', 'jul': '07', 'agosto': '08', 'ago': '08', 'septiembre': '09', 'sep': '09', 'setiembre': '09', 'set': '09',
+      'octubre': '10', 'oct': '10', 'noviembre': '11', 'nov': '11', 'diciembre': '12', 'dic': '12'
+    };
+    const lower = val.toLowerCase();
+    for (const [nom, num] of Object.entries(mesesNombres)) {
+      if (lower.includes(nom)) {
+        const yearMatch = lower.match(/\b(20\d{2})\b/);
+        const y = yearMatch ? yearMatch[1] : (new Date().getFullYear().toString());
+        return `${y}-${num}`;
+      }
     }
 
     // Si es un string de fecha largo de Google Sheets o Date estándar
@@ -833,8 +855,12 @@
 
   /**
    * Obtiene la lista de movimientos fijos aplicables a un mes específico.
-   * Si existen fijos configurados explícitamente con r.mes === mesActualStr, devuelve esos.
-   * Si no, busca la configuración del mes previo más cercano o fijos base/legacy.
+   * Resuelve CADA recurrente de forma individual y continua:
+   * 1. Si existe configuración explícita para este mes exacto, usa esa (con sus montos/estado de ese mes).
+   * 2. Si no, busca la configuración del mes previo más cercano (herencia continua hacia el futuro).
+   * 3. Si no, usa la plantilla base/legacy (sin mes o mes vacío).
+   * 4. Si solo hay versiones posteriores, toma la más temprana.
+   * Esto garantiza que NINGÚN recurrente desaparezca al cambiar de mes ni por guardar ajustes en un mes.
    */
   function getRecurrentesParaMes(recurrentesConfig = [], mesActualStr = null) {
     if (!mesActualStr) {
@@ -846,39 +872,69 @@
     const items = (recurrentesConfig || []).filter(r => r && (r.id || r.nombre));
     if (items.length === 0) return [];
 
-    // 1. Si hay fijos guardados explícitamente para este mes exacto
-    const delMes = items.filter(r => r.mes && normalizarMes(r.mes) === mesActualStr);
-    if (delMes.length > 0) {
-      return delMes.map(r => ({ ...r, mes: mesActualStr }));
+    // Agrupar todos los registros por identificador único del recurrente
+    // (un recurrente puede tener múltiples versiones históricas para distintos meses)
+    const recurrentesMap = new Map();
+
+    items.forEach(r => {
+      // Clave única estable: id del recurrente (o combinación de nombre, tipo y categoría si no tiene id)
+      const rawKey = (r.id && String(r.id).trim()) 
+        ? String(r.id).trim() 
+        : `${String(r.nombre || '').trim().toLowerCase()}_${String(r.tipo || '').trim().toLowerCase()}_${String(r.categoria || '').trim().toLowerCase()}`;
+      const key = rawKey.toLowerCase();
+
+      if (!recurrentesMap.has(key)) {
+        recurrentesMap.set(key, []);
+      }
+      recurrentesMap.get(key).push(r);
+    });
+
+    const resultadoMes = [];
+
+    // Para CADA recurrente individual, resolver la mejor versión aplicable para mesActualStr
+    for (const [key, versiones] of recurrentesMap.entries()) {
+      // 1. ¿Hay una versión configurada explícitamente para este mes exacto?
+      const versionMesExacto = versiones.find(v => v.mes && normalizarMes(v.mes) === mesActualStr);
+      if (versionMesExacto) {
+        resultadoMes.push({ ...versionMesExacto, mes: mesActualStr });
+        continue;
+      }
+
+      // 2. Buscar la versión de un mes anterior más cercano (herencia continua hacia el futuro)
+      const versionesConMes = versiones
+        .map(v => ({ ...v, mesNorm: v.mes ? normalizarMes(v.mes) : '' }))
+        .filter(v => !!v.mesNorm);
+
+      const versionesPrevias = versionesConMes
+        .filter(v => v.mesNorm < mesActualStr)
+        .sort((a, b) => b.mesNorm.localeCompare(a.mesNorm)); // Descendente: el mes previo más reciente
+
+      if (versionesPrevias.length > 0) {
+        const { mesNorm, ...resto } = versionesPrevias[0];
+        resultadoMes.push({ ...resto, mes: mesActualStr });
+        continue;
+      }
+
+      // 3. Si no hay versiones previas con mes, buscar versión base/legacy (sin mes o mes vacío)
+      const versionSinMes = versiones.find(v => !v.mes || String(v.mes).trim() === '' || !normalizarMes(v.mes));
+      if (versionSinMes) {
+        resultadoMes.push({ ...versionSinMes, mes: mesActualStr });
+        continue;
+      }
+
+      // 4. Si solo existen versiones en meses posteriores (creado a futuro), tomar la más temprana
+      if (versionesConMes.length > 0) {
+        versionesConMes.sort((a, b) => a.mesNorm.localeCompare(b.mesNorm)); // Ascendente
+        const { mesNorm, ...resto } = versionesConMes[0];
+        resultadoMes.push({ ...resto, mes: mesActualStr });
+        continue;
+      }
+
+      // Fallback final
+      resultadoMes.push({ ...versiones[0], mes: mesActualStr });
     }
 
-    // 2. Si no hay para este mes específico, buscar el mes previo más cercano con fijos
-    const mesesConFijos = Array.from(new Set(
-      items.filter(r => r.mes).map(r => normalizarMes(r.mes))
-    )).sort();
-
-    const mesesAnteriores = mesesConFijos.filter(m => m < mesActualStr);
-    if (mesesAnteriores.length > 0) {
-      const ultimoMesPrevio = mesesAnteriores[mesesAnteriores.length - 1];
-      return items
-        .filter(r => normalizarMes(r.mes) === ultimoMesPrevio)
-        .map(r => ({ ...r, mes: mesActualStr }));
-    }
-
-    // 3. Fallback a fijos sin mes (plantilla base/legacy)
-    const sinMes = items.filter(r => !r.mes);
-    if (sinMes.length > 0) {
-      return sinMes.map(r => ({ ...r, mes: mesActualStr }));
-    }
-
-    // 4. Si solo hay meses posteriores, tomar el primero
-    if (mesesConFijos.length > 0) {
-      return items
-        .filter(r => normalizarMes(r.mes) === mesesConFijos[0])
-        .map(r => ({ ...r, mes: mesActualStr }));
-    }
-
-    return [];
+    return resultadoMes;
   }
 
   /**

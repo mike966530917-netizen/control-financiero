@@ -121,6 +121,24 @@
       });
     }
 
+    // Navegación de mes dentro de la vista de Fijos
+    const btnRecPrev = document.getElementById('btn-rec-prev-month');
+    const btnRecNext = document.getElementById('btn-rec-next-month');
+    if (btnRecPrev) {
+      btnRecPrev.addEventListener('click', () => {
+        AppState.selectedMonth = FinancialEngine.sumarMeses(AppState.selectedMonth, -1);
+        updateMonthLabel();
+        recalculateAndRender();
+      });
+    }
+    if (btnRecNext) {
+      btnRecNext.addEventListener('click', () => {
+        AppState.selectedMonth = FinancialEngine.sumarMeses(AppState.selectedMonth, 1);
+        updateMonthLabel();
+        recalculateAndRender();
+      });
+    }
+
     // Callbacks globales de sincronización
     window.onSyncSuccess = (count) => {
       UIManager.showToast(`Sincronizados ${count} movimientos con Google Sheets`, 'success');
@@ -145,14 +163,18 @@
 
   function updateMonthLabel() {
     const currentMonthLabel = document.getElementById('current-month-display');
-    if (!currentMonthLabel) return;
-
     const [anio, mesNum] = AppState.selectedMonth.split('-').map(Number);
     const nombresMeses = [
       'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
       'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
     ];
-    currentMonthLabel.textContent = `${nombresMeses[mesNum - 1]} ${anio}`;
+    if (currentMonthLabel) {
+      currentMonthLabel.textContent = `${nombresMeses[mesNum - 1]} ${anio}`;
+    }
+    const recMonthBadge = document.getElementById('rec-month-badge');
+    if (recMonthBadge) {
+      recMonthBadge.textContent = `${nombresMeses[mesNum - 1].slice(0, 3)} ${anio}`;
+    }
   }
 
   /**
@@ -194,7 +216,7 @@
 
     // Actualizar campos dinámicos de la UI con las tarjetas cargadas
     UIManager.renderDynamicFormFields(cards);
-    UIManager.renderRecurrentesList(AppState.recurrentes);
+    UIManager.renderRecurrentesList(AppState.recurrentes, AppState.selectedMonth);
 
     if (syncBadge) {
       if (source === 'remote') {
