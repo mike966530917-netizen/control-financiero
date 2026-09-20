@@ -80,6 +80,12 @@
         });
       }
 
+      // Botón para abrir extracto en Google Sheets desde el modal de categoría
+      const openModalSheetsBtn = document.getElementById('btn-modal-open-sheets');
+      if (openModalSheetsBtn) {
+        openModalSheetsBtn.addEventListener('click', () => this.abrirExtractoEnSheets());
+      }
+
       // Botón de refresco en vivo dentro del modal de categoría
       const refreshDetalleCatBtn = document.getElementById('btn-refresh-detalle-cat');
       if (refreshDetalleCatBtn) {
@@ -113,6 +119,43 @@
       if (btnPeriodoTodos) {
         btnPeriodoTodos.addEventListener('click', () => {
           this.openDetalleCategoriaModal(this.currentDetalleCategoria || '', 'TODOS');
+        });
+      }
+
+      // Listeners para selectores de pestañas de fijos en Google Sheets
+      const recSelect = document.getElementById('rec-sheet-selector-select');
+      if (recSelect) {
+        recSelect.addEventListener('change', async (e) => {
+          const api = window.ApiService || window.api;
+          if (api) {
+            const val = e.target.value;
+            api.setSheetFijosName(val);
+            this.showToast(`Pestaña de fijos cambiada a: "${val || 'Auto-detectar'}"`, 'info');
+            if (window.loadAppData) await window.loadAppData();
+            this.renderSheetSelectors();
+          }
+        });
+      }
+
+      const btnRecRefreshSheets = document.getElementById('btn-rec-refresh-sheets');
+      if (btnRecRefreshSheets) {
+        btnRecRefreshSheets.addEventListener('click', async () => {
+          btnRecRefreshSheets.classList.add('animate-spin');
+          const api = window.ApiService || window.api;
+          if (api && typeof api.fetchSheetsInfo === 'function') {
+            await api.fetchSheetsInfo();
+            this.renderSheetSelectors();
+            this.showToast('Pestañas de Google Sheets actualizadas', 'success');
+          }
+          btnRecRefreshSheets.classList.remove('animate-spin');
+        });
+      }
+
+      const settingSheetSelect = document.getElementById('setting-sheet-fijos-select');
+      const settingSheetInput = document.getElementById('setting-sheet-fijos-input');
+      if (settingSheetSelect && settingSheetInput) {
+        settingSheetSelect.addEventListener('change', (e) => {
+          settingSheetInput.value = e.target.value;
         });
       }
 
@@ -180,13 +223,12 @@
         const trigger = el.closest('.btn-inspect-category, .btn-inspect-category-btn, [data-inspect-cat]');
         if (trigger) {
           const cat = trigger.getAttribute('data-inspect-cat') || trigger.getAttribute('data-categoria');
-          console.log('[LUPA v6.2] Click delegado detectado — trigger:', trigger.tagName, '| cat:', cat);
+          console.log('[LUPA v7.0] Click delegado detectado — trigger:', trigger.tagName, '| cat:', cat);
           if (cat) {
             e.preventDefault();
-            this.mostrarExtractoCategoria(cat, 'ACTUAL');
             this.openDetalleCategoriaModal(cat, 'ACTUAL');
           } else {
-            console.warn('[LUPA v6.2] El trigger no tiene data-inspect-cat ni data-categoria:', trigger.outerHTML.slice(0, 200));
+            console.warn('[LUPA v7.0] El trigger no tiene data-inspect-cat ni data-categoria:', trigger.outerHTML.slice(0, 200));
           }
         }
       });
@@ -1172,7 +1214,7 @@
               const pct = totalGastado > 0 ? Math.round((val / totalGastado) * 100) : 0;
               const color = colors[idx % colors.length];
               return `
-                <button type="button" onclick="event.stopPropagation(); window.UIManager.openDetalleCategoriaModal('${label}')" class="btn-inspect-category w-full flex items-center justify-between p-2 bg-slate-900/60 hover:bg-slate-800/80 rounded-xl border border-slate-800 hover:border-sky-500/40 cursor-pointer transition select-none text-left" data-inspect-cat="${label}" title="Toca para ver los gastos de ${label}">
+                <button type="button" class="btn-inspect-category w-full flex items-center justify-between p-2 bg-slate-900/60 hover:bg-slate-800/80 rounded-xl border border-slate-800 hover:border-sky-500/40 cursor-pointer transition select-none text-left" data-inspect-cat="${label}" title="Toca para ver los gastos de ${label}">
                   <div class="flex items-center gap-2 truncate pointer-events-none">
                     <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background-color: ${color}"></span>
                     <span class="text-slate-300 font-medium truncate text-xs">${label}</span>
@@ -1353,7 +1395,7 @@
               </div>
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1.5 flex-wrap">
-                  <button type="button" onclick="event.stopPropagation(); window.UIManager.openDetalleCategoriaModal('${tx.categoria || tx.tipo}')" class="btn-inspect-category-btn font-bold text-sm text-slate-100 hover:text-sky-300 active:scale-95 transition flex items-center gap-1.5 cursor-pointer bg-transparent border-0 p-0 text-left" data-inspect-cat="${tx.categoria || tx.tipo}" title="Ver todos los gastos en ${tx.categoria || tx.tipo}">
+                  <button type="button" class="btn-inspect-category-btn font-bold text-sm text-slate-100 hover:text-sky-300 active:scale-95 transition flex items-center gap-1.5 cursor-pointer bg-transparent border-0 p-0 text-left" data-inspect-cat="${tx.categoria || tx.tipo}" title="Ver todos los gastos en ${tx.categoria || tx.tipo}">
                     <span class="pointer-events-none">${tx.categoria || tx.tipo}</span>
                     <span class="text-[10px] text-sky-400/80 bg-sky-950/60 px-1 py-0.2 rounded border border-sky-500/20 pointer-events-none">🔍</span>
                   </button>
@@ -1432,7 +1474,7 @@
         const widthPercent = Math.min(100, Math.max(3, p.porcentaje));
 
         return `
-          <button type="button" onclick="event.stopPropagation(); window.UIManager.mostrarExtractoCategoria('${p.categoria}'); window.UIManager.openDetalleCategoriaModal('${p.categoria}')" class="btn-inspect-category w-full text-left p-3 bg-slate-900/60 hover:bg-slate-800/80 active:scale-[0.99] rounded-2xl border border-slate-800 hover:border-sky-500/40 space-y-1.5 cursor-pointer transition select-none" data-inspect-cat="${p.categoria}" title="Toca para ver qué gastos suman este monto">
+          <button type="button" class="btn-inspect-category w-full text-left p-3 bg-slate-900/60 hover:bg-slate-800/80 active:scale-[0.99] rounded-2xl border border-slate-800 hover:border-sky-500/40 space-y-1.5 cursor-pointer transition select-none" data-inspect-cat="${p.categoria}" title="Toca para ver qué gastos suman este monto">
             <div class="flex items-center justify-between text-xs pointer-events-none">
               <div class="flex items-center gap-2 font-bold text-slate-200">
                 <span>${p.categoria}</span>
@@ -1464,13 +1506,10 @@
 
       container.querySelectorAll('.btn-inspect-category').forEach(el => {
         el.addEventListener('click', (e) => {
-          let target = e.target;
-          if (target && target.nodeType === 3) target = target.parentElement;
-          const catEl = (target && typeof target.closest === 'function') ? target.closest('[data-categoria], [data-inspect-cat]') : el;
-          const cat = (catEl ? (catEl.getAttribute('data-categoria') || catEl.getAttribute('data-inspect-cat')) : null) || el.getAttribute('data-categoria');
+          e.preventDefault();
+          const cat = el.getAttribute('data-inspect-cat') || el.getAttribute('data-categoria');
           if (cat) {
-            this.mostrarExtractoCategoria(cat);
-            this.openDetalleCategoriaModal(cat);
+            this.openDetalleCategoriaModal(cat, 'ACTUAL');
           }
         });
       });
@@ -2352,9 +2391,9 @@
     }
 
     openDetalleCategoriaModal(categoria, periodo = 'ACTUAL') {
-      console.log('[LUPA v6.2] openDetalleCategoriaModal llamada con:', categoria, '| periodo:', periodo);
+      console.log('[LUPA v7.0] openDetalleCategoriaModal llamada con:', categoria, '| periodo:', periodo);
       if (categoria) {
-        this.mostrarExtractoCategoria(categoria, periodo);
+        this.mostrarExtractoCategoria(categoria, periodo, true);
       }
       const modal = document.getElementById('modal-detalle-categoria');
       if (!modal) {
@@ -2606,7 +2645,7 @@
     // ==========================================================================
     // EXTRACTO DETALLADO INTEGRADO EN PANTALLA Y GOOGLE SHEETS
     // ==========================================================================
-    mostrarExtractoCategoria(categoria, periodo = 'ACTUAL') {
+    mostrarExtractoCategoria(categoria, periodo = 'ACTUAL', skipScroll = false) {
       if (!categoria) return;
       this.currentExtractoCategoria = categoria;
       this.currentExtractoPeriodo = periodo;
@@ -2782,7 +2821,9 @@
 
         // Mostrar panel infaliblemente
         panel.classList.remove('hidden');
-        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        if (!skipScroll) {
+          panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
 
         // Sincronizar el dropdown de filtro de transacciones para que la lista de abajo también se filtre
         const catFilterSelect = document.getElementById('tx-category-filter-select');
@@ -2812,10 +2853,16 @@
       const mes = summary.mesActual || (window.AppState && window.AppState.selectedMonth) || new Date().toISOString().slice(0, 7);
 
       const btn = document.getElementById('btn-extracto-open-sheets');
+      const btnModal = document.getElementById('btn-modal-open-sheets');
       const originalHtml = btn ? btn.innerHTML : '';
+      const originalModalHtml = btnModal ? btnModal.innerHTML : '';
       if (btn) {
         btn.disabled = true;
         btn.innerHTML = '<span>⏳</span> <span>Generando...</span>';
+      }
+      if (btnModal) {
+        btnModal.disabled = true;
+        btnModal.innerHTML = '<span>⏳</span> Generando...';
       }
       this.showToast(`Generando extracto de "${categoria}" en Google Sheets...`, 'success');
 
@@ -2855,6 +2902,60 @@
           btn.disabled = false;
           btn.innerHTML = originalHtml;
         }
+        if (btnModal) {
+          btnModal.disabled = false;
+          btnModal.innerHTML = originalModalHtml;
+        }
+      }
+    }
+
+    // ==========================================================================
+    // SELECTOR DINÁMICO DE PESTAÑA DE FIJOS (GOOGLE SHEETS)
+    // ==========================================================================
+    renderSheetSelectors() {
+      const api = window.ApiService || window.api;
+      if (!api) return;
+
+      const currentSheet = api.getSheetFijosName ? api.getSheetFijosName() : '';
+      const allSheets = window.allSheets || (window.lastApiDebug && window.lastApiDebug.allSheets) || [];
+      const activeSheetFijos = (window.lastApiDebug && window.lastApiDebug.activeSheetFijos) || currentSheet || 'Auto-detectada';
+
+      // 1. Selector en vista de Fijos (view-recurrentes)
+      const recSelect = document.getElementById('rec-sheet-selector-select');
+      const recBadge = document.getElementById('rec-active-sheet-badge');
+      if (recBadge) {
+        recBadge.textContent = currentSheet ? `Pestaña fija: "${currentSheet}"` : `Activa: "${activeSheetFijos}"`;
+      }
+      if (recSelect) {
+        let html = '<option value="">Auto-detectar pestaña</option>';
+        if (Array.isArray(allSheets) && allSheets.length > 0) {
+          html += allSheets.map(s => {
+            const isSel = (s.name === currentSheet);
+            return `<option value="${s.name}" ${isSel ? 'selected' : ''}>${s.name} (${s.rows} filas)</option>`;
+          }).join('');
+        }
+        recSelect.innerHTML = html;
+      }
+
+      // 2. Selector en modal de Configuración (settings-modal)
+      const settingSelect = document.getElementById('setting-sheet-fijos-select');
+      const settingInput = document.getElementById('setting-sheet-fijos-input');
+      const settingStatus = document.getElementById('setting-sheet-fijos-status');
+      if (settingStatus) {
+        settingStatus.textContent = currentSheet ? `Fijada: ${currentSheet}` : `Activa: ${activeSheetFijos}`;
+      }
+      if (settingInput && !settingInput.matches(':focus')) {
+        settingInput.value = currentSheet || '';
+      }
+      if (settingSelect) {
+        let html = '<option value="">Auto-detectar pestaña de Fijos</option>';
+        if (Array.isArray(allSheets) && allSheets.length > 0) {
+          html += allSheets.map(s => {
+            const isSel = (s.name === currentSheet);
+            return `<option value="${s.name}" ${isSel ? 'selected' : ''}>${s.name} (${s.rows} filas)</option>`;
+          }).join('');
+        }
+        settingSelect.innerHTML = html;
       }
     }
 

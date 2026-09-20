@@ -220,30 +220,37 @@ function formatHeaderRow(sheet, bgColor, fontColor) {
 function doGet(e) {
   try {
     const action = (e && e.parameter && e.parameter.action) || 'getAll';
+    const sheetFijos = (e && e.parameter && e.parameter.sheetFijos) ? String(e.parameter.sheetFijos).trim() : '';
     let responseData = {};
 
     if (action === 'ping') {
-      responseData = { success: true, message: 'PWA Financial API en línea', timestamp: new Date() };
+      responseData = { success: true, message: 'PWA Financial API en línea', timestamp: new Date(), version: '7.0' };
     } else if (action === 'getAll') {
       const ss = SpreadsheetApp.getActiveSpreadsheet();
       const cards = getCardsConfig_();
       const transactions = getTransactions_();
       const budgets = getBudgetsConfig_();
-      const recurrentes = getRecurrentesConfig_();
+      const recurrentes = getRecurrentesConfig_(sheetFijos);
       const closedMonths = getClosedMonths_();
-      const candidateSheets = getCandidateRecurrentesSheets_(ss);
+      const candidateSheets = getCandidateRecurrentesSheets_(ss, sheetFijos);
+      const allSheetsInfo = ss.getSheets().map(s => ({
+        name: s.getName(),
+        rows: s.getLastRow(),
+        cols: s.getLastColumn()
+      }));
       
       responseData = {
         success: true,
-        version: '6.4.1',
+        version: '7.0',
         cards: cards,
         transactions: transactions,
         budgets: budgets,
         recurrentes: recurrentes,
         closedMonths: closedMonths,
         debug: {
+          activeSheetFijos: sheetFijos || (candidateSheets.length > 0 ? candidateSheets[0].getName() : 'Ninguna'),
           detectedSheets: candidateSheets.map(s => ({ name: s.getName(), rows: s.getLastRow() })),
-          allSheets: ss.getSheets().map(s => ({ name: s.getName(), rows: s.getLastRow() })),
+          allSheets: allSheetsInfo,
           recurrentesCount: recurrentes.length
         },
         spreadsheetUrl: ss.getUrl()
@@ -252,7 +259,7 @@ function doGet(e) {
       const allS = SpreadsheetApp.getActiveSpreadsheet().getSheets();
       responseData = {
         success: true,
-        version: '6.4.1',
+        version: '7.0',
         sheets: allS.map(s => ({
           name: s.getName(),
           rows: s.getLastRow(),
@@ -262,7 +269,7 @@ function doGet(e) {
     } else if (action === 'getExtractoSheet') {
       const cat = (e && e.parameter && e.parameter.categoria) || '';
       const mes = (e && e.parameter && e.parameter.mes) || '';
-      responseData = generarExtractoCategoria_(cat, mes);
+      responseData = generarExtractoCategoria_(cat, mes, sheetFijos);
     } else if (action === 'getBudgets') {
       responseData = {
         success: true,
@@ -270,15 +277,16 @@ function doGet(e) {
       };
     } else if (action === 'getRecurrentes') {
       const ss = SpreadsheetApp.getActiveSpreadsheet();
-      const recs = getRecurrentesConfig_();
-      const candidateSheets = getCandidateRecurrentesSheets_(ss);
+      const recs = getRecurrentesConfig_(sheetFijos);
+      const candidateSheets = getCandidateRecurrentesSheets_(ss, sheetFijos);
       responseData = {
         success: true,
-        version: '6.4.1',
+        version: '7.0',
         recurrentes: recs,
         debug: {
+          activeSheetFijos: sheetFijos || (candidateSheets.length > 0 ? candidateSheets[0].getName() : 'Ninguna'),
           detectedSheets: candidateSheets.map(s => ({ name: s.getName(), rows: s.getLastRow() })),
-          allSheets: ss.getSheets().map(s => ({ name: s.getName(), rows: s.getLastRow() })),
+          allSheets: ss.getSheets().map(s => ({ name: s.getName(), rows: s.getLastRow(), cols: s.getLastColumn() })),
           recurrentesCount: recs.length
         }
       };
@@ -332,7 +340,7 @@ function doPost(e) {
     } else if (action === 'organizarRecurrentesPorMes') {
       result = organizarRecurrentesPorMes(false);
     } else if (action === 'generarExtractoCategoria') {
-      result = generarExtractoCategoria_(payload.categoria, payload.mes);
+      result = generarExtractoCategoria_(payload.categoria, payload.mes, payload.sheetFijos);
     } else if (action === 'saveClosedMonth') {
       result = saveClosedMonth_(payload.monthData);
     } else if (action === 'reopenMonth') {
@@ -464,10 +472,22 @@ function saveBudgets_(budgetsList) {
  * Busca de forma inteligente todas las hojas que puedan contener fijos/recurrentes.
  * Prioriza aquellas hojas que efectivamente tengan datos (más de 1 fila).
  */
-function getCandidateRecurrentesSheets_(ss) {
+function getCandidateRecurrentesSheets_(ss, preferredSheetName) {
   if (!ss) ss = SpreadsheetApp.getActiveSpreadsheet();
   const allSheets = ss.getSheets();
   const cleanStr = (s) => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  const candidateSheets = [];
+
+  // 0. Si se especifica una pestaña de fijos elegida por el usuario, usarla con máxima prioridad
+  if (preferredSheetName) {
+    const prefClean = cleanStr(preferredSheetName);
+    const prefSheet = allSheets.find(s => cleanStr(s.getName()) === prefClean);
+    if (prefSheet) {
+      candidateSheets.push(prefSheet);
+      return candidateSheets;
+    }
+  }
 
   const exactSynonyms = [
     'recurrentes', 'recurrente', 'fijos', 'fijo',
@@ -476,8 +496,6 @@ function getCandidateRecurrentesSheets_(ss) {
     'ingresos y gastos fijos', 'fijos mensuales', 'gastos recurrentes',
     'pagos fijos', 'cuentas fijas', 'servicios fijos'
   ];
-
-  const candidateSheets = [];
 
   // 1. Hojas que coinciden con los sinónimos y tienen datos reales (> 1 fila)
   for (let s of allSheets) {
@@ -535,9 +553,9 @@ function getCandidateRecurrentesSheets_(ss) {
   return candidateSheets;
 }
 
-function getRecurrentesSheet_(ss, autoCreate = false) {
+function getRecurrentesSheet_(ss, autoCreate = false, preferredSheetName = '') {
   if (!ss) ss = SpreadsheetApp.getActiveSpreadsheet();
-  const candidates = getCandidateRecurrentesSheets_(ss);
+  const candidates = getCandidateRecurrentesSheets_(ss, preferredSheetName);
   if (candidates.length > 0) return candidates[0];
 
   if (autoCreate) {
@@ -553,9 +571,9 @@ function getRecurrentesSheet_(ss, autoCreate = false) {
   return null;
 }
 
-function getRecurrentesConfig_() {
+function getRecurrentesConfig_(preferredSheetName = '') {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheets = getCandidateRecurrentesSheets_(ss);
+  const sheets = getCandidateRecurrentesSheets_(ss, preferredSheetName);
   if (!sheets || sheets.length === 0) return [];
 
   const cleanStr = (s) => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -1170,7 +1188,7 @@ function menuGenerarExtracto() {
 /**
  * Genera la pestaña EXTRACTO_CATEGORIA con la consulta exacta de gastos de una categoría y mes
  */
-function generarExtractoCategoria_(categoria, mes) {
+function generarExtractoCategoria_(categoria, mes, sheetFijos = '') {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const catBuscada = String(categoria || '').trim().toLowerCase();
   const hoy = new Date();
@@ -1193,14 +1211,14 @@ function generarExtractoCategoria_(categoria, mes) {
   ]]);
   formatHeaderRow(sheetExtracto, '#1e293b', '#ffffff');
 
-  // Buscar movimientos en TRANSACCIONES
+  // 1. Buscar movimientos en TRANSACCIONES (directos y TC)
   const txs = getTransactions_();
   const rows = [];
   let totalMonto = 0;
 
   txs.forEach(t => {
     const cNorm = String(t.categoria || '').trim().toLowerCase();
-    if (cNorm !== catBuscada && !cNorm.includes(catBuscada)) return;
+    if (cNorm !== catBuscada && !cNorm.includes(catBuscada) && !catBuscada.includes(cNorm)) return;
 
     const fStr = String(t.fecha || '').trim();
     let mTx = '';
@@ -1220,6 +1238,32 @@ function generarExtractoCategoria_(categoria, mes) {
         monto,
         String(t.tarjetaAfectada || t.metodoPago || 'Efectivo'),
         mTC || mEf || mTx
+      ]);
+    }
+  });
+
+  // 2. Buscar movimientos fijos recurrentes de esta categoría en este mes
+  const recs = getRecurrentesConfig_(sheetFijos);
+  recs.forEach(r => {
+    if (!r.activo) return;
+    const rTipo = String(r.tipo || '').toLowerCase();
+    if (rTipo.includes('ingreso')) return;
+    const cNorm = String(r.categoria || '').trim().toLowerCase();
+    if (cNorm !== catBuscada && !cNorm.includes(catBuscada) && !catBuscada.includes(cNorm)) return;
+
+    const rMes = String(r.mes || '').trim();
+    if (!rMes || rMes === mesBuscado) {
+      const monto = parseFloat(r.monto) || 0;
+      totalMonto += monto;
+      const diaPad = String(r.diaMes || '01').padStart(2, '0');
+      rows.push([
+        String(r.id || 'REC-FIJO'),
+        `${mesBuscado}-${diaPad}`,
+        'Gasto_Fijo',
+        `[Fijo] ${r.nombre || r.notas || r.categoria || ''}`,
+        monto,
+        String(r.metodoPago || 'Fijo Programado'),
+        mesBuscado
       ]);
     }
   });
