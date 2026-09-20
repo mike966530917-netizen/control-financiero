@@ -89,7 +89,7 @@
     }
 
     getSheetFijosName() {
-      return localStorage.getItem('finanzas_sheet_fijos_name') || '';
+      return localStorage.getItem('finanzas_sheet_fijos_name') || 'recurrente';
     }
 
     setSheetFijosName(name) {
@@ -174,7 +174,7 @@
         await fetch(this.apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action: 'saveRecurrente', recurrente: item }),
+          body: JSON.stringify({ action: 'saveRecurrente', recurrente: item, sheetFijos: this.getSheetFijosName() }),
           redirect: 'follow'
         });
         return { success: true, recurrente: item };
@@ -207,7 +207,7 @@
         await fetch(this.apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action: 'saveAllRecurrentes', recurrentes: items }),
+          body: JSON.stringify({ action: 'saveAllRecurrentes', recurrentes: items, sheetFijos: this.getSheetFijosName() }),
           redirect: 'follow'
         });
         return { success: true };
@@ -234,7 +234,7 @@
         await fetch(this.apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action: 'deleteRecurrente', id: id, mes: mes }),
+          body: JSON.stringify({ action: 'deleteRecurrente', id: id, mes: mes, sheetFijos: this.getSheetFijosName() }),
           redirect: 'follow'
         });
         return { success: true };
@@ -252,7 +252,7 @@
         const res = await fetch(this.apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action: 'organizarRecurrentesPorMes' }),
+          body: JSON.stringify({ action: 'organizarRecurrentesPorMes', sheetFijos: this.getSheetFijosName() }),
           redirect: 'follow'
         });
         return await res.json();
