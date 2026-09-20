@@ -88,6 +88,19 @@
       localStorage.setItem(STORAGE_KEYS.API_URL, this.apiUrl);
     }
 
+    getSheetFijosName() {
+      return localStorage.getItem('finanzas_sheet_fijos_name') || '';
+    }
+
+    setSheetFijosName(name) {
+      const clean = String(name || '').trim();
+      if (clean) {
+        localStorage.setItem('finanzas_sheet_fijos_name', clean);
+      } else {
+        localStorage.removeItem('finanzas_sheet_fijos_name');
+      }
+    }
+
     getLocalBudgets() {
       const raw = localStorage.getItem(STORAGE_KEYS.BUDGETS);
       if (!raw) {
@@ -255,10 +268,11 @@
         return { success: !!fallbackUrl, sheetUrl: fallbackUrl, offline: true };
       }
       try {
+        const sheetFijos = this.getSheetFijosName();
         const res = await fetch(this.apiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action: 'generarExtractoCategoria', categoria, mes }),
+          body: JSON.stringify({ action: 'generarExtractoCategoria', categoria, mes, sheetFijos }),
           redirect: 'follow'
         });
         const json = await res.json();
@@ -499,7 +513,10 @@
       }
 
       try {
-        const url = `${this.apiUrl}${this.apiUrl.includes('?') ? '&' : '?'}action=getAll`;
+        const sheetFijos = this.getSheetFijosName();
+        const queryParams = new URLSearchParams({ action: 'getAll' });
+        if (sheetFijos) queryParams.set('sheetFijos', sheetFijos);
+        const url = `${this.apiUrl}${this.apiUrl.includes('?') ? '&' : '?'}${queryParams.toString()}`;
         const res = await fetch(url, {
           method: 'GET',
           redirect: 'follow',
@@ -511,8 +528,12 @@
           const cards = data.cards && data.cards.length > 0 ? data.cards : localCards;
           const transactions = data.transactions || [];
           const budgets = data.budgets && data.budgets.length > 0 ? data.budgets : localBudgets;
-          const recurrentes = (data.recurrentes && data.recurrentes.length > 0) ? data.recurrentes : localRecurrentes;
+          const recurrentes = Array.isArray(data.recurrentes) ? data.recurrentes : localRecurrentes;
           const closedMonths = data.closedMonths !== undefined ? data.closedMonths : localClosedMonths;
+
+          if (data.version) {
+            window.lastApiVersion = data.version;
+          }
 
           // Actualizar caché local
           this.saveLocalCards(cards);
@@ -522,6 +543,10 @@
           this.saveLocalClosedMonths(closedMonths);
           if (data.debug) {
             window.lastApiDebug = data.debug;
+            if (Array.isArray(data.debug.allSheets)) {
+              window.allSheets = data.debug.allSheets;
+              try { localStorage.setItem('finanzas_all_sheets', JSON.stringify(data.debug.allSheets)); } catch (e) {}
+            }
             try { localStorage.setItem('finanzas_last_debug', JSON.stringify(data.debug)); } catch (e) {}
           }
 
@@ -532,6 +557,7 @@
             recurrentes: recurrentes,
             closedMonths: closedMonths,
             debug: data.debug,
+            version: data.version,
             source: 'remote'
           };
         } else {
@@ -542,6 +568,38 @@
         console.warn('[API] Error al consultar Google Sheets, usando datos locales:', err);
         window.lastApiError = err.message;
         return { cards: localCards, transactions: localTxs, budgets: localBudgets, recurrentes: localRecurrentes, closedMonths: localClosedMonths, source: 'local_fallback', error: err.message };
+      }
+    }
+
+    /**
+     * Obtiene la lista de hojas y filas existentes en el Google Spreadsheet
+     */
+    async fetchSheetsInfo() {
+      if (!this.apiUrl || !this.isOnline) {
+        try {
+          const cached = localStorage.getItem('finanzas_all_sheets');
+          return cached ? JSON.parse(cached) : [];
+        } catch (e) {
+          return [];
+        }
+      }
+      try {
+        const url = `${this.apiUrl}${this.apiUrl.includes('?') ? '&' : '?'}action=getSheetsInfo`;
+        const res = await fetch(url, { method: 'GET', redirect: 'follow', cache: 'no-store' });
+        const json = await res.json();
+        if (json.success && Array.isArray(json.sheets)) {
+          window.allSheets = json.sheets;
+          try { localStorage.setItem('finanzas_all_sheets', JSON.stringify(json.sheets)); } catch (e) {}
+          return json.sheets;
+        }
+      } catch (err) {
+        console.warn('[API] Error al obtener sheets info:', err);
+      }
+      try {
+        const cached = localStorage.getItem('finanzas_all_sheets');
+        return cached ? JSON.parse(cached) : [];
+      } catch (e) {
+        return [];
       }
     }
 

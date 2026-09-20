@@ -217,14 +217,24 @@
     // Actualizar campos dinámicos de la UI con las tarjetas cargadas
     UIManager.renderDynamicFormFields(cards);
     UIManager.renderRecurrentesList(AppState.recurrentes, AppState.selectedMonth);
+    if (typeof UIManager.renderSheetSelectors === 'function') {
+      UIManager.renderSheetSelectors();
+    }
 
     if (syncBadge) {
       if (source === 'remote') {
-        syncBadge.textContent = '● Sheets Conectado';
-        syncBadge.className = 'text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+        const v = window.lastApiVersion;
+        if (v && v !== '7.0') {
+          syncBadge.textContent = `● Sheets (v${v} - Desactualizado)`;
+          syncBadge.className = 'text-[11px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 cursor-pointer';
+          syncBadge.title = 'Tu Google Apps Script no tiene la versión v7.0. Crea una Nueva Versión en Implementar.';
+        } else {
+          syncBadge.textContent = '● Sheets Conectado (v7.0)';
+          syncBadge.className = 'text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 cursor-pointer';
+        }
       } else {
         syncBadge.textContent = '○ Modo Local / Offline';
-        syncBadge.className = 'text-[11px] px-2 py-0.5 rounded-full bg-slate-700/50 text-slate-400 border border-slate-600';
+        syncBadge.className = 'text-[11px] px-2 py-0.5 rounded-full bg-slate-700/50 text-slate-400 border border-slate-600 cursor-pointer';
       }
     }
 
@@ -853,6 +863,9 @@
       openBtn.addEventListener('click', () => {
         if (apiUrlInput) apiUrlInput.value = ApiService.getApiUrl();
         renderSettingsCardsList();
+        if (typeof UIManager.renderSheetSelectors === 'function') {
+          UIManager.renderSheetSelectors();
+        }
         modal.classList.remove('hidden');
       });
     }
@@ -872,7 +885,7 @@
         btnTestConn.textContent = 'Probar Conexión';
 
         if (res.success) {
-          UIManager.showToast('✅ Conexión exitosa con Google Apps Script', 'success');
+          UIManager.showToast('✅ Conexión exitosa con Google Apps Script' + (res.version ? ` (v${res.version})` : ''), 'success');
         } else {
           UIManager.showToast('❌ Falló la conexión: ' + (res.error || 'Revisa permisos'), 'error');
         }
@@ -883,6 +896,10 @@
       btnSaveSettings.addEventListener('click', async () => {
         const url = apiUrlInput.value.trim();
         ApiService.setApiUrl(url);
+        const fijosInput = document.getElementById('setting-sheet-fijos-input');
+        const fijosSelect = document.getElementById('setting-sheet-fijos-select');
+        const chosenSheet = (fijosInput && fijosInput.value.trim()) || (fijosSelect && fijosSelect.value) || '';
+        ApiService.setSheetFijosName(chosenSheet);
         UIManager.showToast('Configuración guardada', 'success');
         modal.classList.add('hidden');
         await loadAppData();
