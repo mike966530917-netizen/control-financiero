@@ -224,12 +224,12 @@
     if (syncBadge) {
       if (source === 'remote') {
         const v = window.lastApiVersion;
-        if (v && v !== '7.0') {
+        if (v && v !== '7.1') {
           syncBadge.textContent = `● Sheets (v${v} - Desactualizado)`;
           syncBadge.className = 'text-[11px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 cursor-pointer';
-          syncBadge.title = 'Tu Google Apps Script no tiene la versión v7.0. Crea una Nueva Versión en Implementar.';
+          syncBadge.title = 'Tu Google Apps Script no tiene la versión v7.1. Crea una Nueva Versión en Implementar.';
         } else {
-          syncBadge.textContent = '● Sheets Conectado (v7.0)';
+          syncBadge.textContent = '● Sheets Conectado (v7.1)';
           syncBadge.className = 'text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 cursor-pointer';
         }
       } else {

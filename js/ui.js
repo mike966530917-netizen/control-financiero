@@ -223,12 +223,12 @@
         const trigger = el.closest('.btn-inspect-category, .btn-inspect-category-btn, [data-inspect-cat]');
         if (trigger) {
           const cat = trigger.getAttribute('data-inspect-cat') || trigger.getAttribute('data-categoria');
-          console.log('[LUPA v7.0] Click delegado detectado — trigger:', trigger.tagName, '| cat:', cat);
+          console.log('[LUPA v7.1] Click delegado detectado — trigger:', trigger.tagName, '| cat:', cat);
           if (cat) {
             e.preventDefault();
             this.openDetalleCategoriaModal(cat, 'ACTUAL');
           } else {
-            console.warn('[LUPA v7.0] El trigger no tiene data-inspect-cat ni data-categoria:', trigger.outerHTML.slice(0, 200));
+            console.warn('[LUPA v7.1] El trigger no tiene data-inspect-cat ni data-categoria:', trigger.outerHTML.slice(0, 200));
           }
         }
       });
@@ -2391,7 +2391,7 @@
     }
 
     openDetalleCategoriaModal(categoria, periodo = 'ACTUAL') {
-      console.log('[LUPA v7.0] openDetalleCategoriaModal llamada con:', categoria, '| periodo:', periodo);
+      console.log('[LUPA v7.1] openDetalleCategoriaModal llamada con:', categoria, '| periodo:', periodo);
       if (categoria) {
         this.mostrarExtractoCategoria(categoria, periodo, true);
       }
