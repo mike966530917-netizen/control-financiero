@@ -89,7 +89,7 @@
     }
 
     getSheetFijosName() {
-      return localStorage.getItem('finanzas_sheet_fijos_name') || '';
+      return localStorage.getItem('finanzas_sheet_fijos_name') || 'recurrentes';
     }
 
     setSheetFijosName(name) {

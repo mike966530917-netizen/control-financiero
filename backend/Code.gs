@@ -17,7 +17,7 @@ const SHEETS = {
   TARJETAS: 'TARJETAS_CONFIG',
   CONSOLIDADO: 'CONSOLIDADO_MENSUAL',
   PRESUPUESTOS: 'PRESUPUESTOS',
-  RECURRENTES: 'recurrente'
+  RECURRENTES: 'recurrentes'
 };
 
 /**
@@ -213,7 +213,7 @@ function formatHeaderRow(sheet, bgColor, fontColor) {
 function doGet(e) {
   try {
     const action = (e && e.parameter && e.parameter.action) || 'getAll';
-    const sheetFijos = (e && e.parameter && e.parameter.sheetFijos) ? String(e.parameter.sheetFijos).trim() : '';
+    const sheetFijos = (e && e.parameter && e.parameter.sheetFijos) ? String(e.parameter.sheetFijos).trim() : 'recurrentes';
     let responseData = {};
 
     if (action === 'ping') {
@@ -241,7 +241,7 @@ function doGet(e) {
         recurrentes: recurrentes,
         closedMonths: closedMonths,
         debug: {
-          activeSheetFijos: sheetFijos || (candidateSheets.length > 0 ? candidateSheets[0].getName() : 'recurrente'),
+          activeSheetFijos: sheetFijos || (candidateSheets.length > 0 ? candidateSheets[0].getName() : 'recurrentes'),
           detectedSheets: candidateSheets.map(s => ({ name: s.getName(), rows: s.getLastRow() })),
           allSheets: allSheetsInfo,
           recurrentesCount: recurrentes.length
@@ -274,10 +274,10 @@ function doGet(e) {
       const candidateSheets = getCandidateRecurrentesSheets_(ss, sheetFijos);
       responseData = {
         success: true,
-        version: '7.5',
+        version: '7.6',
         recurrentes: recs,
         debug: {
-          activeSheetFijos: sheetFijos || (candidateSheets.length > 0 ? candidateSheets[0].getName() : 'recurrente'),
+          activeSheetFijos: sheetFijos || (candidateSheets.length > 0 ? candidateSheets[0].getName() : 'recurrentes'),
           detectedSheets: candidateSheets.map(s => ({ name: s.getName(), rows: s.getLastRow() })),
           allSheets: ss.getSheets().map(s => ({ name: s.getName(), rows: s.getLastRow(), cols: s.getLastColumn() })),
           recurrentesCount: recs.length
@@ -620,19 +620,18 @@ function getCandidateRecurrentesSheets_(ss, preferredSheetName) {
 
   const candidateSheets = [];
 
-  // 0. Si se especifica una pestaña de fijos elegida por el usuario y tiene datos, usarla con máxima prioridad
-  if (preferredSheetName) {
-    const prefClean = cleanStr(preferredSheetName);
-    const prefSheet = allSheets.find(s => cleanStr(s.getName()) === prefClean);
-    if (prefSheet && prefSheet.getLastRow() > 1) {
-      candidateSheets.push(prefSheet);
-      return candidateSheets;
-    }
+  // 0. Si se especifica una pestaña de fijos elegida por el usuario (o por defecto 'recurrentes'), usarla con máxima prioridad
+  const pref = preferredSheetName || 'recurrentes';
+  const prefClean = cleanStr(pref);
+  const prefSheet = allSheets.find(s => cleanStr(s.getName()) === prefClean);
+  if (prefSheet && prefSheet.getLastRow() > 1) {
+    candidateSheets.push(prefSheet);
+    return candidateSheets;
   }
 
-  // 1. Pestañas prioritarias: 'recurrente' (singular), 'recurrentes' (plural), 'fijos', 'gastos fijos', etc.
+  // 1. Pestañas prioritarias: 'recurrentes' (plural), 'recurrente' (singular), 'fijos', 'gastos fijos', etc.
   const exactSynonyms = [
-    'recurrente', 'recurrentes', 'fijos', 'fijo',
+    'recurrentes', 'recurrente', 'fijos', 'fijo',
     'gastos fijos', 'gastos_fijos', 'gastosfijos',
     'movimientos fijos', 'movimientos_fijos', 'movimientosfijos',
     'ingresos y gastos fijos', 'fijos mensuales', 'gastos recurrentes',
@@ -662,8 +661,10 @@ function getCandidateRecurrentesSheets_(ss, preferredSheetName) {
       }
       const aName = cleanStr(a.getName());
       const bName = cleanStr(b.getName());
-      if ((aName === 'recurrente' || aName === 'recurrentes') && bName !== 'recurrente' && bName !== 'recurrentes') return -1;
-      if ((bName === 'recurrente' || bName === 'recurrentes') && aName !== 'recurrente' && aName !== 'recurrentes') return 1;
+      if (aName === 'recurrentes' && bName !== 'recurrentes') return -1;
+      if (bName === 'recurrentes' && aName !== 'recurrentes') return 1;
+      if (aName === 'recurrente' && bName !== 'recurrente') return -1;
+      if (bName === 'recurrente' && aName !== 'recurrente') return 1;
       return b.getLastRow() - a.getLastRow();
     });
     return matchingWithData;
@@ -704,6 +705,8 @@ function getCandidateRecurrentesSheets_(ss, preferredSheetName) {
     matchingWithoutData.sort((a, b) => {
       const aName = cleanStr(a.getName());
       const bName = cleanStr(b.getName());
+      if (aName === 'recurrentes' && bName !== 'recurrentes') return -1;
+      if (bName === 'recurrentes' && aName !== 'recurrentes') return 1;
       if (aName === 'recurrente' && bName !== 'recurrente') return -1;
       if (bName === 'recurrente' && aName !== 'recurrente') return 1;
       return 0;
@@ -711,7 +714,9 @@ function getCandidateRecurrentesSheets_(ss, preferredSheetName) {
     return matchingWithoutData;
   }
 
-  let defaultSheet = ss.getSheetByName('recurrente') || ss.getSheetByName(SHEETS.RECURRENTES) || ss.getSheetByName('RECURRENTES');
+  let defaultSheet = allSheets.find(s => cleanStr(s.getName()) === 'recurrentes') ||
+                     allSheets.find(s => cleanStr(s.getName()) === 'recurrente') ||
+                     ss.getSheetByName(SHEETS.RECURRENTES);
   if (defaultSheet) candidateSheets.push(defaultSheet);
 
   return candidateSheets;
@@ -724,7 +729,11 @@ function getRecurrentesSheet_(ss, autoCreate = false, preferredSheetName = '') {
 
   if (autoCreate) {
     crearOFormatearMatrizRecurrente(false);
-    return ss.getSheetByName('recurrente') || ss.getSheetByName(SHEETS.RECURRENTES) || ss.getSheetByName('RECURRENTES');
+    const all = ss.getSheets();
+    const cleanStr = (s) => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    return all.find(s => cleanStr(s.getName()) === 'recurrentes') || 
+           all.find(s => cleanStr(s.getName()) === 'recurrente') ||
+           ss.getSheetByName(SHEETS.RECURRENTES);
   }
   return null;
 }
@@ -1386,14 +1395,16 @@ function ensureRecurrentesMesColumn_(sheet) {
  */
 function crearOFormatearMatrizRecurrente(mostrarAlerta = true) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName('recurrente') || ss.getSheetByName(SHEETS.RECURRENTES) || ss.getSheetByName('RECURRENTES');
+  const cleanStr = (s) => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const allSheets = ss.getSheets();
+  let sheet = allSheets.find(s => cleanStr(s.getName()) === 'recurrentes') || 
+              allSheets.find(s => cleanStr(s.getName()) === 'recurrente') || 
+              ss.getSheetByName(SHEETS.RECURRENTES);
   const hoyYear = new Date().getFullYear();
 
   if (!sheet) {
-    sheet = ss.insertSheet('recurrente');
+    sheet = ss.insertSheet('recurrentes');
   }
-
-  const cleanStr = (s) => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const data = sheet.getDataRange().getValues();
   const rawHeaders = (data && data.length > 0) ? data[0] : [];
   
