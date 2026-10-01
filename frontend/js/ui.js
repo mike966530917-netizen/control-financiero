@@ -1784,9 +1784,15 @@
       if (monthTitleEl) monthTitleEl.textContent = `Movimientos Fijos (${mesStr})`;
       if (monthSubEl) monthSubEl.textContent = `Ingresos y gastos configurados para ${mesStr}. Los cambios solo afectan este mes.`;
 
-      const normalizarTipoFijo = (tipo) => {
+      const normalizarTipoFijo = (tipo, item = null) => {
         const t = String(tipo || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         if (t.includes('ingreso') || t.includes('sueldo') || t.includes('renta') || t.includes('cobro')) return 'Ingreso_Fijo';
+        if (item && item.nombre) {
+          const n = String(item.nombre).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+          if (n.includes('sueldo') || n.includes('ingreso') || n.includes('salario') || n.includes('honorario') || n.includes('quincena') || n.includes('renta')) {
+            return 'Ingreso_Fijo';
+          }
+        }
         return 'Gasto_Fijo';
       };
 
@@ -1798,8 +1804,8 @@
         return s === 'si' || s === 'true' || s === '1' || s === 'vigente' || s === 'activo' || s === '';
       };
 
-      const ingresos = fijosDelMes.filter(r => normalizarTipoFijo(r.tipo) === 'Ingreso_Fijo');
-      const gastos = fijosDelMes.filter(r => normalizarTipoFijo(r.tipo) === 'Gasto_Fijo');
+      const ingresos = fijosDelMes.filter(r => normalizarTipoFijo(r.tipo, r) === 'Ingreso_Fijo');
+      const gastos = fijosDelMes.filter(r => normalizarTipoFijo(r.tipo, r) === 'Gasto_Fijo');
 
       // Calcular totales considerando el monto del mes
       let sumIngresos = 0;

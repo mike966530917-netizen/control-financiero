@@ -217,7 +217,7 @@ function doGet(e) {
     let responseData = {};
 
     if (action === 'ping') {
-      responseData = { success: true, message: 'PWA Financial API en línea', timestamp: new Date(), version: '7.3' };
+      responseData = { success: true, message: 'PWA Financial API en línea', timestamp: new Date(), version: '7.4' };
     } else if (action === 'getAll') {
       const ss = SpreadsheetApp.getActiveSpreadsheet();
       const cards = getCardsConfig_();
@@ -234,7 +234,7 @@ function doGet(e) {
       
       responseData = {
         success: true,
-        version: '7.3',
+        version: '7.4',
         cards: cards,
         transactions: transactions,
         budgets: budgets,
@@ -252,7 +252,7 @@ function doGet(e) {
       const allS = SpreadsheetApp.getActiveSpreadsheet().getSheets();
       responseData = {
         success: true,
-        version: '7.3',
+        version: '7.4',
         sheets: allS.map(s => ({
           name: s.getName(),
           rows: s.getLastRow(),
@@ -274,7 +274,7 @@ function doGet(e) {
       const candidateSheets = getCandidateRecurrentesSheets_(ss, sheetFijos);
       responseData = {
         success: true,
-        version: '7.3',
+        version: '7.4',
         recurrentes: recs,
         debug: {
           activeSheetFijos: sheetFijos || (candidateSheets.length > 0 ? candidateSheets[0].getName() : 'recurrente'),
@@ -466,6 +466,27 @@ function saveBudgets_(budgetsList) {
 }
 
 /**
+ * Parsea importes numéricos tolerando formatos con coma o punto, símbolos de moneda (S/, $), etc.
+ */
+function parseNum_(val) {
+  if (typeof val === 'number') return Math.abs(val);
+  if (val === null || val === undefined || val === '') return 0;
+  let s = String(val).trim().replace(/[^0-9.,-]/g, '');
+  if (!s) return 0;
+  if (s.indexOf(',') !== -1 && s.indexOf('.') !== -1) {
+    if (s.indexOf('.') < s.indexOf(',')) {
+      s = s.replace(/\./g, '').replace(',', '.');
+    } else {
+      s = s.replace(/,/g, '');
+    }
+  } else if (s.indexOf(',') !== -1) {
+    s = s.replace(',', '.');
+  }
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : Math.abs(n);
+}
+
+/**
  * Normaliza cualquier valor de mes (fecha, string, nombre en español, número) a formato 'YYYY-MM'.
  * Blindado contra desfases de zona horaria (evita que las 00:00:00 de inicio de mes caigan en el mes anterior).
  */
@@ -564,17 +585,17 @@ function getCandidateRecurrentesSheets_(ss, preferredSheetName) {
 
   const candidateSheets = [];
 
-  // 0. Si se especifica una pestaña de fijos elegida por el usuario, usarla con máxima prioridad
+  // 0. Si se especifica una pestaña de fijos elegida por el usuario y tiene datos, usarla con máxima prioridad
   if (preferredSheetName) {
     const prefClean = cleanStr(preferredSheetName);
     const prefSheet = allSheets.find(s => cleanStr(s.getName()) === prefClean);
-    if (prefSheet) {
+    if (prefSheet && prefSheet.getLastRow() > 1) {
       candidateSheets.push(prefSheet);
       return candidateSheets;
     }
   }
 
-  // 1. Pestañas prioritarias: 'recurrente' (singular) primero, luego 'recurrentes', 'fijos'
+  // 1. Pestañas prioritarias: 'recurrente' (singular), 'recurrentes' (plural), 'fijos', 'gastos fijos', etc.
   const exactSynonyms = [
     'recurrente', 'recurrentes', 'fijos', 'fijo',
     'gastos fijos', 'gastos_fijos', 'gastosfijos',
@@ -597,13 +618,13 @@ function getCandidateRecurrentesSheets_(ss, preferredSheetName) {
     }
   }
 
-  // Si hay hojas coincidentes con datos, ordenar dando máxima prioridad a 'recurrente'
+  // Si hay hojas coincidentes con datos, devolver la que tiene más datos o 'recurrente'/'recurrentes'
   if (matchingWithData.length > 0) {
     matchingWithData.sort((a, b) => {
       const aName = cleanStr(a.getName());
       const bName = cleanStr(b.getName());
-      if (aName === 'recurrente' && bName !== 'recurrente') return -1;
-      if (bName === 'recurrente' && aName !== 'recurrente') return 1;
+      if ((aName === 'recurrente' || aName === 'recurrentes') && bName !== 'recurrente' && bName !== 'recurrentes') return -1;
+      if ((bName === 'recurrente' || bName === 'recurrentes') && aName !== 'recurrente' && aName !== 'recurrentes') return 1;
       return b.getLastRow() - a.getLastRow();
     });
     return matchingWithData;
@@ -742,7 +763,15 @@ function getRecurrentesConfig_(preferredSheetName = '') {
         if (!catVal) catVal = 'Servicios';
 
         let rawTipo = colTipoMat >= 0 ? cleanStr(row[colTipoMat]) : '';
-        let tipoVal = (rawTipo.indexOf('ingreso') !== -1 || rawTipo.indexOf('sueldo') !== -1) ? 'Ingreso_Fijo' : 'Gasto_Fijo';
+        let tipoVal = 'Gasto_Fijo';
+        if (rawTipo.indexOf('ingreso') !== -1 || rawTipo.indexOf('sueldo') !== -1 || rawTipo.indexOf('renta') !== -1 || rawTipo.indexOf('cobro') !== -1) {
+          tipoVal = 'Ingreso_Fijo';
+        } else if (colTipoMat === -1 || !rawTipo) {
+          const nomClean = cleanStr(nomStr);
+          if (nomClean.indexOf('sueldo') !== -1 || nomClean.indexOf('ingreso') !== -1 || nomClean.indexOf('salario') !== -1 || nomClean.indexOf('honorario') !== -1 || nomClean.indexOf('quincena') !== -1 || nomClean.indexOf('renta') !== -1) {
+            tipoVal = 'Ingreso_Fijo';
+          }
+        }
 
         let diaVal = 1;
         if (colDiaMat >= 0 && row[colDiaMat]) {
@@ -753,20 +782,17 @@ function getRecurrentesConfig_(preferredSheetName = '') {
         let metodoVal = colMetodoMat >= 0 ? String(row[colMetodoMat] || '').trim() : 'Efectivo';
         if (!metodoVal) metodoVal = 'Efectivo';
 
+        let ultimoMontoConocido = 0;
         monthCols.forEach(mc => {
           const rawMonto = row[mc.colIndex];
-          let parsedMonto = 0;
-          let cellHasExplicitValue = false;
-          if (typeof rawMonto === 'number') {
-            parsedMonto = Math.abs(rawMonto);
-            cellHasExplicitValue = true;
-          } else if (rawMonto !== undefined && rawMonto !== null && String(rawMonto).trim() !== '') {
-            let s = String(rawMonto).trim().replace(/[^0-9.,-]/g, '').replace(',', '.');
-            const num = parseFloat(s);
-            if (!isNaN(num)) {
-              parsedMonto = Math.abs(num);
-              cellHasExplicitValue = true;
-            }
+          const cellHasExplicitValue = (rawMonto !== undefined && rawMonto !== null && String(rawMonto).trim() !== '');
+          let parsedMonto = parseNum_(rawMonto);
+
+          if (parsedMonto > 0) {
+            ultimoMontoConocido = parsedMonto;
+          } else if (!cellHasExplicitValue && ultimoMontoConocido > 0) {
+            // Si la celda está vacía en este mes, hereda el último monto conocido de la matriz
+            parsedMonto = ultimoMontoConocido;
           }
 
           const slug = cleanStr(nomStr).replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 30);
@@ -784,8 +810,9 @@ function getRecurrentesConfig_(preferredSheetName = '') {
               categoria: catVal,
               metodoPago: metodoVal,
               diaMes: diaVal,
-              activo: (cellHasExplicitValue && parsedMonto > 0),
+              activo: (parsedMonto > 0),
               esExplicitoEnMatriz: cellHasExplicitValue,
+              esExplicitoCero: (cellHasExplicitValue && parsedMonto === 0),
               notas: `Importado de columna ${mc.rawName}`
             });
           }
@@ -795,9 +822,11 @@ function getRecurrentesConfig_(preferredSheetName = '') {
     }
 
     // FORMATO VERTICAL ESTÁNDAR (cada fila es un movimiento fijo con su mes)
-    const colMes = headerRow.findIndex(h => h.indexOf('mes') !== -1 || h.indexOf('periodo') !== -1 || h.indexOf('fecha') !== -1);
+    // Blindaje de colMes: excluir expresamente columnas que contengan 'dia' (ej: 'Dia_Mes')
+    const colMes = headerRow.findIndex(h => (h.indexOf('mes') !== -1 || h.indexOf('periodo') !== -1 || h.indexOf('fecha') !== -1) && h.indexOf('dia') === -1);
     const colId = headerRow.findIndex(h => h === 'id' || h === 'codigo');
-    const colNombre = headerRow.findIndex(h => h.indexOf('nombre') !== -1 || h.indexOf('concepto') !== -1 || h.indexOf('descrip') !== -1 || h.indexOf('detalle') !== -1 || h.indexOf('servicio') !== -1 || h.indexOf('gasto') !== -1 || h.indexOf('item') !== -1);
+    let colNombre = headerRow.findIndex(h => h.indexOf('nombre') !== -1 || h.indexOf('concepto') !== -1 || h.indexOf('descrip') !== -1 || h.indexOf('detalle') !== -1 || h.indexOf('servicio') !== -1 || h.indexOf('gasto') !== -1 || h.indexOf('item') !== -1);
+    if (colNombre === -1 && headerRow.length > 0) colNombre = 0;
     const colTipo = headerRow.findIndex(h => h.indexOf('tipo') !== -1 || h.indexOf('clase') !== -1 || h.indexOf('flujo') !== -1);
     const colMonto = headerRow.findIndex(h => h.indexOf('monto') !== -1 || h.indexOf('importe') !== -1 || h.indexOf('total') !== -1 || h.indexOf('valor') !== -1 || h.indexOf('precio') !== -1 || h.indexOf('costo') !== -1 || h.indexOf('soles') !== -1 || h.indexOf('s/') !== -1);
     const colCat = headerRow.findIndex(h => h.indexOf('cat') !== -1 || h.indexOf('rubro') !== -1);
@@ -821,6 +850,7 @@ function getRecurrentesConfig_(preferredSheetName = '') {
       // Si no se encontró en colMes, buscar en cualquier celda de la fila que contenga un mes válido
       if (!mesVal || !/^\d{4}-\d{2}$/.test(mesVal)) {
         for (let c = 0; c < row.length; c++) {
+          if (c === colDia) continue; // No tomar la columna de día
           const testM = parseMesString_(row[c], currentYear);
           if (/^\d{4}-\d{2}$/.test(testM)) {
             mesVal = testM;
@@ -836,7 +866,7 @@ function getRecurrentesConfig_(preferredSheetName = '') {
       }
       if (!nomStr) {
         for (let c = 0; c < row.length; c++) {
-          if (c === colMes || c === colId || c === colTipo) continue;
+          if (c === colMes || c === colId || c === colTipo || c === colDia) continue;
           const val = String(row[c] || '').trim();
           if (val && isNaN(Number(val)) && !/^\d{4}[-/]\d{2}$/.test(val) && val.length > 1) {
             nomStr = val;
@@ -848,34 +878,15 @@ function getRecurrentesConfig_(preferredSheetName = '') {
       // 3. Extraer o inferir Monto
       let parsedMonto = 0;
       if (colMonto >= 0 && row[colMonto] !== undefined && row[colMonto] !== null) {
-        const rawMonto = row[colMonto];
-        if (typeof rawMonto === 'number') {
-          parsedMonto = Math.abs(rawMonto);
-        } else {
-          let s = String(rawMonto || '').trim().replace(/[^0-9.,-]/g, '');
-          if (s.indexOf(',') !== -1 && s.indexOf('.') !== -1) {
-            if (s.indexOf('.') < s.indexOf(',')) s = s.replace(/\./g, '').replace(',', '.');
-            else s = s.replace(/,/g, '');
-          } else if (s.indexOf(',') !== -1) {
-            s = s.replace(',', '.');
-          }
-          parsedMonto = Math.abs(parseFloat(s)) || 0;
-        }
+        parsedMonto = parseNum_(row[colMonto]);
       }
       if (parsedMonto === 0) {
         for (let c = 0; c < row.length; c++) {
           if (c === colMes || c === colDia) continue;
-          const raw = row[c];
-          if (typeof raw === 'number' && raw > 0) {
-            parsedMonto = Math.abs(raw);
+          const testN = parseNum_(row[c]);
+          if (testN > 0) {
+            parsedMonto = testN;
             break;
-          }
-          if (typeof raw === 'string') {
-            const num = parseFloat(raw.replace(/[^0-9.,-]/g, '').replace(',', '.'));
-            if (!isNaN(num) && num > 0) {
-              parsedMonto = num;
-              break;
-            }
           }
         }
       }
@@ -896,8 +907,11 @@ function getRecurrentesConfig_(preferredSheetName = '') {
       let tipoVal = 'Gasto_Fijo';
       if (rawTipo.indexOf('ingreso') !== -1 || rawTipo.indexOf('sueldo') !== -1 || rawTipo.indexOf('renta') !== -1 || rawTipo.indexOf('cobro') !== -1) {
         tipoVal = 'Ingreso_Fijo';
-      } else {
-        tipoVal = 'Gasto_Fijo';
+      } else if (colTipo === -1 || !rawTipo) {
+        const nomClean = cleanStr(nomStr);
+        if (nomClean.indexOf('sueldo') !== -1 || nomClean.indexOf('ingreso') !== -1 || nomClean.indexOf('salario') !== -1 || nomClean.indexOf('honorario') !== -1 || nomClean.indexOf('quincena') !== -1 || nomClean.indexOf('renta') !== -1) {
+          tipoVal = 'Ingreso_Fijo';
+        }
       }
 
       // 6. Categoria

@@ -862,10 +862,18 @@
 
   /**
    * Determina de forma flexible e insensible a mayúsculas si un tipo corresponde a ingreso fijo.
+   * Si no hay tipo especificado, analiza el nombre o concepto del registro.
    */
-  function esIngresoFijo(tipo) {
+  function esIngresoFijo(tipo, item = null) {
     const t = String(tipo || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    return t.includes('ingreso') || t.includes('sueldo') || t.includes('renta') || t.includes('cobro');
+    if (t.includes('ingreso') || t.includes('sueldo') || t.includes('renta') || t.includes('cobro')) return true;
+    if (item && item.nombre) {
+      const n = String(item.nombre).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      if (n.includes('sueldo') || n.includes('ingreso') || n.includes('salario') || n.includes('honorario') || n.includes('quincena') || n.includes('renta')) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -882,11 +890,11 @@
   /**
    * Obtiene la lista de movimientos fijos aplicables a un mes específico.
    * Resuelve CADA recurrente de forma individual y continua:
-   * 1. Si existe configuración explícita para este mes exacto, usa esa (con sus montos/estado de ese mes).
-   * 2. Si no, busca la configuración del mes previo más cercano (herencia continua hacia el futuro).
+   * 1. Si existe configuración explícita para este mes exacto con monto > 0 (o explícito cero), usa esa.
+   * 2. Si este mes no tiene celda con valor o está vacía (monto 0 no explícito), hereda del mes anterior más cercano con monto > 0.
    * 3. Si no, usa la plantilla base/legacy (sin mes o mes vacío).
-   * 4. Si solo hay versiones posteriores, toma la más temprana.
-   * Esto garantiza que NINGÚN recurrente desaparezca al cambiar de mes ni por guardar ajustes en un mes.
+   * 4. Si solo hay versiones posteriores, toma la más temprana con monto > 0.
+   * Esto garantiza que NINGÚN recurrente desaparezca al cambiar de mes ni por celdas vacías en meses futuros.
    */
   function getRecurrentesParaMes(recurrentesConfig = [], mesActualStr = null) {
     if (!mesActualStr) {
@@ -903,7 +911,7 @@
 
     items.forEach(r => {
       const nomClean = String(r.nombre || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      const tipo = esIngresoFijo(r.tipo) ? 'ingreso' : 'gasto';
+      const tipo = esIngresoFijo(r.tipo, r) ? 'ingreso' : 'gasto';
       let key = nomClean ? `${nomClean}_${tipo}` : ((r.id && String(r.id).trim().toLowerCase()) || 'item');
 
       if (!recurrentesMap.has(key)) {
@@ -916,46 +924,47 @@
 
     // Para CADA concepto individual, resolver la mejor versión aplicable para mesActualStr
     for (const [key, versiones] of recurrentesMap.entries()) {
-      // 1. ¿Hay una versión configurada explícitamente para este mes exacto?
-      const versionMesExacto = versiones.find(v => v.mes && normalizarMes(v.mes) === mesActualStr);
+      // 1. ¿Hay una versión configurada explícitamente para este mes exacto con monto > 0 o explícito cero?
+      const versionMesExacto = versiones.find(v => v.mes && normalizarMes(v.mes) === mesActualStr && (parseFloat(v.monto) > 0 || v.esExplicitoCero));
       if (versionMesExacto) {
         resultadoMes.push({ ...versionMesExacto, mes: mesActualStr });
         continue;
       }
 
-      // 2. Si el mes consultado no tiene registro propio para este concepto:
-      // Buscar la versión de un mes anterior más cercano (herencia continua hacia el futuro)
+      // 2. Si el mes consultado no tiene registro con monto > 0 para este concepto:
+      // Buscar la versión de un mes anterior más cercano con monto > 0 (herencia continua hacia el futuro)
       const versionesConMes = versiones
-        .map(v => ({ ...v, mesNorm: v.mes ? normalizarMes(v.mes) : '' }))
-        .filter(v => !!v.mesNorm);
+        .map(v => ({ ...v, mesNorm: v.mes ? normalizarMes(v.mes) : '', montoNum: parseFloat(v.monto) || 0 }))
+        .filter(v => !!v.mesNorm && v.montoNum > 0);
 
       const versionesPrevias = versionesConMes
         .filter(v => v.mesNorm < mesActualStr)
         .sort((a, b) => b.mesNorm.localeCompare(a.mesNorm)); // Descendente: el mes previo más reciente
 
       if (versionesPrevias.length > 0) {
-        const { mesNorm, ...resto } = versionesPrevias[0];
+        const { mesNorm, montoNum, ...resto } = versionesPrevias[0];
         resultadoMes.push({ ...resto, mes: mesActualStr, esProyectado: true });
         continue;
       }
 
-      // 4. Si no hay versiones previas con mes, buscar versión base/legacy (sin mes o mes vacío)
-      const versionSinMes = versiones.find(v => !v.mes || String(v.mes).trim() === '' || !normalizarMes(v.mes));
+      // 3. Si no hay versiones previas con mes y monto > 0, buscar versión base/legacy (sin mes o mes vacío)
+      const versionSinMes = versiones.find(v => (!v.mes || String(v.mes).trim() === '' || !normalizarMes(v.mes)) && (parseFloat(v.monto) > 0 || v.esExplicitoCero));
       if (versionSinMes) {
         resultadoMes.push({ ...versionSinMes, mes: mesActualStr, esProyectado: true });
         continue;
       }
 
-      // 5. Si solo existen versiones en meses posteriores (creado a futuro), tomar la más temprana
+      // 4. Si solo existen versiones en meses posteriores (creado a futuro), tomar la más temprana con monto > 0
       if (versionesConMes.length > 0) {
         versionesConMes.sort((a, b) => a.mesNorm.localeCompare(b.mesNorm)); // Ascendente
-        const { mesNorm, ...resto } = versionesConMes[0];
+        const { mesNorm, montoNum, ...resto } = versionesConMes[0];
         resultadoMes.push({ ...resto, mes: mesActualStr, esProyectado: true });
         continue;
       }
 
-      // Fallback final
-      resultadoMes.push({ ...versiones[0], mes: mesActualStr, esProyectado: true });
+      // Fallback final: si hay alguna versión explícita en este mes aunque sea 0, o la primera versión
+      const versionCualquiera = versiones.find(v => v.mes && normalizarMes(v.mes) === mesActualStr) || versiones[0];
+      resultadoMes.push({ ...versionCualquiera, mes: mesActualStr, esProyectado: true });
     }
 
     return resultadoMes;
@@ -1031,6 +1040,8 @@
       });
 
       if (txExistente) {
+        txExistente.esFijoConfirmado = true;
+        txExistente.recurrenteId = recId;
         recurrentesEstadoMes.push({
           ...rec,
           estadoMes: 'confirmado',
@@ -1245,7 +1256,7 @@
       let txMesTC = normalizarMes(tx.mesImpactoTC);
       if (!txMesEfectivo && txMesFecha) txMesEfectivo = txMesFecha;
       if (!txMesFecha && txMesEfectivo) txMesFecha = txMesEfectivo;
-      const esFijo = tx.esFijoProyectado || tx.recurrenteId || (tx.notas && String(tx.notas).includes('[Fijo'));
+      const esFijo = tx.esFijoProyectado || tx.recurrenteId || tx.esFijoConfirmado || (tx.notas && String(tx.notas).toLowerCase().includes('[fijo'));
       const tipoNorm = normalizarTipo(tx.tipo, tx.metodoPago, tx.tarjetaAfectada);
 
       if (txMesEfectivo === mesActualStr) {

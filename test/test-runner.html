@@ -1146,6 +1146,63 @@
       `Alquiler count: ${countAlquilerSep}/1, Sueldo heredado: ${!!sueldoHeredadoSep}, Tx Ingreso Virtual: ${okVirtualIngreso}, Tx Gasto Virtual: ${okVirtualGasto}`
     );
 
+    // Prueba 51: HERENCIA CONTINUA EN FORMATO MATRICIAL ANTE CELDAS EN BLANCO (v7.4)
+    // En matrices mensuales de Sheets (Set-26, Oct-26...), si Octubre está vacío (monto 0 no explícito),
+    // el sistema debe heredar el último valor conocido de Septiembre.
+    const fijosMatrizVacia = [
+      { id: 'REC-sueldo', nombre: 'Sueldo Principal', tipo: 'Ingreso_Fijo', monto: 5000, mes: '2026-09', activo: true, esExplicitoEnMatriz: true },
+      { id: 'REC-sueldo', nombre: 'Sueldo Principal', tipo: 'Ingreso_Fijo', monto: 0, mes: '2026-10', activo: false, esExplicitoEnMatriz: false }, // Celda vacía en Octubre
+      { id: 'REC-alquiler', nombre: 'Alquiler Depa', tipo: 'Gasto_Fijo', monto: 1800, mes: '2026-09', activo: true, esExplicitoEnMatriz: true },
+      { id: 'REC-alquiler', nombre: 'Alquiler Depa', tipo: 'Gasto_Fijo', monto: 0, mes: '2026-10', activo: false, esExplicitoEnMatriz: false } // Celda vacía en Octubre
+    ];
+
+    const fijosOctMatriz = engine.getRecurrentesParaMes(fijosMatrizVacia, '2026-10');
+    const sueldoOct = fijosOctMatriz.find(r => r.nombre === 'Sueldo Principal');
+    const alquilerOct = fijosOctMatriz.find(r => r.nombre === 'Alquiler Depa');
+
+    const okPrueba51 = (fijosOctMatriz.length === 2) &&
+                       (sueldoOct && sueldoOct.monto === 5000) &&
+                       (alquilerOct && alquilerOct.monto === 1800);
+
+    report('Herencia Continua Matricial (v7.4): Celdas en blanco en meses nuevos heredan el monto del mes previo',
+      okPrueba51,
+      `Octubre resuelto -> Sueldo: S/ ${sueldoOct?.monto}/5000, Alquiler: S/ ${alquilerOct?.monto}/1800`
+    );
+
+    // Prueba 52: FIJOS CONFIRMADOS ASENTADOS EN CONSOLIDADO FINANCIERO (v7.4)
+    // Una transacción ya asentada en Drive que coincide con un fijo debe computar en totalGastosFijos / totalIngresosFijos
+    const recConfigPrueba52 = [
+      { id: 'REC-luz', nombre: 'Luz del Hogar', tipo: 'Gasto_Fijo', monto: 120, mes: '2026-09', categoria: 'Servicios', activo: true },
+      { id: 'REC-sueldo', nombre: 'Sueldo Empresa', tipo: 'Ingreso_Fijo', monto: 4000, mes: '2026-09', categoria: 'Sueldo', activo: true }
+    ];
+    const txsPrueba52 = [
+      { id: 'TX-1', fecha: '2026-09-10', tipo: 'Gasto_Directo', categoria: 'Servicios', monto: 120, mesImpactoEfectivo: '2026-09', notas: 'Pago de luz del mes' },
+      { id: 'TX-2', fecha: '2026-09-28', tipo: 'Ingreso', categoria: 'Sueldo', monto: 4000, mesImpactoEfectivo: '2026-09', notas: 'Abono quincena y fin de mes' }
+    ];
+
+    const consolidado52 = engine.calcularConsolidadoFinanciero(txsPrueba52, [], '2026-09', [], recConfigPrueba52);
+
+    const okPrueba52 = (consolidado52.flujoEfectivo.ingresosFijos === 4000) &&
+                       (consolidado52.flujoEfectivo.ingresosVariables === 0) &&
+                       (consolidado52.flujoEfectivo.gastosFijos === 120) &&
+                       (consolidado52.flujoEfectivo.gastosVariables === 0);
+
+    report('Consolidación de Fijos Asentados (v7.4): Transacciones asentadas que corresponden a fijos computan como Fijos (no variables)',
+      okPrueba52,
+      `Ingresos Fijos: S/ ${consolidado52.flujoEfectivo.ingresosFijos}/4000, Gastos Fijos: S/ ${consolidado52.flujoEfectivo.gastosFijos}/120`
+    );
+
+    // Prueba 53: INFERENCIA DE TIPO POR CONCEPTO/NOMBRE SIN COLUMNA TIPO (v7.4)
+    // Si la hoja no tiene columna Tipo o viene vacía, 'Sueldo', 'Honorarios' o 'Quincena' se detectan como Ingreso_Fijo
+    const okTipoConceptoSueldo = engine.esIngresoFijo('', { nombre: 'Sueldo Principal' });
+    const okTipoConceptoHonorarios = engine.esIngresoFijo('', { nombre: 'Honorarios Octubre' });
+    const okTipoConceptoGasto = !engine.esIngresoFijo('', { nombre: 'Internet Fibra 200MB' });
+
+    report('Detección Inteligente de Tipo por Nombre (v7.4): Detecta sueldos e ingresos incluso sin columna Tipo en Sheet',
+      okTipoConceptoSueldo && okTipoConceptoHonorarios && okTipoConceptoGasto,
+      `Sueldo -> Ingreso: ${okTipoConceptoSueldo}, Honorarios -> Ingreso: ${okTipoConceptoHonorarios}, Internet -> Gasto: ${okTipoConceptoGasto}`
+    );
+
     summaryBox.innerHTML = `
       <div class="flex items-center justify-between">
         <span class="font-bold ${failedCount === 0 ? 'text-emerald-400' : 'text-rose-400'} text-base">
