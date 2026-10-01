@@ -235,20 +235,44 @@
       return `${dmyMatch[3]}-${dmyMatch[2].padStart(2, '0')}`;
     }
 
-    // Reconocimiento de nombres de meses en español con año de 4 o 2 dígitos (ej. "Set-26", "Oct-26", "Septiembre 2026")
-    const mesesNombres = {
-      'enero': '01', 'ene': '01', 'febrero': '02', 'feb': '02', 'marzo': '03', 'mar': '03',
-      'abril': '04', 'abr': '04', 'mayo': '05', 'may': '05', 'junio': '06', 'jun': '06',
-      'julio': '07', 'jul': '07', 'agosto': '08', 'ago': '08', 'septiembre': '09', 'sep': '09', 'setiembre': '09', 'set': '09',
-      'octubre': '10', 'oct': '10', 'noviembre': '11', 'nov': '11', 'diciembre': '12', 'dic': '12'
+    const lowerRaw = val.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/_/g, ' ');
+    const nonMonthKeywords = ['metodo', 'pago', 'categoria', 'nombre', 'concepto', 'tipo', 'detalle', 'descripcion', 'servicio', 'estado', 'activo', 'dia', 'nota', 'rubro', 'cuenta', 'tarjeta'];
+    if (nonMonthKeywords.some(w => lowerRaw.includes(w))) {
+      return '';
+    }
+
+    // Reconocimiento de nombres de meses completos en español con año de 4 o 2 dígitos
+    const mesesCompletos = {
+      'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04', 'mayo': '05', 'junio': '06',
+      'julio': '07', 'agosto': '08', 'septiembre': '09', 'setiembre': '09',
+      'octubre': '10', 'noviembre': '11', 'diciembre': '12'
     };
-    const lower = val.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    for (const [nom, num] of Object.entries(mesesNombres)) {
-      if (lower.includes(nom)) {
-        const year4Match = lower.match(/\b(20\d{2})\b/);
+    for (const [nom, num] of Object.entries(mesesCompletos)) {
+      if (lowerRaw.includes(nom)) {
+        const year4Match = lowerRaw.match(/\b(20\d{2})\b/);
         if (year4Match) return `${year4Match[1]}-${num}`;
 
-        const year2Match = lower.match(/(?:[-/_\s]|^)(\d{2})(?:[-/_\s]|$)/);
+        const year2Match = lowerRaw.match(/(?:[-/_\s]|^)(\d{2})(?:[-/_\s]|$)/);
+        if (year2Match) {
+          const y2 = parseInt(year2Match[1], 10);
+          if (y2 >= 20 && y2 <= 40) return `20${y2}-${num}`;
+        }
+        return `${new Date().getFullYear()}-${num}`;
+      }
+    }
+
+    // Abreviaturas de 3 letras con delimitadores estrictos (evita falsos positivos en subcadenas)
+    const mesesAbrev = {
+      'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06',
+      'jul': '07', 'ago': '08', 'sep': '09', 'set': '09', 'oct': '10', 'nov': '11', 'dic': '12'
+    };
+    for (const [nom, num] of Object.entries(mesesAbrev)) {
+      const rx = new RegExp('(^|[\\s\\-_/.])' + nom + '([\\s\\-_/.0-9]|$)', 'i');
+      if (rx.test(lowerRaw)) {
+        const year4Match = lowerRaw.match(/\b(20\d{2})\b/);
+        if (year4Match) return `${year4Match[1]}-${num}`;
+
+        const year2Match = lowerRaw.match(/(?:[-/_\s]|^)(\d{2})(?:[-/_\s]|$)/);
         if (year2Match) {
           const y2 = parseInt(year2Match[1], 10);
           if (y2 >= 20 && y2 <= 40) return `20${y2}-${num}`;

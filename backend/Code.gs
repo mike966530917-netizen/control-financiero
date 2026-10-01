@@ -217,7 +217,7 @@ function doGet(e) {
     let responseData = {};
 
     if (action === 'ping') {
-      responseData = { success: true, message: 'PWA Financial API en línea', timestamp: new Date(), version: '7.4' };
+      responseData = { success: true, message: 'PWA Financial API en línea', timestamp: new Date(), version: '7.5' };
     } else if (action === 'getAll') {
       const ss = SpreadsheetApp.getActiveSpreadsheet();
       const cards = getCardsConfig_();
@@ -234,7 +234,7 @@ function doGet(e) {
       
       responseData = {
         success: true,
-        version: '7.4',
+        version: '7.5',
         cards: cards,
         transactions: transactions,
         budgets: budgets,
@@ -252,7 +252,7 @@ function doGet(e) {
       const allS = SpreadsheetApp.getActiveSpreadsheet().getSheets();
       responseData = {
         success: true,
-        version: '7.4',
+        version: '7.5',
         sheets: allS.map(s => ({
           name: s.getName(),
           rows: s.getLastRow(),
@@ -274,7 +274,7 @@ function doGet(e) {
       const candidateSheets = getCandidateRecurrentesSheets_(ss, sheetFijos);
       responseData = {
         success: true,
-        version: '7.4',
+        version: '7.5',
         recurrentes: recs,
         debug: {
           activeSheetFijos: sheetFijos || (candidateSheets.length > 0 ? candidateSheets[0].getName() : 'recurrente'),
@@ -538,31 +538,35 @@ function parseMesString_(val, defaultYear) {
     return `${dYear}-${String(num).padStart(2, '0')}`;
   }
 
-  // 6. Nombres de meses en español o inglés con año de 4 o 2 dígitos (ej. "Oct-26", "Set-26", "Octubre 2026")
-  const mesesNombres = {
-    'enero': '01', 'ene': '01', 'january': '01', 'jan': '01',
-    'febrero': '02', 'feb': '02', 'february': '02',
-    'marzo': '03', 'mar': '03', 'march': '03',
-    'abril': '04', 'abr': '04', 'april': '04', 'apr': '04',
-    'mayo': '05', 'may': '05',
-    'junio': '06', 'jun': '06', 'june': '06',
-    'julio': '07', 'jul': '07', 'july': '07',
-    'agosto': '08', 'ago': '08', 'august': '08', 'aug': '08',
-    'septiembre': '09', 'sep': '09', 'setiembre': '09', 'set': '09', 'september': '09',
-    'octubre': '10', 'oct': '10', 'october': '10',
-    'noviembre': '11', 'nov': '11', 'november': '11',
-    'diciembre': '12', 'dic': '12', 'december': '12', 'dec': '12'
+  const lowerRaw = s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/_/g, ' ');
+  // Descartar expresamente encabezados que NO son meses (evita falsos positivos catastróficos como Metodo_Pago -> ago)
+  const nonMonthKeywords = ['metodo', 'pago', 'categoria', 'nombre', 'concepto', 'tipo', 'detalle', 'descripcion', 'servicio', 'estado', 'activo', 'dia', 'nota', 'rubro', 'cuenta', 'tarjeta'];
+  if (nonMonthKeywords.some(w => lowerRaw.indexOf(w) !== -1)) {
+    return '';
+  }
+
+  // 6. Nombres de meses completos
+  const mesesCompletos = {
+    'enero': '01', 'january': '01',
+    'febrero': '02', 'february': '02',
+    'marzo': '03', 'march': '03',
+    'abril': '04', 'april': '04',
+    'mayo': '05',
+    'junio': '06', 'june': '06',
+    'julio': '07', 'july': '07',
+    'agosto': '08', 'august': '08',
+    'septiembre': '09', 'setiembre': '09', 'september': '09',
+    'octubre': '10', 'october': '10',
+    'noviembre': '11', 'november': '11',
+    'diciembre': '12', 'december': '12'
   };
 
-  const lower = s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  for (const [nom, mm] of Object.entries(mesesNombres)) {
-    if (lower.indexOf(nom) !== -1) {
-      // Buscar año de 4 dígitos (ej. 2026)
-      const year4Match = lower.match(/\b(20\d{2})\b/);
+  for (const [nom, mm] of Object.entries(mesesCompletos)) {
+    if (lowerRaw.indexOf(nom) !== -1) {
+      const year4Match = lowerRaw.match(/\b(20\d{2})\b/);
       if (year4Match) return `${year4Match[1]}-${mm}`;
 
-      // Buscar año de 2 dígitos (ej. -26 o /26 o espacio 26)
-      const year2Match = lower.match(/(?:[-/_\s]|^)(\d{2})(?:[-/_\s]|$)/);
+      const year2Match = lowerRaw.match(/(?:[-/_\s]|^)(\d{2})(?:[-/_\s]|$)/);
       if (year2Match) {
         const y2 = parseInt(year2Match[1], 10);
         if (y2 >= 20 && y2 <= 40) return `20${y2}-${mm}`;
@@ -571,7 +575,38 @@ function parseMesString_(val, defaultYear) {
     }
   }
 
-  return s;
+  // 7. Abreviaturas de meses (3 letras) con delimitadores estrictos para evitar falsos positivos
+  const mesesAbrev = {
+    'ene': '01', 'jan': '01',
+    'feb': '02',
+    'mar': '03',
+    'abr': '04', 'apr': '04',
+    'may': '05',
+    'jun': '06',
+    'jul': '07',
+    'ago': '08', 'aug': '08',
+    'sep': '09', 'set': '09',
+    'oct': '10',
+    'nov': '11',
+    'dic': '12', 'dec': '12'
+  };
+
+  for (const [nom, mm] of Object.entries(mesesAbrev)) {
+    const rx = new RegExp('(^|[\\s\\-_/.])' + nom + '([\\s\\-_/.0-9]|$)', 'i');
+    if (rx.test(lowerRaw)) {
+      const year4Match = lowerRaw.match(/\b(20\d{2})\b/);
+      if (year4Match) return `${year4Match[1]}-${mm}`;
+
+      const year2Match = lowerRaw.match(/(?:[-/_\s]|^)(\d{2})(?:[-/_\s]|$)/);
+      if (year2Match) {
+        const y2 = parseInt(year2Match[1], 10);
+        if (y2 >= 20 && y2 <= 40) return `20${y2}-${mm}`;
+      }
+      return `${dYear}-${mm}`;
+    }
+  }
+
+  return '';
 }
 
 /**
@@ -618,9 +653,13 @@ function getCandidateRecurrentesSheets_(ss, preferredSheetName) {
     }
   }
 
-  // Si hay hojas coincidentes con datos, devolver la que tiene más datos o 'recurrente'/'recurrentes'
+  // Si hay hojas coincidentes con datos, devolver la que tiene más datos
   if (matchingWithData.length > 0) {
     matchingWithData.sort((a, b) => {
+      // Si una hoja tiene significativamente más filas que otra, priorizar siempre la que tiene datos
+      if (Math.abs(b.getLastRow() - a.getLastRow()) >= 2) {
+        return b.getLastRow() - a.getLastRow();
+      }
       const aName = cleanStr(a.getName());
       const bName = cleanStr(b.getName());
       if ((aName === 'recurrente' || aName === 'recurrentes') && bName !== 'recurrente' && bName !== 'recurrentes') return -1;
@@ -723,7 +762,9 @@ function getRecurrentesConfig_(preferredSheetName = '') {
     const rawHeaders = data[headerIdx];
     const headerRow = rawHeaders.map(h => cleanStr(h));
 
-    // Comprobar si la hoja tiene formato MATRICIAL (columnas de meses en el encabezado: ej. Enero, Febrero, 2026-09...)
+    // Comprobar si la hoja tiene formato MATRICIAL vs VERTICAL
+    const hasExplicitMesColumn = headerRow.some(h => (h === 'mes' || h === 'periodo' || h === 'fecha' || h.indexOf('mes') !== -1) && h.indexOf('dia') === -1);
+
     const monthCols = [];
     for (let c = 0; c < rawHeaders.length; c++) {
       const parsedH = parseMesString_(rawHeaders[c], currentYear);
@@ -732,8 +773,10 @@ function getRecurrentesConfig_(preferredSheetName = '') {
       }
     }
 
-    // FORMATO MATRICIAL: si hay columnas con meses en el encabezado (ej. Set-26, Oct-26...)
-    if (monthCols.length >= 1) {
+    // FORMATO MATRICIAL: columnas de meses en el encabezado (ej. Set-26, Oct-26...)
+    // Si la hoja tiene una columna 'Mes' vertical explícita, se procesa como vertical
+    const isMatrixFormat = (monthCols.length >= 2) || (monthCols.length >= 1 && !hasExplicitMesColumn);
+    if (isMatrixFormat) {
       const colNombreMat = headerRow.findIndex(h => h.indexOf('nombre') !== -1 || h.indexOf('concepto') !== -1 || h.indexOf('descrip') !== -1 || h.indexOf('detalle') !== -1 || h.indexOf('servicio') !== -1 || h.indexOf('gasto') !== -1 || h.indexOf('item') !== -1);
       const colCatMat = headerRow.findIndex(h => h.indexOf('cat') !== -1 || h.indexOf('rubro') !== -1);
       const colTipoMat = headerRow.findIndex(h => h.indexOf('tipo') !== -1 || h.indexOf('clase') !== -1);

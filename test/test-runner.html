@@ -1197,10 +1197,26 @@
     const okTipoConceptoSueldo = engine.esIngresoFijo('', { nombre: 'Sueldo Principal' });
     const okTipoConceptoHonorarios = engine.esIngresoFijo('', { nombre: 'Honorarios Octubre' });
     const okTipoConceptoGasto = !engine.esIngresoFijo('', { nombre: 'Internet Fibra 200MB' });
-
     report('Detección Inteligente de Tipo por Nombre (v7.4): Detecta sueldos e ingresos incluso sin columna Tipo en Sheet',
       okTipoConceptoSueldo && okTipoConceptoHonorarios && okTipoConceptoGasto,
       `Sueldo -> Ingreso: ${okTipoConceptoSueldo}, Honorarios -> Ingreso: ${okTipoConceptoHonorarios}, Internet -> Gasto: ${okTipoConceptoGasto}`
+    );
+
+    // Prueba 54: PROTECCIÓN DE PALABRAS RESERVADAS EN NORMALIZACIÓN DE MES (v7.5)
+    // Palabras como 'Metodo_Pago', 'Pago', 'Categoria', 'Notas' NO deben coincidir con 'ago' (Agosto)
+    const testNormPago = engine.normalizarMes('Metodo_Pago');
+    const testNormPagoSimple = engine.normalizarMes('Pago');
+    const testNormOct = engine.normalizarMes('Oct-26');
+    const testNormSet = engine.normalizarMes('Set 2026');
+
+    const okPrueba54 = (testNormPago === '') &&
+                       (testNormPagoSimple === '') &&
+                       (testNormOct === '2026-10') &&
+                       (testNormSet === '2026-09');
+
+    report('Protección de Cabeceras (v7.5): Metodo_Pago y Pago no se confunden con Agosto, preservando la lectura vertical',
+      okPrueba54,
+      `Metodo_Pago -> '${testNormPago}', Pago -> '${testNormPagoSimple}', Oct-26 -> '${testNormOct}', Set 2026 -> '${testNormSet}'`
     );
 
     summaryBox.innerHTML = `
