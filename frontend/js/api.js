@@ -262,6 +262,24 @@
       }
     }
 
+    async crearOFormatearMatrizRecurrente() {
+      if (!this.apiUrl || !this.isOnline) {
+        return { success: true, offline: true };
+      }
+      try {
+        const res = await fetch(this.apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'crearOFormatearMatrizRecurrente', sheetFijos: this.getSheetFijosName() }),
+          redirect: 'follow'
+        });
+        return await res.json();
+      } catch (err) {
+        console.warn('[API] Error al formatear matriz de fijos en Sheets:', err);
+        return { success: false, error: err.message };
+      }
+    }
+
     async generarExtractoSheet(categoria, mes) {
       if (!this.apiUrl || !this.isOnline) {
         const fallbackUrl = localStorage.getItem('spreadsheet_url') || '';

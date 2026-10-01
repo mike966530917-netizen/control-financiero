@@ -213,8 +213,9 @@
     // Si ya es exactamente YYYY-MM
     if (/^\d{4}-\d{2}$/.test(val)) return val;
 
-    // Si empieza con formato YYYY-MM-DD (con o sin hora)
-    if (/^\d{4}-\d{2}-\d{2}/.test(val)) return val.slice(0, 7);
+    // Si empieza con formato YYYY-MM-DD o cadena ISO YYYY-MM-DDTHH:mm:ss
+    const isoMatch = val.match(/^(\d{4})-(\d{2})/);
+    if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}`;
 
     // Si es YYYY-M o YYYY/M o YYYY/MM
     const simpleMatch = val.match(/^(\d{4})[-/](\d{1,2})/);
@@ -234,19 +235,25 @@
       return `${dmyMatch[3]}-${dmyMatch[2].padStart(2, '0')}`;
     }
 
-    // Reconocimiento de nombres de meses en español (ej. "Septiembre 2026", "sep 2026")
+    // Reconocimiento de nombres de meses en español con año de 4 o 2 dígitos (ej. "Set-26", "Oct-26", "Septiembre 2026")
     const mesesNombres = {
       'enero': '01', 'ene': '01', 'febrero': '02', 'feb': '02', 'marzo': '03', 'mar': '03',
       'abril': '04', 'abr': '04', 'mayo': '05', 'may': '05', 'junio': '06', 'jun': '06',
       'julio': '07', 'jul': '07', 'agosto': '08', 'ago': '08', 'septiembre': '09', 'sep': '09', 'setiembre': '09', 'set': '09',
       'octubre': '10', 'oct': '10', 'noviembre': '11', 'nov': '11', 'diciembre': '12', 'dic': '12'
     };
-    const lower = val.toLowerCase();
+    const lower = val.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     for (const [nom, num] of Object.entries(mesesNombres)) {
       if (lower.includes(nom)) {
-        const yearMatch = lower.match(/\b(20\d{2})\b/);
-        const y = yearMatch ? yearMatch[1] : (new Date().getFullYear().toString());
-        return `${y}-${num}`;
+        const year4Match = lower.match(/\b(20\d{2})\b/);
+        if (year4Match) return `${year4Match[1]}-${num}`;
+
+        const year2Match = lower.match(/(?:[-/_\s]|^)(\d{2})(?:[-/_\s]|$)/);
+        if (year2Match) {
+          const y2 = parseInt(year2Match[1], 10);
+          if (y2 >= 20 && y2 <= 40) return `20${y2}-${num}`;
+        }
+        return `${new Date().getFullYear()}-${num}`;
       }
     }
 
@@ -891,19 +898,13 @@
     const items = (recurrentesConfig || []).filter(r => r && (r.id || r.nombre));
     if (items.length === 0) return [];
 
-    // Agrupar todos los registros por identificador único del recurrente
-    // (un recurrente puede tener múltiples versiones históricas para distintos meses)
+    // Agrupar todos los registros por identificador único del concepto (insensible a categorías o IDs efímeros)
     const recurrentesMap = new Map();
 
     items.forEach(r => {
-      // Clave única estable: id del recurrente (o combinación semántica de nombre, tipo y categoría si no tiene id o tiene id efímero)
-      let key = (r.id && String(r.id).trim()) ? String(r.id).trim().toLowerCase() : '';
-      if (!key || /^rec-.*-\d+$/.test(key)) {
-        const nom = String(r.nombre || '').trim().toLowerCase();
-        const tipo = esIngresoFijo(r.tipo) ? 'ingreso' : 'gasto';
-        const cat = String(r.categoria || '').trim().toLowerCase();
-        key = `${nom}_${tipo}_${cat}`;
-      }
+      const nomClean = String(r.nombre || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const tipo = esIngresoFijo(r.tipo) ? 'ingreso' : 'gasto';
+      let key = nomClean ? `${nomClean}_${tipo}` : ((r.id && String(r.id).trim().toLowerCase()) || 'item');
 
       if (!recurrentesMap.has(key)) {
         recurrentesMap.set(key, []);
@@ -913,7 +914,7 @@
 
     const resultadoMes = [];
 
-    // Para CADA recurrente individual, resolver la mejor versión aplicable para mesActualStr
+    // Para CADA concepto individual, resolver la mejor versión aplicable para mesActualStr
     for (const [key, versiones] of recurrentesMap.entries()) {
       // 1. ¿Hay una versión configurada explícitamente para este mes exacto?
       const versionMesExacto = versiones.find(v => v.mes && normalizarMes(v.mes) === mesActualStr);
@@ -922,7 +923,8 @@
         continue;
       }
 
-      // 2. Buscar la versión de un mes anterior más cercano (herencia continua hacia el futuro)
+      // 2. Si el mes consultado no tiene registro propio para este concepto:
+      // Buscar la versión de un mes anterior más cercano (herencia continua hacia el futuro)
       const versionesConMes = versiones
         .map(v => ({ ...v, mesNorm: v.mes ? normalizarMes(v.mes) : '' }))
         .filter(v => !!v.mesNorm);
@@ -933,27 +935,27 @@
 
       if (versionesPrevias.length > 0) {
         const { mesNorm, ...resto } = versionesPrevias[0];
-        resultadoMes.push({ ...resto, mes: mesActualStr });
+        resultadoMes.push({ ...resto, mes: mesActualStr, esProyectado: true });
         continue;
       }
 
-      // 3. Si no hay versiones previas con mes, buscar versión base/legacy (sin mes o mes vacío)
+      // 4. Si no hay versiones previas con mes, buscar versión base/legacy (sin mes o mes vacío)
       const versionSinMes = versiones.find(v => !v.mes || String(v.mes).trim() === '' || !normalizarMes(v.mes));
       if (versionSinMes) {
-        resultadoMes.push({ ...versionSinMes, mes: mesActualStr });
+        resultadoMes.push({ ...versionSinMes, mes: mesActualStr, esProyectado: true });
         continue;
       }
 
-      // 4. Si solo existen versiones en meses posteriores (creado a futuro), tomar la más temprana
+      // 5. Si solo existen versiones en meses posteriores (creado a futuro), tomar la más temprana
       if (versionesConMes.length > 0) {
         versionesConMes.sort((a, b) => a.mesNorm.localeCompare(b.mesNorm)); // Ascendente
         const { mesNorm, ...resto } = versionesConMes[0];
-        resultadoMes.push({ ...resto, mes: mesActualStr });
+        resultadoMes.push({ ...resto, mes: mesActualStr, esProyectado: true });
         continue;
       }
 
       // Fallback final
-      resultadoMes.push({ ...versiones[0], mes: mesActualStr });
+      resultadoMes.push({ ...versiones[0], mes: mesActualStr, esProyectado: true });
     }
 
     return resultadoMes;
