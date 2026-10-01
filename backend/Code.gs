@@ -217,7 +217,7 @@ function doGet(e) {
     let responseData = {};
 
     if (action === 'ping') {
-      responseData = { success: true, message: 'PWA Financial API en línea', timestamp: new Date(), version: '7.5' };
+      responseData = { success: true, message: 'PWA Financial API en línea', timestamp: new Date(), version: '7.6' };
     } else if (action === 'getAll') {
       const ss = SpreadsheetApp.getActiveSpreadsheet();
       const cards = getCardsConfig_();
