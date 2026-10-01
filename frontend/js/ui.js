@@ -145,7 +145,8 @@
           if (api && typeof api.fetchSheetsInfo === 'function') {
             await api.fetchSheetsInfo();
             this.renderSheetSelectors();
-            this.showToast('Pestañas de Google Sheets actualizadas', 'success');
+            if (window.loadAppData) await window.loadAppData();
+            this.showToast('Pestañas y datos actualizados desde Google Sheets', 'success');
           }
           btnRecRefreshSheets.classList.remove('animate-spin');
         });
@@ -296,10 +297,19 @@
         }
       });
 
-      // Si se abre la pestaña de fijos recurrentes, refrescar lista
-      if (viewId === 'view-recurrentes' && window.cachedRecurrentes) {
-        const mesActivo = (window.AppState && window.AppState.selectedMonth) || window.cachedRecurrentesMes;
-        this.renderRecurrentesList(window.cachedRecurrentes, mesActivo, window.cachedRecurrentesEstadoMes);
+      // Si se abre la pestaña de fijos recurrentes, refrescar selector y lista
+      if (viewId === 'view-recurrentes') {
+        this.renderSheetSelectors();
+        const api = window.ApiService || window.api;
+        if (api && typeof api.fetchSheetsInfo === 'function') {
+          api.fetchSheetsInfo().then(() => {
+            this.renderSheetSelectors();
+          });
+        }
+        if (window.cachedRecurrentes) {
+          const mesActivo = (window.AppState && window.AppState.selectedMonth) || window.cachedRecurrentesMes;
+          this.renderRecurrentesList(window.cachedRecurrentes, mesActivo, window.cachedRecurrentesEstadoMes);
+        }
       }
 
       // Redibujar gráficos y presupuestos si se abre la pestaña de gráficos
@@ -2923,7 +2933,15 @@
       if (!api) return;
 
       const currentSheet = api.getSheetFijosName ? api.getSheetFijosName() : '';
-      const allSheets = window.allSheets || (window.lastApiDebug && window.lastApiDebug.allSheets) || [];
+      let allSheets = window.allSheets || (window.lastApiDebug && window.lastApiDebug.allSheets);
+      if (!allSheets || !allSheets.length) {
+        try {
+          const cached = localStorage.getItem('finanzas_all_sheets');
+          if (cached) allSheets = JSON.parse(cached);
+        } catch (e) {}
+      }
+      allSheets = allSheets || [];
+
       const activeSheetFijos = (window.lastApiDebug && window.lastApiDebug.activeSheetFijos) || currentSheet || 'Auto-detectada';
 
       // 1. Selector en vista de Fijos (view-recurrentes)
