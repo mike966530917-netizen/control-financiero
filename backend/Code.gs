@@ -234,7 +234,7 @@ function doGet(e) {
       
       responseData = {
         success: true,
-        version: '7.5',
+        version: '7.6',
         cards: cards,
         transactions: transactions,
         budgets: budgets,
@@ -252,7 +252,7 @@ function doGet(e) {
       const allS = SpreadsheetApp.getActiveSpreadsheet().getSheets();
       responseData = {
         success: true,
-        version: '7.5',
+        version: '7.6',
         sheets: allS.map(s => ({
           name: s.getName(),
           rows: s.getLastRow(),
