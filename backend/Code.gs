@@ -26,13 +26,17 @@ const SHEETS = {
 function onOpen() {
   try {
     const ui = SpreadsheetApp.getUi();
-    ui.createMenu('💰 Control Financiero')
-      .addItem('📊 Organizar Fijos en Formato Matriz (Mes a Mes)', 'crearOFormatearMatrizRecurrente')
+    ui.createMenu('⚡ Finanzas')
+      .addItem('📊 Convertir / Formatear Matriz de Fijos (Mes a Mes)', 'crearOFormatearMatrizRecurrente')
       .addItem('📋 Generar Extracto de Categoría en este Sheet', 'menuGenerarExtracto')
-      .addItem('🔄 Organizar Fijos por Mes (Columna Mes vertical)', 'organizarRecurrentesPorMes')
+      .addItem('⚙️ Inicializar / Reparar Todas las Pestañas', 'setupSheets')
       .addItem('📂 Organizar Transacciones en 3 Pestañas (Ingresos / Efectivo / TC)', 'migrarTransaccionesATresHojas')
       .addItem('📊 Consolidar Meses Pasados en este Sheet', 'consolidarMesesPasados')
-      .addItem('⚙️ Inicializar / Reparar Pestañas', 'setupSheets')
+      .addToUi();
+
+    ui.createMenu('💰 Control Financiero')
+      .addItem('📊 Convertir / Formatear Matriz de Fijos (Mes a Mes)', 'crearOFormatearMatrizRecurrente')
+      .addItem('⚙️ Inicializar / Reparar Todas las Pestañas', 'setupSheets')
       .addToUi();
   } catch (e) {
     // Si se ejecuta sin interfaz interactiva
@@ -157,20 +161,8 @@ function setupSheets() {
     sheetBudgets.setFrozenRows(1);
   }
 
-  // 6. Pestaña RECURRENTES (Movimientos fijos organizados por mes)
-  let sheetRec = getRecurrentesSheet_(ss, false);
-  const recHeaders = ['Mes', 'ID', 'Nombre', 'Tipo', 'Monto', 'Categoria', 'Metodo_Pago', 'Dia_Mes', 'Activo', 'Notas'];
-  if (!sheetRec) {
-    sheetRec = ss.insertSheet(SHEETS.RECURRENTES);
-    sheetRec.appendRow(recHeaders);
-    formatHeaderRow(sheetRec, '#6366f1', '#ffffff');
-    sheetRec.setFrozenRows(1);
-    sheetRec.getRange(2, 5, 100, 1).setNumberFormat('#,##0.00');
-  } else if (sheetRec.getLastRow() === 0) {
-    sheetRec.appendRow(recHeaders);
-    formatHeaderRow(sheetRec, '#6366f1', '#ffffff');
-    sheetRec.setFrozenRows(1);
-  }
+  // 6. Pestaña RECURRENTES (Matriz Horizontal Mes a Mes)
+  crearOFormatearMatrizRecurrente(false);
 
   // Si la pestaña TRANSACCIONES tiene datos y las 3 pestañas especializadas están vacías, migrar y ordenar
   if (sheetTx && sheetTx.getLastRow() > 1 && 
@@ -225,7 +217,7 @@ function doGet(e) {
     let responseData = {};
 
     if (action === 'ping') {
-      responseData = { success: true, message: 'PWA Financial API en línea', timestamp: new Date(), version: '7.2' };
+      responseData = { success: true, message: 'PWA Financial API en línea', timestamp: new Date(), version: '7.3' };
     } else if (action === 'getAll') {
       const ss = SpreadsheetApp.getActiveSpreadsheet();
       const cards = getCardsConfig_();
@@ -242,7 +234,7 @@ function doGet(e) {
       
       responseData = {
         success: true,
-        version: '7.2',
+        version: '7.3',
         cards: cards,
         transactions: transactions,
         budgets: budgets,
@@ -260,7 +252,7 @@ function doGet(e) {
       const allS = SpreadsheetApp.getActiveSpreadsheet().getSheets();
       responseData = {
         success: true,
-        version: '7.2',
+        version: '7.3',
         sheets: allS.map(s => ({
           name: s.getName(),
           rows: s.getLastRow(),
@@ -282,7 +274,7 @@ function doGet(e) {
       const candidateSheets = getCandidateRecurrentesSheets_(ss, sheetFijos);
       responseData = {
         success: true,
-        version: '7.2',
+        version: '7.3',
         recurrentes: recs,
         debug: {
           activeSheetFijos: sheetFijos || (candidateSheets.length > 0 ? candidateSheets[0].getName() : 'recurrente'),
@@ -296,6 +288,8 @@ function doGet(e) {
         success: true,
         closedMonths: getClosedMonths_()
       };
+    } else if (action === 'crearOFormatearMatrizRecurrente') {
+      responseData = crearOFormatearMatrizRecurrente(false);
     } else {
       responseData = { success: false, error: 'Acción no reconocida' };
     }
@@ -669,15 +663,8 @@ function getRecurrentesSheet_(ss, autoCreate = false, preferredSheetName = '') {
   if (candidates.length > 0) return candidates[0];
 
   if (autoCreate) {
-    const targetName = preferredSheetName || 'recurrente';
-    let sheet = ss.insertSheet(targetName);
-    const headers = ['Mes', 'ID', 'Nombre', 'Tipo', 'Monto', 'Categoria', 'Metodo_Pago', 'Dia_Mes', 'Activo', 'Notas'];
-    sheet.appendRow(headers);
-    formatHeaderRow(sheet, '#6366f1', '#ffffff');
-    sheet.setFrozenRows(1);
-    sheet.getRange(2, 5, 100, 1).setNumberFormat('#,##0.00');
-    SpreadsheetApp.flush();
-    return sheet;
+    crearOFormatearMatrizRecurrente(false);
+    return ss.getSheetByName('recurrente') || ss.getSheetByName(SHEETS.RECURRENTES) || ss.getSheetByName('RECURRENTES');
   }
   return null;
 }
@@ -1297,13 +1284,16 @@ function consolidarMesesPasados(mostrarAlerta = true) {
  */
 function ensureRecurrentesMesColumn_(sheet) {
   if (!sheet) return false;
-  if (sheet.getLastRow() === 0) return false;
+  if (sheet.getLastRow() === 0) {
+    crearOFormatearMatrizRecurrente(false);
+    return false;
+  }
   const lastCol = sheet.getLastColumn();
   const rawHeaders = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
   const headers = rawHeaders.map(h => String(h || '').trim().toLowerCase());
 
   // Si la hoja ya tiene formato MATRICIAL (columnas de meses en el encabezado: Oct-26, Set-26, etc.),
-  // NUNCA insertar columna Mes en Col A porque destruiría el formato matricial.
+  // NUNCA insertar columna Mes en Col A.
   const currentYear = new Date().getFullYear();
   let hasMonthColumns = false;
   for (let c = 0; c < rawHeaders.length; c++) {
@@ -1314,6 +1304,13 @@ function ensureRecurrentesMesColumn_(sheet) {
     }
   }
   if (hasMonthColumns) return false;
+
+  // Si tiene Concepto y Categoria pero aún no tiene columnas de mes, convertir a matriz directamente
+  const hasConcepto = headers.some(h => h.includes('concepto') || h.includes('nombre'));
+  if (hasConcepto) {
+    crearOFormatearMatrizRecurrente(false);
+    return false;
+  }
 
   const colMes = headers.findIndex(h => h.includes('mes') || h.includes('periodo') || h.includes('fecha'));
   if (colMes === -1) {
@@ -1332,59 +1329,208 @@ function ensureRecurrentesMesColumn_(sheet) {
  */
 function crearOFormatearMatrizRecurrente(mostrarAlerta = true) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName('recurrente') || ss.getSheetByName('RECURRENTES');
+  let sheet = ss.getSheetByName('recurrente') || ss.getSheetByName(SHEETS.RECURRENTES) || ss.getSheetByName('RECURRENTES');
   const hoyYear = new Date().getFullYear();
 
   if (!sheet) {
     sheet = ss.insertSheet('recurrente');
   }
 
+  const cleanStr = (s) => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const data = sheet.getDataRange().getValues();
-  const rawHeaders = data.length > 0 ? data[0] : [];
-  const monthCols = [];
+  const rawHeaders = (data && data.length > 0) ? data[0] : [];
+  
+  // Detección de columnas de meses ya existentes
+  const existingMonthCols = [];
   for (let c = 0; c < rawHeaders.length; c++) {
     const parsedH = parseMesString_(rawHeaders[c], hoyYear);
     if (/^\d{4}-\d{2}$/.test(parsedH)) {
-      monthCols.push({ colIndex: c + 1, mes: parsedH });
+      existingMonthCols.push({ colIndex: c + 1, mes: parsedH, rawName: String(rawHeaders[c]) });
     }
   }
 
-  if (monthCols.length >= 2) {
+  // Lista de meses que deben estar presentes (desde mes anterior hasta +5 meses futuros)
+  const hoy = new Date();
+  const mesesDeseados = [];
+  const nombresMesesCortos = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Set', 'Oct', 'Nov', 'Dic'];
+  
+  for (let offset = -1; offset <= 5; offset++) {
+    const d = new Date(hoy.getFullYear(), hoy.getMonth() + offset, 1);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const label = `${nombresMesesCortos[d.getMonth()]}-${String(yyyy).slice(2)}`;
+    mesesDeseados.push({ mes: `${yyyy}-${mm}`, label: label });
+  }
+
+  // CASO 1: Si la hoja ya es una matriz (tiene 2 o más columnas de mes en el encabezado)
+  if (existingMonthCols.length >= 2) {
+    let colActual = sheet.getLastColumn();
+    let nuevasColumnasAgregadas = 0;
+    
+    mesesDeseados.forEach(md => {
+      const existe = existingMonthCols.some(mc => mc.mes === md.mes);
+      if (!existe) {
+        colActual++;
+        sheet.getRange(1, colActual).setValue(md.label);
+        sheet.getRange(1, colActual).setBackground('#6366f1').setFontColor('#ffffff').setFontWeight('bold').setHorizontalAlignment('center');
+        nuevasColumnasAgregadas++;
+      }
+    });
+
     if (mostrarAlerta) {
       try {
-        SpreadsheetApp.getUi().alert('Formato Matricial Confirmado', `La hoja "${sheet.getName()}" ya tiene ${monthCols.length} columnas de meses configuradas.`, SpreadsheetApp.getUi().ButtonSet.OK);
+        SpreadsheetApp.getUi().alert('Formato Matricial Confirmado', `La hoja "${sheet.getName()}" ya cuenta con formato matricial (${existingMonthCols.length + nuevasColumnasAgregadas} columnas de meses).`, SpreadsheetApp.getUi().ButtonSet.OK);
       } catch (e) {}
     }
-    return { success: true, count: monthCols.length };
+    return { success: true, count: existingMonthCols.length + nuevasColumnasAgregadas, matrix: true };
   }
 
-  const nombresMesesCortos = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Set', 'Oct', 'Nov', 'Dic'];
-  const hoy = new Date();
-  const mesesGenerar = [];
-  for (let offset = -1; offset <= 4; offset++) {
-    const d = new Date(hoy.getFullYear(), hoy.getMonth() + offset, 1);
-    const mNum = d.getMonth() + 1;
-    const yStr = String(d.getFullYear()).slice(2);
-    mesesGenerar.push(`${nombresMesesCortos[mNum - 1]}-${yStr}`);
+  // CASO 2: Si NO es matriz (hoja vacía o con formato vertical antiguo) -> CONVERTIR A MATRIZ
+  const itemsMap = new Map(); // ConceptoKey -> { concepto, categoria, tipo, metodo, dia, montosPorMes: {}, baseMonto: 0 }
+
+  if (data.length > 1) {
+    const headerRow = rawHeaders.map(h => cleanStr(h));
+    const colConcepto = headerRow.findIndex(h => h.indexOf('nombre') !== -1 || h.indexOf('concepto') !== -1 || h.indexOf('descrip') !== -1 || h.indexOf('detalle') !== -1 || h.indexOf('servicio') !== -1 || h.indexOf('item') !== -1 || h.indexOf('gasto') !== -1);
+    const colCategoria = headerRow.findIndex(h => h.indexOf('cat') !== -1 || h.indexOf('rubro') !== -1);
+    const colTipo = headerRow.findIndex(h => h.indexOf('tipo') !== -1 || h.indexOf('clase') !== -1 || h.indexOf('flujo') !== -1);
+    const colMetodo = headerRow.findIndex(h => h.indexOf('metodo') !== -1 || h.indexOf('pago') !== -1 || h.indexOf('medio') !== -1 || h.indexOf('cuenta') !== -1 || h.indexOf('tarjeta') !== -1);
+    const colDia = headerRow.findIndex(h => h.indexOf('dia') !== -1);
+    const colMonto = headerRow.findIndex(h => h.indexOf('monto') !== -1 || h.indexOf('importe') !== -1 || h.indexOf('total') !== -1 || h.indexOf('valor') !== -1 || h.indexOf('precio') !== -1 || h.indexOf('costo') !== -1 || h.indexOf('soles') !== -1 || h.indexOf('s/') !== -1);
+    const colMes = headerRow.findIndex(h => h.indexOf('mes') !== -1 || h.indexOf('periodo') !== -1 || h.indexOf('fecha') !== -1);
+
+    for (let r = 1; r < data.length; r++) {
+      const row = data[r];
+      if (!row || row.every(c => c === '' || c === null || c === undefined)) continue;
+
+      let nom = (colConcepto >= 0 && row[colConcepto]) ? String(row[colConcepto]).trim() : '';
+      if (!nom) {
+        for (let c = 0; c < row.length; c++) {
+          if (c === colMes || c === colMonto) continue;
+          const val = String(row[c] || '').trim();
+          if (val && isNaN(Number(val)) && val.length > 1 && !/^\d{4}[-/]\d{2}$/.test(val)) {
+            nom = val;
+            break;
+          }
+        }
+      }
+      if (!nom) continue;
+
+      let cat = (colCategoria >= 0 && row[colCategoria]) ? String(row[colCategoria]).trim() : 'Servicios';
+      let rawTipo = (colTipo >= 0 && row[colTipo]) ? cleanStr(row[colTipo]) : '';
+      let tipo = (rawTipo.indexOf('ingreso') !== -1 || rawTipo.indexOf('sueldo') !== -1) ? 'Ingreso_Fijo' : 'Gasto_Fijo';
+      let metodo = (colMetodo >= 0 && row[colMetodo]) ? String(row[colMetodo]).trim() : 'Efectivo';
+      
+      let dia = 1;
+      if (colDia >= 0 && row[colDia]) {
+        const d = parseInt(row[colDia], 10);
+        if (!isNaN(d) && d >= 1 && d <= 31) dia = d;
+      }
+
+      let monto = 0;
+      if (colMonto >= 0 && row[colMonto] !== undefined && row[colMonto] !== null) {
+        const rawM = row[colMonto];
+        if (typeof rawM === 'number') monto = Math.abs(rawM);
+        else {
+          const s = String(rawM).trim().replace(/[^0-9.,-]/g, '').replace(',', '.');
+          const num = parseFloat(s);
+          if (!isNaN(num)) monto = Math.abs(num);
+        }
+      }
+
+      let rowMes = '';
+      if (colMes >= 0 && row[colMes]) {
+        rowMes = parseMesString_(row[colMes], hoyYear);
+      }
+
+      const key = `${cleanStr(nom)}_${tipo}`;
+      if (!itemsMap.has(key)) {
+        itemsMap.set(key, {
+          concepto: nom,
+          categoria: cat,
+          tipo: tipo,
+          metodo: metodo,
+          dia: dia,
+          montosPorMes: {},
+          baseMonto: monto
+        });
+      }
+
+      const entry = itemsMap.get(key);
+      if (rowMes && /^\d{4}-\d{2}$/.test(rowMes)) {
+        entry.montosPorMes[rowMes] = monto;
+      }
+      if (monto > 0 && entry.baseMonto === 0) {
+        entry.baseMonto = monto;
+      }
+    }
   }
 
-  const baseHeaders = ['Concepto', 'Categoria', 'Tipo', 'Metodo_Pago', 'Dia_Mes', ...mesesGenerar];
-  
-  if (data.length <= 1) {
-    sheet.clear();
-    sheet.appendRow(baseHeaders);
-    formatHeaderRow(sheet, '#6366f1', '#ffffff');
-    sheet.setFrozenRows(1);
-    sheet.setFrozenColumns(2);
+  // Si la hoja estaba totalmente vacía o sin registros válidos, usar plantilla inicial
+  if (itemsMap.size === 0) {
+    const starterItems = [
+      { concepto: 'Sueldo Principal', categoria: 'Ingresos', tipo: 'Ingreso_Fijo', metodo: 'Transferencia', dia: 25, baseMonto: 4500, montosPorMes: {} },
+      { concepto: 'Alquiler', categoria: 'Vivienda', tipo: 'Gasto_Fijo', metodo: 'Transferencia', dia: 1, baseMonto: 1200, montosPorMes: {} },
+      { concepto: 'Luz del Sur', categoria: 'Servicios', tipo: 'Gasto_Fijo', metodo: 'Débito', dia: 15, baseMonto: 95, montosPorMes: {} },
+      { concepto: 'Agua Sedapal', categoria: 'Servicios', tipo: 'Gasto_Fijo', metodo: 'Débito', dia: 18, baseMonto: 45, montosPorMes: {} },
+      { concepto: 'Internet Fibra', categoria: 'Servicios', tipo: 'Gasto_Fijo', metodo: 'BCP', dia: 20, baseMonto: 100, montosPorMes: {} }
+    ];
+    starterItems.forEach(it => itemsMap.set(`${cleanStr(it.concepto)}_${it.tipo}`, it));
+  }
+
+  // Encabezados de la matriz: Concepto | Categoria | Tipo | Metodo_Pago | Dia_Mes | Set-26 | Oct-26 ...
+  const headers = ['Concepto', 'Categoria', 'Tipo', 'Metodo_Pago', 'Dia_Mes', ...mesesDeseados.map(m => m.label)];
+  const rows = [headers];
+
+  itemsMap.forEach(item => {
+    const rowValues = [
+      item.concepto,
+      item.categoria,
+      item.tipo,
+      item.metodo,
+      item.dia
+    ];
+
+    // Para cada mes, determinar el monto aplicable
+    let ultimoMonto = item.baseMonto || 0;
+    mesesDeseados.forEach(md => {
+      let mVal = item.montosPorMes[md.mes];
+      if (mVal !== undefined) {
+        ultimoMonto = mVal;
+      }
+      rowValues.push(ultimoMonto > 0 ? ultimoMonto : '');
+    });
+
+    rows.push(rowValues);
+  });
+
+  // Limpiar y escribir la matriz completa
+  sheet.clear();
+  sheet.getRange(1, 1, rows.length, headers.length).setValues(rows);
+
+  // Formato visual profesional
+  formatHeaderRow(sheet, '#6366f1', '#ffffff');
+  sheet.setFrozenRows(1);
+  sheet.setFrozenColumns(2);
+
+  // Formato numérico en todas las celdas de meses
+  if (rows.length > 1 && headers.length >= 6) {
+    sheet.getRange(2, 6, rows.length - 1, headers.length - 5).setNumberFormat('#,##0.00');
+  }
+
+  // Ajuste de ancho de columnas
+  for (let c = 1; c <= headers.length; c++) {
+    try { sheet.autoResizeColumn(c); } catch (e) {}
   }
 
   SpreadsheetApp.flush();
+
   if (mostrarAlerta) {
     try {
-      SpreadsheetApp.getUi().alert('Matriz Inicializada', `Se ha preparado la pestaña "${sheet.getName()}" con formato matricial de columnas por mes.`, SpreadsheetApp.getUi().ButtonSet.OK);
+      SpreadsheetApp.getUi().alert('Matriz Creada Exitosamente', `Se ha generado la matriz de fijos en la pestaña "${sheet.getName()}" con ${itemsMap.size} conceptos y ${mesesDeseados.length} columnas mensuales.`, SpreadsheetApp.getUi().ButtonSet.OK);
     } catch (e) {}
   }
-  return { success: true };
+
+  return { success: true, conceptosCount: itemsMap.size, mesesCount: mesesDeseados.length, matrix: true };
 }
 
 /**

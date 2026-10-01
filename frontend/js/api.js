@@ -273,10 +273,22 @@
           body: JSON.stringify({ action: 'crearOFormatearMatrizRecurrente', sheetFijos: this.getSheetFijosName() }),
           redirect: 'follow'
         });
-        return await res.json();
+        const data = await res.json();
+        if (data && data.success) return data;
       } catch (err) {
-        console.warn('[API] Error al formatear matriz de fijos en Sheets:', err);
-        return { success: false, error: err.message };
+        console.warn('[API] Reintentando formatear matriz con GET...', err);
+      }
+
+      // Fallback via GET
+      try {
+        const url = new URL(this.apiUrl);
+        url.searchParams.set('action', 'crearOFormatearMatrizRecurrente');
+        url.searchParams.set('t', Date.now());
+        const resGet = await fetch(url.toString(), { method: 'GET', mode: 'cors' });
+        return await resGet.json();
+      } catch (err2) {
+        console.warn('[API] Error al formatear matriz de fijos en Sheets:', err2);
+        return { success: false, error: err2.message };
       }
     }
 

@@ -224,12 +224,12 @@
     if (syncBadge) {
       if (source === 'remote') {
         const v = window.lastApiVersion;
-        if (v && v !== '7.2') {
+        if (v && v !== '7.3') {
           syncBadge.textContent = `● Sheets (v${v} - Desactualizado)`;
           syncBadge.className = 'text-[11px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 cursor-pointer';
-          syncBadge.title = 'Tu Google Apps Script no tiene la versión v7.2. Crea una Nueva Versión en Implementar.';
+          syncBadge.title = 'Tu Google Apps Script no tiene la versión v7.3. Crea una Nueva Versión en Implementar.';
         } else {
-          syncBadge.textContent = '● Sheets Conectado (v7.2)';
+          syncBadge.textContent = '● Sheets Conectado (v7.3)';
           syncBadge.className = 'text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 cursor-pointer';
         }
       } else {
@@ -920,6 +920,29 @@
         UIManager.showToast('Configuración guardada', 'success');
         modal.classList.add('hidden');
         await loadAppData();
+      });
+    }
+
+    const btnCrearMatriz = document.getElementById('btn-crear-matriz-fijos');
+    if (btnCrearMatriz) {
+      btnCrearMatriz.addEventListener('click', async () => {
+        btnCrearMatriz.disabled = true;
+        const prevHtml = btnCrearMatriz.innerHTML;
+        btnCrearMatriz.innerHTML = '<span>⏳</span> Generando Matriz...';
+        try {
+          const res = await ApiService.crearOFormatearMatrizRecurrente();
+          if (res && res.success) {
+            UIManager.showToast('✅ Matriz generada exitosamente en Google Sheets', 'success');
+            await loadAppData();
+          } else {
+            UIManager.showToast('⚠️ Error al formatear: ' + (res.error || 'Revisa tu Google Sheet'), 'warning');
+          }
+        } catch (e) {
+          UIManager.showToast('❌ Error: ' + e.message, 'error');
+        } finally {
+          btnCrearMatriz.disabled = false;
+          btnCrearMatriz.innerHTML = prevHtml;
+        }
       });
     }
 
