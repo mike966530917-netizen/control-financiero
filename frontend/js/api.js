@@ -655,6 +655,26 @@
     }
 
     /**
+     * Prueba directa del endpoint de Fijos/Recurrentes para diagnóstico inmediato
+     */
+    async testRecurrentesDirect() {
+      if (!this.apiUrl) {
+        return { success: false, error: 'URL de Apps Script no configurada' };
+      }
+      try {
+        const sheetFijos = this.getSheetFijosName() || 'RECURRENTES';
+        const url = `${this.apiUrl}${this.apiUrl.includes('?') ? '&' : '?'}action=getRecurrentes&sheetFijos=${encodeURIComponent(sheetFijos)}&t=${Date.now()}`;
+        const res = await fetch(url, { method: 'GET', redirect: 'follow', cache: 'no-store' });
+        const json = await res.json();
+        if (json.version) window.lastApiVersion = json.version;
+        if (json.debug) window.lastApiDebug = json.debug;
+        return json;
+      } catch (err) {
+        return { success: false, error: err.message };
+      }
+    }
+
+    /**
      * Guarda una transacción tanto en local como en Sheets
      */
     async saveTransaction(preparedTx) {

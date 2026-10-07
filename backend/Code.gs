@@ -217,7 +217,7 @@ function doGet(e) {
     let responseData = {};
 
     if (action === 'ping') {
-      responseData = { success: true, message: 'PWA Financial API en línea', timestamp: new Date(), version: '8.1' };
+      responseData = { success: true, message: 'PWA Financial API en línea', timestamp: new Date(), version: '8.2' };
     } else if (action === 'getAll') {
       const ss = SpreadsheetApp.getActiveSpreadsheet();
       const cards = getCardsConfig_();
@@ -234,17 +234,19 @@ function doGet(e) {
       
       responseData = {
         success: true,
-        version: '8.1',
+        version: '8.2',
         cards: cards,
         transactions: transactions,
         budgets: budgets,
         recurrentes: recurrentes,
         closedMonths: closedMonths,
         debug: {
-          activeSheetFijos: sheetFijos || (candidateSheets.length > 0 ? candidateSheets[0].getName() : 'recurrentes'),
-          detectedSheets: candidateSheets.map(s => ({ name: s.getName(), rows: s.getLastRow() })),
+          backendVersion: '8.2',
+          activeSheetFijos: sheetFijos || (candidateSheets.length > 0 ? candidateSheets[0].getName() : 'RECURRENTES'),
+          detectedSheets: candidateSheets.map(s => ({ name: s.getName(), rows: s.getLastRow(), cols: s.getLastColumn() })),
           allSheets: allSheetsInfo,
-          recurrentesCount: recurrentes.length
+          recurrentesCount: recurrentes.length,
+          sampleRecurrentes: recurrentes.slice(0, 5)
         },
         spreadsheetUrl: ss.getUrl()
       };
@@ -252,7 +254,7 @@ function doGet(e) {
       const allS = SpreadsheetApp.getActiveSpreadsheet().getSheets();
       responseData = {
         success: true,
-        version: '8.1',
+        version: '8.2',
         sheets: allS.map(s => ({
           name: s.getName(),
           rows: s.getLastRow(),
@@ -266,6 +268,7 @@ function doGet(e) {
     } else if (action === 'getBudgets') {
       responseData = {
         success: true,
+        version: '8.2',
         budgets: getBudgetsConfig_()
       };
     } else if (action === 'getRecurrentes') {
@@ -274,13 +277,15 @@ function doGet(e) {
       const candidateSheets = getCandidateRecurrentesSheets_(ss, sheetFijos);
       responseData = {
         success: true,
-        version: '8.1',
+        version: '8.2',
         recurrentes: recs,
         debug: {
-          activeSheetFijos: sheetFijos || (candidateSheets.length > 0 ? candidateSheets[0].getName() : 'recurrentes'),
-          detectedSheets: candidateSheets.map(s => ({ name: s.getName(), rows: s.getLastRow() })),
+          backendVersion: '8.2',
+          activeSheetFijos: sheetFijos || (candidateSheets.length > 0 ? candidateSheets[0].getName() : 'RECURRENTES'),
+          detectedSheets: candidateSheets.map(s => ({ name: s.getName(), rows: s.getLastRow(), cols: s.getLastColumn() })),
           allSheets: ss.getSheets().map(s => ({ name: s.getName(), rows: s.getLastRow(), cols: s.getLastColumn() })),
-          recurrentesCount: recs.length
+          recurrentesCount: recs.length,
+          sampleRecurrentes: recs.slice(0, 5)
         }
       };
     } else if (action === 'getClosedMonths') {
@@ -500,8 +505,14 @@ function parseMesString_(val, defaultYear) {
       const ss = SpreadsheetApp.getActiveSpreadsheet();
       if (ss) tz = ss.getSpreadsheetTimeZone() || tz;
     } catch (e) {}
-    // Para evitar que las 00:00:00 de inicio de mes retrocedan al mes anterior en UTC/GMT-5,
-    // sumamos 12 horas antes de formatear
+
+    // En hojas en español, escribir 'Set-26' a menudo hace que Sheets lo interprete como día 26
+    // del mes actual/creación (ej: 26 de septiembre de 2024 en vez de septiembre 2026).
+    const day = val.getDate();
+    const month = Utilities.formatDate(val, tz, 'MM');
+    if (day >= 26 && day <= 35) {
+      return `20${day}-${month}`;
+    }
     const safeDate = new Date(val.getTime() + 12 * 3600 * 1000);
     return Utilities.formatDate(safeDate, tz, 'yyyy-MM');
   }
@@ -575,7 +586,7 @@ function parseMesString_(val, defaultYear) {
     }
   }
 
-  // 7. Abreviaturas de meses (3 letras) con delimitadores estrictos para evitar falsos positivos
+  // 7. Abreviaturas de meses (3 letras) y nombres comunes con soporte directo para Set-26, oct-26, ene-27...
   const mesesAbrev = {
     'ene': '01', 'jan': '01',
     'feb': '02',
@@ -585,11 +596,35 @@ function parseMesString_(val, defaultYear) {
     'jun': '06',
     'jul': '07',
     'ago': '08', 'aug': '08',
-    'sep': '09', 'set': '09',
+    'sep': '09', 'set': '09', 'sept': '09',
     'oct': '10',
     'nov': '11',
     'dic': '12', 'dec': '12'
   };
+
+  // Patrón A: Mes + Año de 2 o 4 dígitos (ej: 'Set-26', 'oct-26', 'nov-26', 'dic-26', 'ene-27', 'mar-27', 'oct 2026')
+  const mA = lowerRaw.match(/(ene|jan|feb|mar|abr|apr|may|jun|jul|ago|aug|sep|set|sept|oct|nov|dic|dec)[^\d]*(\d{2,4})/);
+  if (mA) {
+    const mesCode = mesesAbrev[mA[1]] || '01';
+    let yr = mA[2];
+    if (yr.length === 2) {
+      const y2 = parseInt(yr, 10);
+      yr = (y2 >= 20 && y2 <= 40) ? `20${y2}` : `${dYear}`;
+    }
+    return `${yr}-${mesCode}`;
+  }
+
+  // Patrón B: Año de 2 o 4 dígitos + Mes (ej: '26-set', '27-ene', '2026-oct')
+  const mB = lowerRaw.match(/(\d{2,4})[^\d]*(ene|jan|feb|mar|abr|apr|may|jun|jul|ago|aug|sep|set|sept|oct|nov|dic|dec)/);
+  if (mB) {
+    const mesCode = mesesAbrev[mB[2]] || '01';
+    let yr = mB[1];
+    if (yr.length === 2) {
+      const y2 = parseInt(yr, 10);
+      yr = (y2 >= 20 && y2 <= 40) ? `20${y2}` : `${dYear}`;
+    }
+    return `${yr}-${mesCode}`;
+  }
 
   for (const [nom, mm] of Object.entries(mesesAbrev)) {
     const rx = new RegExp('(^|[\\s\\-_/.])' + nom + '([\\s\\-_/.0-9]|$)', 'i');
@@ -793,13 +828,46 @@ function getRecurrentesConfig_(preferredSheetName = '') {
 
     const monthCols = [];
     for (let c = 0; c < rawHeaders.length; c++) {
-      let parsedH = parseMesString_(rawHeaders[c], currentYear);
-      if (!/^\d{4}-\d{2}$/.test(parsedH) && displayData && displayData[headerIdx]) {
-        parsedH = parseMesString_(displayData[headerIdx][c], currentYear);
+      // 1. PRIORIZAR EL TEXTO VISUAL (displayData) porque es el formato fiel escrito por el usuario (ej: 'Set-26', 'oct-26', 'ene-27')
+      const dispVal = (displayData && displayData[headerIdx]) ? String(displayData[headerIdx][c] || '').trim() : '';
+      let parsedH = '';
+      if (dispVal) {
+        parsedH = parseMesString_(dispVal, currentYear);
+      }
+      // 2. Si no se resolvió con displayData, probar con el valor crudo
+      if (!/^\d{4}-\d{2}$/.test(parsedH) && rawHeaders[c]) {
+        parsedH = parseMesString_(rawHeaders[c], currentYear);
       }
       if (/^\d{4}-\d{2}$/.test(parsedH)) {
-        const rawLabel = String((displayData && displayData[headerIdx]) ? displayData[headerIdx][c] : rawHeaders[c]);
+        const rawLabel = dispVal || String(rawHeaders[c] || '');
         monthCols.push({ colIndex: c, mes: parsedH, rawName: rawLabel });
+      }
+    }
+
+    // 3. RECUPERACIÓN DE EMERGENCIA PARA MATRIZ SI NO SE DETECTARON MESES POR ENCABEZADOS:
+    // Si la hoja tiene más de 5 columnas y las filas de datos tienen números a partir de la col 5
+    if (monthCols.length === 0 && rawHeaders.length > 5) {
+      let colsConImportes = 0;
+      for (let c = 5; c < rawHeaders.length; c++) {
+        let colHasNum = false;
+        for (let r = headerIdx + 1; r < Math.min(headerIdx + 6, data.length); r++) {
+          if (parseNum_(data[r][c]) > 0 || (displayData && parseNum_(displayData[r][c]) > 0)) {
+            colHasNum = true;
+            break;
+          }
+        }
+        if (colHasNum) colsConImportes++;
+      }
+
+      if (colsConImportes >= 1) {
+        const sequence = ['2026-09', '2026-10', '2026-11', '2026-12', '2027-01', '2027-02', '2027-03', '2027-04', '2027-05', '2027-06'];
+        for (let c = 5; c < rawHeaders.length; c++) {
+          const idx = c - 5;
+          if (idx < sequence.length) {
+            const dispVal = (displayData && displayData[headerIdx]) ? String(displayData[headerIdx][c] || '') : String(rawHeaders[c] || '');
+            monthCols.push({ colIndex: c, mes: sequence[idx], rawName: dispVal || sequence[idx] });
+          }
+        }
       }
     }
 

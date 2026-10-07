@@ -110,7 +110,15 @@
         const recCount = AppState.recurrentes ? AppState.recurrentes.length : 0;
         const debug = window.lastApiDebug;
         const detected = debug && debug.activeSheetFijos ? debug.activeSheetFijos : ApiService.getSheetFijosName();
-        const msg = `📊 Diagnóstico de Conexión:\n• Versión Backend: ${window.lastApiVersion ? `v${window.lastApiVersion}` : 'No detectada / Local'}\n• Pestaña Fijos: "${detected}"\n• Fijos cargados: ${recCount} registros\n• Mes activo: ${AppState.selectedMonth}${window.lastApiError ? `\n• Último error: ${window.lastApiError}` : ''}\n\n¿Deseas forzar recarga ahora desde Google Sheets?`;
+        const v = window.lastApiVersion;
+        const sheetsList = debug && debug.allSheets ? debug.allSheets.map(s => `${s.name} (${s.rows}f)`).join(', ') : 'Desconocidas';
+        let msg = `📊 Diagnóstico de Conexión (v8.2):\n• Versión Backend: ${v ? `v${v}` : 'No detectada / Local'}\n• Pestaña Fijos activa: "${detected}"\n• Fijos cargados: ${recCount} registros\n• Mes activo: ${AppState.selectedMonth}\n• Pestañas en tu Sheet: ${sheetsList}${window.lastApiError ? `\n• Último error: ${window.lastApiError}` : ''}`;
+        
+        if (v && v !== '8.2') {
+          msg += `\n\n⚠️ AVISO DE VERSIÓN: Tu Apps Script tiene la versión v${v} (la app requiere v8.2 para leer los 13 fijos de RECURRENTES). Recuerda desplegar 'Nueva versión' en Implementar.`;
+        }
+        msg += `\n\n¿Deseas forzar recarga ahora desde Google Sheets?`;
+
         if (confirm(msg)) {
           syncStatusBadge.textContent = 'Actualizando...';
           await loadAppData();
@@ -230,12 +238,12 @@
     if (syncBadge) {
       if (source === 'remote') {
         const v = window.lastApiVersion;
-        if (v && v !== '8.1' && v !== '8.0') {
+        if (v && v !== '8.2') {
           syncBadge.textContent = `● Sheets (v${v} - Desactualizado)`;
           syncBadge.className = 'text-[11px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 cursor-pointer';
-          syncBadge.title = 'Tu Google Apps Script no tiene la versión v8.1. Crea una Nueva Versión en Implementar.';
+          syncBadge.title = 'Tu Google Apps Script tiene la versión v' + v + '. Despliega la Nueva Versión v8.2 en Apps Script.';
         } else {
-          syncBadge.textContent = `● Sheets Conectado (v${v || '8.1'})`;
+          syncBadge.textContent = `● Sheets Conectado (v${v || '8.2'})`;
           syncBadge.className = 'text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 cursor-pointer';
         }
       } else {

@@ -1917,25 +1917,46 @@
             ? debug.detectedSheets.map(s => `${s.name} (${s.rows} filas)`).join(', ')
             : 'Ninguna';
           const allInfo = debug && debug.allSheets ? debug.allSheets.map(s => `${s.name} (${s.rows}f)`).join(', ') : '';
-          
+          const currentVer = window.lastApiVersion || 'No detectada';
+          const isOutdated = (currentVer !== '8.2');
+
           expenseListEl.innerHTML = `
-            <div class="p-4 rounded-2xl glass-panel border border-slate-800 text-center space-y-2.5">
-              <p class="text-xs text-slate-300 font-bold">No se encontraron movimientos fijos para ${mesStr}.</p>
-              ${debug ? `
-                <div class="text-[11px] text-slate-400 bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 text-left space-y-1">
-                  <p><strong class="text-sky-400">Hoja detectada en Sheets:</strong> ${detectedInfo}</p>
-                  ${allInfo ? `<p><strong class="text-slate-300">Pestañas en tu Google Sheet:</strong> ${allInfo}</p>` : ''}
-                  <p><strong class="text-slate-300">Fijos totales leídos:</strong> ${debug.recurrentesCount || 0}</p>
+            <div class="p-4 rounded-3xl glass-panel border border-slate-800 text-center space-y-3 shadow-xl">
+              <div class="flex items-center justify-center gap-2 text-amber-400">
+                <span class="text-xl">⚠️</span>
+                <p class="text-xs font-bold text-slate-200">No se detectaron movimientos fijos en la app para ${mesStr}.</p>
+              </div>
+
+              ${isOutdated ? `
+                <div class="bg-amber-950/40 p-3 rounded-2xl border border-amber-500/30 text-left text-xs space-y-2">
+                  <p class="font-bold text-amber-300 flex items-center gap-1.5">
+                    <span>⚡</span> <span>Versión de Apps Script activa: <strong>v${currentVer}</strong></span>
+                  </p>
+                  <p class="text-slate-300 text-[11px] leading-relaxed">
+                    Tu Web App aún ejecuta una versión anterior. Para leer automáticamente tu pestaña <strong>RECURRENTES</strong> con sus 13 fijos matriciales:
+                  </p>
+                  <ol class="list-decimal list-inside text-[11px] text-amber-200/90 space-y-0.5 bg-slate-900/60 p-2 rounded-xl">
+                    <li>Abre tu Google Sheet > <strong>Extensiones > Apps Script</strong>.</li>
+                    <li>Pega el código actualizado de <strong>Code.gs (v8.2)</strong> y pulsa <strong>Guardar (💾)</strong>.</li>
+                    <li>Haz clic en <strong>Implementar > Administrar implementaciones</strong>.</li>
+                    <li>Haz clic en el lápiz <strong>✏️ (Editar)</strong>.</li>
+                    <li>En el desplegable <strong>Versión</strong>, selecciona <strong>"Nueva versión"</strong> y pulsa <strong>Implementar</strong>.</li>
+                  </ol>
                 </div>
-              ` : (window.lastApiError ? `
-                <div class="text-[11px] text-rose-300 bg-rose-950/40 p-2.5 rounded-xl border border-rose-900/40 text-left">
-                  <p><strong>Estado de Conexión:</strong> ${window.lastApiError}</p>
-                </div>
-              ` : `
-                <p class="text-[11px] text-slate-500">Si están en Google Sheets, asegúrate de haber implementado la Nueva Versión en Apps Script y pulsa Recargar.</p>
-              `)}
-              <div class="pt-1 flex justify-center gap-2">
-                <button type="button" class="btn-recargar-fijos-manual py-2 px-4 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs flex items-center gap-1.5 active:scale-95 transition shadow-lg shadow-sky-600/20">
+              ` : ''}
+
+              <div class="text-[11px] text-slate-400 bg-slate-900/80 p-3 rounded-2xl border border-slate-800 text-left space-y-1">
+                <p><strong class="text-sky-400">Versión Apps Script:</strong> v${currentVer} ${isOutdated ? '(Requiere v8.2)' : '✓ Actualizada'}</p>
+                <p><strong class="text-slate-300">Hoja detectada para fijos:</strong> ${detectedInfo}</p>
+                ${allInfo ? `<p><strong class="text-slate-300">Pestañas en tu Google Sheet:</strong> ${allInfo}</p>` : ''}
+                <p><strong class="text-slate-300">Fijos devueltos por el backend:</strong> ${debug ? (debug.recurrentesCount || 0) : 0}</p>
+              </div>
+
+              <div class="pt-1 flex flex-col sm:flex-row justify-center gap-2">
+                <button type="button" class="btn-test-fijos-live py-2 px-3 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-500/40 font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition">
+                  <span>🧪</span> <span>Probar Diagnóstico en Vivo</span>
+                </button>
+                <button type="button" class="btn-recargar-fijos-manual py-2 px-4 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 transition shadow-lg shadow-sky-600/20">
                   <span>🔄</span> <span>Recargar desde Google Sheets</span>
                 </button>
               </div>
@@ -1947,6 +1968,25 @@
           expenseListEl.innerHTML = gastos.map(r => renderItem(r, false)).join('');
         }
       }
+
+      // Evento de botón de prueba en vivo
+      document.querySelectorAll('.btn-test-fijos-live').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          btn.innerHTML = '<span>⏳</span> <span>Consultando backend...</span>';
+          const api = window.ApiService || window.api;
+          if (api && api.testRecurrentesDirect) {
+            const res = await api.testRecurrentesDirect();
+            const count = (res && Array.isArray(res.recurrentes)) ? res.recurrentes.length : 0;
+            const ver = res && res.version ? res.version : 'Sin versión';
+            const sheet = res && res.debug ? res.debug.activeSheetFijos : 'N/A';
+            const allS = res && res.debug && res.debug.allSheets ? res.debug.allSheets.map(s => s.name).join(', ') : 'N/A';
+            alert(`🧪 Resultado Diagnóstico en Vivo:\n\n• Versión Backend: v${ver}\n• Pestaña consultada: "${sheet}"\n• Fijos devueltos: ${count} registros\n• Hojas en Workbook: ${allS}\n\n${count > 0 ? '¡Conexión exitosa! Pulsa Recargar para ver los valores en pantalla.' : 'Si devuelve 0 registros, despliega la Nueva Versión v8.2 en Apps Script.'}`);
+          }
+          btn.disabled = false;
+          btn.innerHTML = '<span>🧪</span> <span>Probar Diagnóstico en Vivo</span>';
+        });
+      });
 
       // Evento de botón de recarga manual en fijos vacíos
       document.querySelectorAll('.btn-recargar-fijos-manual').forEach(btn => {
