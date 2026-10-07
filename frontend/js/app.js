@@ -105,11 +105,17 @@
 
     if (syncStatusBadge) {
       syncStatusBadge.style.cursor = 'pointer';
-      syncStatusBadge.title = 'Haz clic para refrescar datos desde Google Sheets';
+      syncStatusBadge.title = 'Haz clic para ver diagnóstico y refrescar';
       syncStatusBadge.addEventListener('click', async () => {
-        syncStatusBadge.textContent = 'Actualizando...';
-        await loadAppData();
-        UIManager.showToast('Datos sincronizados con Google Sheets', 'info');
+        const recCount = AppState.recurrentes ? AppState.recurrentes.length : 0;
+        const debug = window.lastApiDebug;
+        const detected = debug && debug.activeSheetFijos ? debug.activeSheetFijos : ApiService.getSheetFijosName();
+        const msg = `📊 Diagnóstico de Conexión:\n• Versión Backend: ${window.lastApiVersion ? `v${window.lastApiVersion}` : 'No detectada / Local'}\n• Pestaña Fijos: "${detected}"\n• Fijos cargados: ${recCount} registros\n• Mes activo: ${AppState.selectedMonth}${window.lastApiError ? `\n• Último error: ${window.lastApiError}` : ''}\n\n¿Deseas forzar recarga ahora desde Google Sheets?`;
+        if (confirm(msg)) {
+          syncStatusBadge.textContent = 'Actualizando...';
+          await loadAppData();
+          UIManager.showToast('Datos actualizados desde Google Sheets', 'info');
+        }
       });
     }
 
