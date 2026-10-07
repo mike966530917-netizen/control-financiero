@@ -306,10 +306,11 @@
             this.renderSheetSelectors();
           });
         }
-        if (window.cachedRecurrentes) {
-          const mesActivo = (window.AppState && window.AppState.selectedMonth) || window.cachedRecurrentesMes;
-          this.renderRecurrentesList(window.cachedRecurrentes, mesActivo, window.cachedRecurrentesEstadoMes);
-        }
+        const currentRecs = (window.AppState && Array.isArray(window.AppState.recurrentes) && window.AppState.recurrentes.length > 0)
+          ? window.AppState.recurrentes
+          : (window.cachedRecurrentes || []);
+        const mesActivo = (window.AppState && window.AppState.selectedMonth) || window.cachedRecurrentesMes || (window.FinancialEngine && window.FinancialEngine.obtenerMesImpacto(new Date()));
+        this.renderRecurrentesList(currentRecs, mesActivo, window.cachedRecurrentesEstadoMes);
       }
 
       // Redibujar gráficos y presupuestos si se abre la pestaña de gráficos
@@ -2944,19 +2945,26 @@
 
       const activeSheetFijos = (window.lastApiDebug && window.lastApiDebug.activeSheetFijos) || currentSheet || 'Auto-detectada';
 
+      const countFijos = (window.AppState && Array.isArray(window.AppState.recurrentes)) ? window.AppState.recurrentes.length : 0;
+
       // 1. Selector en vista de Fijos (view-recurrentes)
       const recSelect = document.getElementById('rec-sheet-selector-select');
       const recBadge = document.getElementById('rec-active-sheet-badge');
       if (recBadge) {
-        recBadge.textContent = currentSheet ? `Pestaña fija: "${currentSheet}"` : `Activa: "${activeSheetFijos}"`;
+        const countTxt = countFijos > 0 ? ` • ${countFijos} fijos cargados` : '';
+        recBadge.textContent = currentSheet ? `Pestaña fija: "${currentSheet}"${countTxt}` : `Activa: "${activeSheetFijos}"${countTxt}`;
       }
       if (recSelect) {
-        let html = '<option value="">Auto-detectar pestaña</option>';
+        let html = '';
         if (Array.isArray(allSheets) && allSheets.length > 0) {
+          html += '<option value="">Auto-detectar pestaña</option>';
           html += allSheets.map(s => {
-            const isSel = (s.name === currentSheet);
+            const isSel = (s.name === currentSheet || (currentSheet === 'RECURRENTES' && s.name.toUpperCase() === 'RECURRENTES'));
             return `<option value="${s.name}" ${isSel ? 'selected' : ''}>${s.name} (${s.rows} filas)</option>`;
           }).join('');
+        } else {
+          html += `<option value="RECURRENTES" selected>RECURRENTES (Google Sheet)</option>`;
+          html += `<option value="">Auto-detectar pestaña</option>`;
         }
         recSelect.innerHTML = html;
       }

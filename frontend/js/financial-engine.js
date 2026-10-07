@@ -206,6 +206,11 @@
    */
   function normalizarMes(val) {
     if (!val) return '';
+    if (val instanceof Date) {
+      const y = val.getFullYear();
+      const m = String(val.getMonth() + 1).padStart(2, '0');
+      return `${y}-${m}`;
+    }
     if (typeof val !== 'string') val = String(val);
     val = val.replace(/^'+/, '').trim();
     if (!val) return '';

@@ -89,15 +89,23 @@
     }
 
     getSheetFijosName() {
-      return localStorage.getItem('finanzas_sheet_fijos_name') || 'recurrentes';
+      const saved = localStorage.getItem('finanzas_sheet_fijos_name');
+      if (!saved) return 'RECURRENTES';
+      const clean = String(saved).trim().toLowerCase();
+      if (clean.includes('recurrent') || clean.includes('fijo')) {
+        return 'RECURRENTES';
+      }
+      return saved;
     }
 
     setSheetFijosName(name) {
       const clean = String(name || '').trim();
       if (clean) {
-        localStorage.setItem('finanzas_sheet_fijos_name', clean);
+        const lower = clean.toLowerCase();
+        const finalVal = (lower.includes('recurrent') || lower.includes('fijo')) ? 'RECURRENTES' : clean;
+        localStorage.setItem('finanzas_sheet_fijos_name', finalVal);
       } else {
-        localStorage.removeItem('finanzas_sheet_fijos_name');
+        localStorage.setItem('finanzas_sheet_fijos_name', 'RECURRENTES');
       }
     }
 
@@ -558,7 +566,20 @@
           const cards = data.cards && data.cards.length > 0 ? data.cards : localCards;
           const transactions = data.transactions || [];
           const budgets = data.budgets && data.budgets.length > 0 ? data.budgets : localBudgets;
-          const recurrentes = Array.isArray(data.recurrentes) ? data.recurrentes : localRecurrentes;
+          let recurrentes = Array.isArray(data.recurrentes) ? data.recurrentes : localRecurrentes;
+          if (recurrentes.length === 0) {
+            try {
+              const recUrl = `${this.apiUrl}${this.apiUrl.includes('?') ? '&' : '?'}action=getRecurrentes&sheetFijos=RECURRENTES`;
+              const recRes = await fetch(recUrl, { method: 'GET', redirect: 'follow', cache: 'no-store' });
+              const recData = await recRes.json();
+              if (recData && recData.success && Array.isArray(recData.recurrentes) && recData.recurrentes.length > 0) {
+                recurrentes = recData.recurrentes;
+                if (recData.debug) window.lastApiDebug = recData.debug;
+              }
+            } catch (errRec) {
+              console.warn('[API] Reintento getRecurrentes no completado:', errRec);
+            }
+          }
           const closedMonths = data.closedMonths !== undefined ? data.closedMonths : localClosedMonths;
 
           if (data.version) {

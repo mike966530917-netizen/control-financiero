@@ -217,7 +217,7 @@ function doGet(e) {
     let responseData = {};
 
     if (action === 'ping') {
-      responseData = { success: true, message: 'PWA Financial API en línea', timestamp: new Date(), version: '8.0' };
+      responseData = { success: true, message: 'PWA Financial API en línea', timestamp: new Date(), version: '8.1' };
     } else if (action === 'getAll') {
       const ss = SpreadsheetApp.getActiveSpreadsheet();
       const cards = getCardsConfig_();
@@ -234,7 +234,7 @@ function doGet(e) {
       
       responseData = {
         success: true,
-        version: '8.0',
+        version: '8.1',
         cards: cards,
         transactions: transactions,
         budgets: budgets,
@@ -252,7 +252,7 @@ function doGet(e) {
       const allS = SpreadsheetApp.getActiveSpreadsheet().getSheets();
       responseData = {
         success: true,
-        version: '8.0',
+        version: '8.1',
         sheets: allS.map(s => ({
           name: s.getName(),
           rows: s.getLastRow(),
@@ -274,7 +274,7 @@ function doGet(e) {
       const candidateSheets = getCandidateRecurrentesSheets_(ss, sheetFijos);
       responseData = {
         success: true,
-        version: '8.0',
+        version: '8.1',
         recurrentes: recs,
         debug: {
           activeSheetFijos: sheetFijos || (candidateSheets.length > 0 ? candidateSheets[0].getName() : 'recurrentes'),
@@ -619,14 +619,30 @@ function getCandidateRecurrentesSheets_(ss, preferredSheetName) {
   const cleanStr = (s) => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
   const candidateSheets = [];
-
-  // 0. Si se especifica una pestaña de fijos elegida por el usuario (o por defecto 'recurrentes'), usarla con máxima prioridad
   const pref = preferredSheetName || 'recurrentes';
   const prefClean = cleanStr(pref);
-  const prefSheet = allSheets.find(s => cleanStr(s.getName()) === prefClean);
-  if (prefSheet && prefSheet.getLastRow() > 1) {
-    candidateSheets.push(prefSheet);
-    return candidateSheets;
+
+  const isRecName = (name) => {
+    const n = cleanStr(name);
+    return n.indexOf('recurrent') !== -1 || n.indexOf('fijo') !== -1;
+  };
+
+  // 0. Si se especifica una pestaña de fijos elegida por el usuario:
+  // Permitir coincidencia exacta o coincidencia flexible (ej: 'recurrente' coincide con 'recurrentes')
+  if (prefClean) {
+    const exact = allSheets.find(s => cleanStr(s.getName()) === prefClean && s.getLastRow() > 1);
+    if (exact) {
+      candidateSheets.push(exact);
+      return candidateSheets;
+    }
+    // Si la preferencia contiene 'recurrent' o 'fijo', buscar cualquier hoja que contenga 'recurrent' o 'fijo' con datos
+    if (isRecName(prefClean)) {
+      const recSheetWithData = allSheets.find(s => isRecName(s.getName()) && s.getLastRow() > 1);
+      if (recSheetWithData) {
+        candidateSheets.push(recSheetWithData);
+        return candidateSheets;
+      }
+    }
   }
 
   // 1. Pestañas prioritarias: 'recurrentes' (plural), 'recurrente' (singular), 'fijos', 'gastos fijos', etc.
@@ -643,7 +659,7 @@ function getCandidateRecurrentesSheets_(ss, preferredSheetName) {
 
   for (let s of allSheets) {
     const sName = cleanStr(s.getName());
-    if (exactSynonyms.indexOf(sName) !== -1) {
+    if (exactSynonyms.indexOf(sName) !== -1 || isRecName(sName)) {
       if (s.getLastRow() > 1) {
         matchingWithData.push(s);
       } else {
@@ -652,7 +668,7 @@ function getCandidateRecurrentesSheets_(ss, preferredSheetName) {
     }
   }
 
-  // Si hay hojas coincidentes con datos, devolver la que tiene más datos
+  // Si hay hojas coincidentes con datos, devolver la que tiene más datos (priorizando 'recurrentes')
   if (matchingWithData.length > 0) {
     matchingWithData.sort((a, b) => {
       // Si una hoja tiene significativamente más filas que otra, priorizar siempre la que tiene datos
@@ -673,7 +689,7 @@ function getCandidateRecurrentesSheets_(ss, preferredSheetName) {
   // 2. Hojas que contienen 'recurrent' o 'fijo' y tienen datos (> 1 fila)
   for (let s of allSheets) {
     const sName = cleanStr(s.getName());
-    if ((sName.indexOf('recurrent') !== -1 || sName.indexOf('fijo') !== -1) && 
+    if (isRecName(sName) && 
         sName.indexOf('consolid') === -1 && 
         sName.indexOf('transacc') === -1 &&
         s.getLastRow() > 1) {
@@ -750,6 +766,7 @@ function getRecurrentesConfig_(preferredSheetName = '') {
 
   sheets.forEach((sheet, sheetIdx) => {
     const data = sheet.getDataRange().getValues();
+    const displayData = sheet.getDataRange().getDisplayValues();
     if (!data || data.length <= 1) return;
 
     // Detección dinámica de la fila de encabezados en las primeras 5 filas
@@ -776,9 +793,13 @@ function getRecurrentesConfig_(preferredSheetName = '') {
 
     const monthCols = [];
     for (let c = 0; c < rawHeaders.length; c++) {
-      const parsedH = parseMesString_(rawHeaders[c], currentYear);
+      let parsedH = parseMesString_(rawHeaders[c], currentYear);
+      if (!/^\d{4}-\d{2}$/.test(parsedH) && displayData && displayData[headerIdx]) {
+        parsedH = parseMesString_(displayData[headerIdx][c], currentYear);
+      }
       if (/^\d{4}-\d{2}$/.test(parsedH)) {
-        monthCols.push({ colIndex: c, mes: parsedH, rawName: String(rawHeaders[c]) });
+        const rawLabel = String((displayData && displayData[headerIdx]) ? displayData[headerIdx][c] : rawHeaders[c]);
+        monthCols.push({ colIndex: c, mes: parsedH, rawName: rawLabel });
       }
     }
 
@@ -837,8 +858,13 @@ function getRecurrentesConfig_(preferredSheetName = '') {
         let ultimoMontoConocido = 0;
         monthCols.forEach(mc => {
           const rawMonto = row[mc.colIndex];
-          const cellHasExplicitValue = (rawMonto !== undefined && rawMonto !== null && String(rawMonto).trim() !== '');
+          const dispMonto = (displayData && displayData[i]) ? displayData[i][mc.colIndex] : '';
+          const cellHasExplicitValue = (rawMonto !== undefined && rawMonto !== null && String(rawMonto).trim() !== '') ||
+                                       (dispMonto !== undefined && dispMonto !== null && String(dispMonto).trim() !== '');
           let parsedMonto = parseNum_(rawMonto);
+          if (parsedMonto === 0 && dispMonto) {
+            parsedMonto = parseNum_(dispMonto);
+          }
 
           if (parsedMonto > 0) {
             ultimoMontoConocido = parsedMonto;
